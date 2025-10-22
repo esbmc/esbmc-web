@@ -1,4 +1,4 @@
-# ESBMC-Web
+# ESBMC-Web - ESBMC Code Analyzer
 
 Este repositório contém o dashboard web para análise de código com ESBMC.
 
