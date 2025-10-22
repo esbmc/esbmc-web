@@ -8,6 +8,10 @@ Este repositório contém o dashboard web para análise de código com ESBMC.
 
 O diagrama abaixo ilustra o fluxo de dados da aplicação:
 
+## Arquitetura (Fluxo de Dados)
+
+O diagrama abaixo ilustra o fluxo de dados da aplicação:
+
 ```mermaid
 graph TD;
     subgraph "Navegador do Usuário"
@@ -28,7 +32,6 @@ graph TD;
     C -- "3. Retorna Relatório (JSON/Texto)" --> B;
     B -- "4. Envia Resultado (JSON) de volta" --> D;
     D -- "5. Renderiza o Dashboard na UI" --> A;
-
 
 
 
