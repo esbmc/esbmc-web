@@ -1,6 +1,45 @@
 # ESBMC-Web - ESBMC Code Analyzer
 
-Este repositório contém o dashboard web para análise de código com ESBMC.
+ESBMC-Web is a comprehensive, web-based graphical user interface (GUI) for the ESBMC model checker. It allows users to write, upload, and analyze C, C++, or Python code directly in the browser.
+
+The tool provides a user-friendly way to select various ESBMC analysis flags and parameters. Results are presented in two formats:
+
+Raw Text Output: The complete, unfiltered console log from the ESBMC tool.
+
+Dashboard View: A rich, interactive dashboard that visualizes violations, counterexamples, and execution traces, making it easier to debug failed verifications.
+
+Features
+In-Browser Code Editor: A full-featured editor (powered by CodeMirror) with syntax highlighting for C, C++, and Python.
+
+File Support: Upload the main code file and add multiple dependency files (e.g., .h, .c, .cpp) for C/C++ projects.
+
+Comprehensive Flag Selection: A user-friendly interface to select dozens of ESBMC flags and parameters, including:
+
+Standard Checks: memory-leak-check, overflow-check, data-races-check, etc.
+
+Analysis Algorithms: incremental-bmc, k-induction, falsification, termination.
+
+Property Checking: Granular control to disable assertions, bounds checks, pointer checks, and more.
+
+Parameters: Set unwind, timeout, function, and context-bound.
+
+SMT Solvers: Easily switch between Boolector (default), Z3, CVC5, Bitwuzla, and others.
+
+Dual Result View: Toggle between the raw text log and the interactive dashboard.
+
+Interactive Dashboard: When a violation is found, the dashboard clearly displays:
+
+A clear "VERIFICATION FAILED" status.
+
+Summary cards for total steps and violations.
+
+A detailed table of all violations (file, function, line, and message).
+
+The Counterexample (initial variable values) that triggered the failure.
+
+The complete Execution Trace leading to the violation.
+
+The Analyzed Source Code with the specific lines causing violations highlighted in red.
 
 ## Arquitetura (Fluxo de Dados)
 The diagram below illustrates the order of interactions:
