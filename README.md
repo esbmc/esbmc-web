@@ -24,6 +24,8 @@ graph TD;
     B -- "4. Envia Resultado (JSON) de volta" --> D;
     D -- "5. Renderiza o Dashboard na UI" --> A;
 
+## Arquitetura (Sequência de Eventos)
+
 sequenceDiagram
     actor User
     participant F as "Frontend (script.js)"
