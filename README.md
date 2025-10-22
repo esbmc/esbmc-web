@@ -41,6 +41,15 @@ The complete Execution Trace leading to the violation.
 
 The Analyzed Source Code with the specific lines causing violations highlighted in red.
 
+
+## Architecture (Simplified)
+
+The project is divided into two parts:
+
+/backend: A Flask (Python) server that receives the code and executes ESBMC.
+
+/frontend: A static HTML/JS page that serves as the user interface.
+
 ## Arquitetura (Fluxo de Dados)
 The diagram below illustrates the order of interactions:
 
@@ -101,13 +110,6 @@ sequenceDiagram
     end
     deactivate Backend_App
 ```
-
-
-## Arquitetura
-
-O projeto é dividido em duas partes:
-* `/backend`: Um servidor Flask (Python) que recebe o código e executa o ESBMC.
-* `/frontend`: Uma página HTML/JS estática que serve como interface para o usuário.
 
 ## Setup and Installation
 
