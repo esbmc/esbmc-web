@@ -1,0 +1,313 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>ESBMC Code Analyzer</title>
+    
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.15/codemirror.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.15/theme/dracula.min.css">
+
+    <style>
+
+/* Estilos para os novos botões do editor */
+.editor-botoes-container {
+    display: flex; /* Alinha os botões lado a lado */
+    justify-content: flex-end; /* Alinha à direita */
+    gap: 10px; /* Espaço entre os botões */
+    margin-bottom: 10px; /* Espaço antes do editor */
+}
+.btn-editor {
+    /* Sobrescreve o estilo padrão de botão */
+    display: inline-block;
+    width: auto; /* Largura automática */
+    padding: 6px 12px;
+    font-size: 14px;
+    font-weight: 500;
+    margin-bottom: 0; /* Remove a margem padrão */
+    background-color: #6c757d; /* Cinza neutro */
+    border-radius: 4px;
+}
+.btn-editor:hover {
+    background-color: #5a6268;
+}
+
+
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background-color: #f4f4f9; color: #333; margin: 0; padding: 20px; }
+        .container { width: 90%; max-width: 1200px; margin: auto; }
+        h1, h2, h3 { text-align: center; }
+        button { display: block; width: 100%; padding: 12px 25px; font-size: 18px; font-weight: bold; cursor: pointer; border: none; border-radius: 5px; background-color: #007bff; color: white; margin-bottom: 20px; transition: background-color 0.2s; }
+        button:hover { background-color: #0056b3; }
+        button:disabled { background-color: #5a6268; cursor: not-allowed; }
+        .file-input-container { margin-bottom: 20px; text-align: center; }
+        .file-input-container label { font-weight: bold; margin-right: 10px; }
+        .opcoes-container { display: flex; flex-wrap: wrap; gap: 20px; margin-bottom: 20px; }
+        .opcoes-analise { flex: 1 1 200px; border: 1px solid #ccc; border-radius: 5px; padding: 10px 15px; background-color: #fff; margin-bottom: 0;}
+        .opcoes-analise legend { font-weight: bold; padding: 0 10px; }
+        .opcoes-analise label, .opcoes-analise div { display: block; margin-bottom: 12px; font-size: 14px; }
+        .opcoes-analise code { background-color: #e9ecef; padding: 2px 5px; border-radius: 3px; color: #495057; }
+        .opcoes-analise input[type="text"], .opcoes-analise input[type="number"], .opcoes-analise select { width: 100%; box-sizing: border-box; padding: 4px; border: 1px solid #ccc; border-radius: 3px;}
+        .opcoes-analise div label { display: inline-block; width: auto; margin-right: 5px; }
+        pre { background-color: #282c34; color: #abb2bf; padding: 15px; border-radius: 5px; white-space: pre-wrap; word-wrap: break-word; font-family: 'Courier New', Courier, monospace; }
+        
+        /* Modificado: Escondido por padrão */
+        #resultado-texto-container { display: none; margin-top: 20px; }
+        
+        /* Modificado: Escondido por padrão e sem margem superior (será controlada pelo container) */
+        #dashboard-detalhado { display: none; margin-top: 0px; background-color: #fff; border-radius: 8px; box-shadow: 0 4px 8px rgba(0,0,0,0.1); padding: 20px; }
+        
+        .dashboard-header { text-align: center; margin-bottom: 20px; }
+        .status-banner { padding: 15px; border-radius: 5px; text-align: center; font-weight: bold; font-size: 1.2em; margin-bottom: 20px; }
+        .status-banner.failed { background-color: #dc3545; color: white; }
+        .status-banner.success { background-color: #28a745; color: white; }
+        .summary-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 20px; margin-bottom: 30px; }
+        .card { background-color: #f8f9fa; border: 1px solid #dee2e6; border-radius: 5px; padding: 20px; text-align: center; }
+        .card .title { font-size: 1em; color: #6c757d; margin-bottom: 10px; }
+        .card .value { font-size: 2.5em; font-weight: bold; }
+        .card .value.red { color: #dc3545; }
+        .details-section { margin-bottom: 30px; }
+        .details-section h3 { text-align: left; border-bottom: 2px solid #eee; padding-bottom: 10px; margin-bottom: 15px; }
+        table { width: 100%; border-collapse: collapse; }
+        th, td { text-align: left; padding: 12px; border-bottom: 1px solid #dee2e6; }
+        thead { background-color: #f8f9fa; }
+        #codigo-fonte-container .highlight-red { background-color: rgba(220, 53, 69, 0.4); }
+        #loading-overlay {position: fixed; top: 0 ; 
+            left: 0; 
+            width: 100%; 
+            height: 100%; 
+            background-color: rgba(255, 255, 255, 0.85); 
+            display: none; /* Inicia escondido */
+            flex-direction: column; /* Organiza o texto e a barra verticalmente */
+            justify-content: center; 
+            align-items: center; 
+            z-index: 1000; 
+        }
+        .loading-text { font-weight: bold; color: #333; margin-bottom: 15px; }
+         /* NOVO: Estilos para a barra de progresso */
+        .progress-bar {
+            width: 300px;
+            height: 20px;
+            background-color: #e9ecef; /* Cor de fundo da barra */
+            border-radius: 10px;
+            overflow: hidden; /* Garante que a barra animada fique contida */
+            box-shadow: inset 0 1px 3px rgba(0,0,0,0.2);
+        }
+        .progress-bar-value {
+            width: 100%;
+            height: 100%;
+            background-color: #007bff; /* Cor da barra que se move */
+            border-radius: 10px;
+            animation: indeterminate-progress 2s linear infinite; /* Aplica a animação */
+        }
+
+        /* NOVO: A animação que move a barra */
+        @keyframes indeterminate-progress {
+            0% { transform: translateX(-100%); }
+            100% { transform: translateX(300px); } /* O valor deve ser a largura da barra */
+        }
+        .CodeMirror { border: 1px solid #ccc; border-radius: 5px; height: 400px; font-size: 14px; margin-bottom: 15px; }
+        .dependency-tag-list { margin-top: 10px; display: flex; flex-wrap: wrap; gap: 8px; }
+        .dependency-tag { display: inline-flex; align-items: center; background-color: #e9ecef; border: 1px solid #ccc; border-radius: 4px; padding: 5px 10px; font-size: 14px; font-family: 'Courier New', Courier, monospace; }
+        .remove-dependency-btn { background: none; border: none; color: #dc3545; cursor: pointer; font-size: 18px; font-weight: bold; margin-left: 8px; padding: 0 5px; line-height: 1; }
+    
+        /* -- Estilos das Abas -- */
+        .tabs-container {
+            display: flex;
+            gap: 5px;
+            border-bottom: 2px solid #ccc;
+            margin-top: 20px; /* Espaço depois do botão Analyze */
+            margin-bottom: 15px; /* Espaço antes do conteúdo */
+        }
+        .tab-btn {
+            /* Sobrescreve o botão 'Analyze' */
+            display: inline-block;
+            width: auto;
+            padding: 10px 15px;
+            cursor: pointer;
+            border: none;
+            background-color: #f1f1f1;
+            border-bottom: 3px solid transparent;
+            font-size: 16px;
+            font-weight: 500;
+            margin: 0;
+            margin-bottom: -2px; /* Alinha com a borda do container pai */
+        }
+        .tab-btn:hover {
+            background-color: #e9ecef;
+        }
+        .tab-btn.active {
+            background-color: #fff;
+            border-bottom: 3px solid #007bff;
+            color: #007bff;
+        }
+        .tab-btn:disabled {
+             background-color: #f1f1f1; /* Mantém a aparência de aba */
+             cursor: default;
+        }
+    </style>
+</head>
+<body>
+    <div id="loading-overlay">
+        <div class="loading-text">Analyzing... Please wait.</div>
+        <div class="progress-bar">
+            <div class="progress-bar-value"></div>
+        </div>
+    </div>
+
+    <div class="container">
+        <h1>ESBMC Code Analyzer</h1>
+
+        <div class="editor-botoes-container">
+            <button id="btnCopiarCodigo" class="btn-editor">Copy Code</button>
+            <button id="btnSelecionarTudo" class="btn-editor">Select All</button>
+            <button id="btnLimparEditor" class="btn-editor" style="background-color: #c82333;">Clear</button>
+        </div>
+        
+        <textarea id="codigoInput" placeholder="Paste the MAIN CODE to be verified here..."></textarea>
+        
+        <div class="file-input-container">
+            <label for="fileInput">Or upload the main file (.c, .cpp, .py):</label>
+            <input type="file" id="fileInput" accept=".c,.cpp,.py">
+        </div>
+
+        
+
+        
+        <fieldset class="opcoes-analise">
+            <legend>Language</legend>
+            <div style="text-align: center; padding: 5px;">
+                <label><input type="radio" id="lang-cpp" name="language" value="cpp" checked> C++</label>
+                <label style="margin-left: 20px;"><input type="radio" id="lang-c" name="language" value="c"> C</label>
+                <label style="margin-left: 20px;"><input type="radio" id="lang-py" name="language" value="python"> Python</label>
+            </div>
+        </fieldset>
+        
+        <fieldset class="opcoes-analise" id="python-options" style="display: none;">
+            <legend>Python Options</legend>
+            <div>
+                <label for="python-interpreter"><code>--python</code>: <input type="text" id="python-interpreter" placeholder="python3"></label>
+            </div>
+        </fieldset>
+
+        <fieldset class="opcoes-analise" id="c-cpp-dependencies">
+            <legend>Dependencies (C/C++)</legend>
+            <label for="dependencyInput">Select dependency files (.c, .h, .cpp):</label>
+            <input type="file" id="dependencyInput" accept=".c,.cpp,.h" multiple>
+            <div id="dependency-files-list-container" class="dependency-tag-list"></div>
+        </fieldset>
+
+        <div class="opcoes-container">
+            <fieldset class="opcoes-analise">
+                <legend>Standard Checks</legend>
+                <label><input type="checkbox" class="esbmc-flag" value="--memory-leak-check"> <code>--memory-leak-check</code></label>
+                <label><input type="checkbox" class="esbmc-flag" value="--overflow-check"> <code>--overflow-check</code></label>
+                <label><input type="checkbox" class="esbmc-flag" value="--data-races-check"> <code>--data-races-check</code></label>
+                <label><input type="checkbox" class="esbmc-flag" value="--deadlock-check"> <code>--deadlock-check</code></label>
+            </fieldset>
+
+            <fieldset class="opcoes-analise">
+                <legend>Incremental BMC</legend>
+                <label><input type="checkbox" name="loop-analysis" class="esbmc-flag" value="--incremental-bmc"> <code>--incremental-bmc</code></label>
+                <label><input type="checkbox" name="loop-analysis" class="esbmc-flag" value="--falsification"> <code>--falsification</code></label>
+                <label><input type="checkbox" name="loop-analysis" class="esbmc-flag" value="--termination"> <code>--termination</code></label>
+            </fieldset>
+
+            <fieldset class="opcoes-analise">
+                <legend>Property checking</legend>
+                <hr style="border-top: 1px solid #eee; border-bottom: none; margin: 10px 0;">
+                <label><input type="checkbox" class="esbmc-flag" value="--multi-property"> --multi-property</label>
+                <label><input type="checkbox" class="esbmc-flag" value="--no-standard-checks"> --no-standard-checks</label>
+                <label><input type="checkbox" class="esbmc-flag" value="--no-assertions"> --no-assertions</label>
+                <label><input type="checkbox" class="esbmc-flag" value="--no-bounds-check"> --no-bounds-check</label>
+                <label><input type="checkbox" class="esbmc-flag" value="--no-div-by-zero-check"> --no-div-by-zero-check</label>
+                <label><input type="checkbox" class="esbmc-flag" value="--no-pointer-check"> --no-pointer-check</label>
+            </fieldset>
+
+
+            <fieldset class="opcoes-analise">
+                <legend>Other Algorithms</legend>
+                <label><input type="checkbox" class="esbmc-flag" value="--k-induction"> <code>--k-induction</code></label>
+                <label><input type="checkbox" class="esbmc-flag" value="--floatbv"> <code>--floatbv</code></label>
+            </fieldset>
+
+
+                       
+            <fieldset class="opcoes-analise">
+                <legend>Optimizations (SMT)</legend>
+                <label><input type="checkbox" class="esbmc-flag" value="--smt-during-symex"> <code>--smt-during-symex</code></label>
+                <label><input type="checkbox" class="esbmc-flag" value="--smt-symex-guard"> <code>--smt-symex-guard</code></label>
+                <label><input type="checkbox" class="esbmc-flag" value="--smt-symex-assert"> <code>--smt-symex-assert</code></label>
+                <label><input type="checkbox" class="esbmc-flag" value="--smt-symex-assume"> <code>--smt-symex-assume</code></label>
+            </fieldset>
+            
+            <fieldset class="opcoes-analise">
+                <legend>Parameters</legend>
+                <div><label><code>--unwind</code></label><input type="number" class="esbmc-param" data-flag="--unwind" min="1"></div>
+                <div><label><code>--context-bound</code></label><input type="number" class="esbmc-param" data-flag="--context-bound" min="1"></div>
+                <div><label><code>--function</code></label><input type="text" class="esbmc-param" data-flag="--function" placeholder="main"></div>
+                <div><label><code>--timeout</code></label><input type="number" class="esbmc-param" data-flag="--timeout" min="1" placeholder="300"> s</div>
+            </fieldset>
+
+            <fieldset class="opcoes-analise">
+                <legend>SMT Solver</legend>
+                <select id="solver-select" class="esbmc-flag-select">
+                    <option value="--boolector" selected>Boolector (Default)</option>
+                    <option value="--z3">Z3</option>
+                    <option value="--cvc5">CVC5</option>
+                    <option value="--bitwuzla">Bitwuzla</option>
+                    <option value="--mathsat">MathSAT</option>
+                    <option value="--yices">Yices</option>
+                </select>
+            </fieldset>
+        </div>
+
+        <button id="analisarBtn" disabled>Analyze</button>
+
+        <div id="tabs-container" style="display: none;">
+            <button class="tab-btn" id="tab-dashboard">Dashboard View</button>
+            <button class="tab-btn" id="tab-raw-text">Raw Text Output</button>
+        </div>
+
+        <div id="resultado-texto-container" style="display: none;">
+            <h3>Text Output (ESBMC Prompt)</h3>
+            <pre id="resultado-texto"></pre>
+        </div>
+
+        <div id="dashboard-detalhado" style="display: none;">
+            <div class="dashboard-header">
+                <h2 id="dashboard-title">ESBMC Dashboard</h2>
+                <p>Detailed Result of the Last Analysis</p>
+            </div>
+            <div id="status-banner" class="status-banner"></div>
+            <div class="summary-cards">
+                <div class="card"><div class="title">Total Steps</div><div class="value" id="card-total-passos">0</div></div>
+                <div class="card"><div class="title">Violations</div><div class="value red" id="card-violacoes">0</div></div>
+            </div>
+            <div class="details-section" id="violacoes-section">
+                <h3>Violations Found</h3>
+                <table>
+                    <thead><tr><th>File</th><th>Function</th><th>Line</th><th>Message</th></tr></thead>
+                    <tbody id="violacoes-tabela"></tbody>
+                </table>
+            </div>
+            <div class="details-section" id="contraexemplo-section">
+                <h3>Initial Values (Counterexample)</h3>
+                <pre><code id="valores-iniciais"></code></pre>
+            </div>
+            <div class="details-section">
+                <h3>Analyzed Source Code</h3>
+                <pre><code id="codigo-fonte-container"></code></pre>
+            </div>
+            <div class="details-section" id="trace-section">
+                <h3>Execution Trace (Counterexample)</h3>
+                <pre><code id="traço-execucao"></code></pre>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.15/codemirror.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.15/mode/clike/clike.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.15/mode/python/python.min.js"></script>
+    
+    <script src="script.js"></script>
+</body>
+</html>
