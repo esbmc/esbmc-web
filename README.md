@@ -35,7 +35,6 @@ graph TD;
 
 
 
-
 ## Arquitetura
 
 O projeto é dividido em duas partes:
