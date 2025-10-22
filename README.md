@@ -3,10 +3,6 @@
 Este repositório contém o dashboard web para análise de código com ESBMC.
 
 ## Arquitetura (Fluxo de Dados)
-
-
-## Architecture (Sequence of Events)
-
 The diagram below illustrates the order of interactions:
 
 ```mermaid
@@ -32,8 +28,39 @@ graph TD;
 
 ```
 
-```mermaid
+## Architecture (Sequence of Events)
+The diagram below illustrates the order of interactions:
 
+```mermaid
+sequenceDiagram
+    actor User
+    participant Frontend as "Frontend (index.htm)"
+    participant Backend_App as "Backend (app.py)"
+    participant ESBMC as ESBMC
+    participant Dashboard as "Dashboard (script.js)"
+
+    User->>Frontend: 1. Inserts Code, Selects Flags, Clicks "Analyze"
+    activate Frontend
+    Frontend->>Backend_App: 2. POST /analyze (Code + Flags)
+    deactivate Frontend
+    activate Backend_App
+    Backend_App->>ESBMC: 3. Executes ESBMC with code.c and flags
+    activate ESBMC
+    ESBMC-->>Backend_App: 4. Returns ESBMC Output (JSON + Text)
+    deactivate ESBMC
+
+    alt Analysis Successful
+        Backend_App->>Dashboard: 5a. Returns JSON (SUCCESS)
+        activate Dashboard
+        Dashboard->>User: 6a. Displays SUCCESS Result on UI
+        deactivate Dashboard
+    else Analysis Failed / Violation
+        Backend_App->>Dashboard: 5b. Returns JSON (ERROR / VIOLATION)
+        activate Dashboard
+        Dashboard->>User: 6b. Displays ERROR / VIOLATION (Counter-example) on UI
+        deactivate Dashboard
+    end
+    deactivate Backend_App
 ```
 
 
