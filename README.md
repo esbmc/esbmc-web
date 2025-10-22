@@ -2,6 +2,32 @@
 
 Este repositório contém o dashboard web para análise de código com ESBMC.
 
+## Diagrama de Funcionamento
+
+```mermaid
+graph TD;
+    subgraph "Navegador do Usuário"
+        A["Frontend (index.html)"]
+        D["Dashboard (script.js)"]
+    end
+
+    subgraph "Servidor"
+        B["Backend (app.py)"]
+    end
+
+    subgraph "Ferramenta"
+         C["ESBMC (Core)"]
+    end
+    
+    A -- "1. Envia (Código + Flags) via API" --> B;
+    B -- "2. Executa o ESBMC com os dados" --> C;
+    C -- "3. Retorna Relatório (JSON/Texto)" --> B;
+    B -- "4. Envia Resultado (JSON) de volta" --> D;
+    D -- "5. Renderiza o Dashboard na UI" --> A;
+
+
+
+
 
 ## Arquitetura
 
