@@ -3,7 +3,7 @@
 Este repositório contém o dashboard web para análise de código com ESBMC.
 
 ## Arquitetura (Fluxo de Dados)
-
+```mermaid
 graph TD;
     subgraph "Navegador do Usuário"
         A["Frontend (index.html)"]
