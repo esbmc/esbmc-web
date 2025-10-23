@@ -58,6 +58,14 @@ def analisar_codigo():
             with open(caminho_arquivo_principal, 'w', encoding='utf-8') as f:
                 f.write(codigo_principal)
 
+            # Processa dependências para TODAS as linguagens (C, C++, Python)
+            # Elas são salvas no temp_dir para que o ESBMC possa encontrá-las
+            dependencias = dados.get('dependencies', [])
+            for dep in dependencias:
+                caminho_dep = os.path.join(temp_dir, dep['filename'])
+                with open(caminho_dep, 'w', encoding='utf-8') as f:
+                    f.write(dep['content'])
+
             comando = ['esbmc', nome_arquivo_principal]
             
             if linguagem == 'python':
@@ -65,11 +73,8 @@ def analisar_codigo():
                 if interpretador_python:
                     comando.extend(['--python', interpretador_python])
             else:
-                dependencias = dados.get('dependencies', [])
+                # Para C/C++, adicionamos os arquivos .c/.cpp ao comando
                 for dep in dependencias:
-                    caminho_dep = os.path.join(temp_dir, dep['filename'])
-                    with open(caminho_dep, 'w', encoding='utf-8') as f:
-                        f.write(dep['content'])
                     if dep['filename'].endswith(('.c', '.cpp')):
                         comando.append(dep['filename'])
 
@@ -89,13 +94,30 @@ def analisar_codigo():
                 else:
                     i += 1
 
-                   # if linguagem != 'python':
+            comando.append('--generate-json-report')
 
-                    comando.append('--generate-json-report')
+            # =========== MODIFICADO AQUI (Início) ===========
+            # Crie uma cópia do ambiente atual
+            env = os.environ.copy()
             
-            # Aumentamos o timeout de segurança do servidor, já que o usuário pode definir um valor maior.
+            # Adicione o temp_dir ao PYTHONPATH
+            # Isso é crucial para o Python (e mypy) encontrar os módulos de dependência.
+            existing_pythonpath = env.get('PYTHONPATH')
+            if existing_pythonpath:
+                # Usa os.pathsep para ser compatível com Windows (;) e Linux (:)
+                env['PYTHONPATH'] = f"{temp_dir}{os.pathsep}{existing_pythonpath}"
+            else:
+                env['PYTHONPATH'] = temp_dir
+            # =========== MODIFICADO AQUI (Fim) ===========
+            
+            # Aumentamos o timeout de segurança do servidor...
             processo = subprocess.run(
-                comando, capture_output=True, text=True, timeout=600, cwd=temp_dir
+                comando, 
+                capture_output=True, 
+                text=True, 
+                timeout=600, 
+                cwd=temp_dir,
+                env=env  # <-- MODIFICADO: Passa o novo ambiente para o subprocesso
             )
 
             texto_para_exibicao = (processo.stdout + "\n" + processo.stderr).strip()
