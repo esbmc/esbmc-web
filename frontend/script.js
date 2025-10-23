@@ -35,13 +35,15 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function toggleLanguageOptions() {
         const selectedLanguage = document.querySelector('input[name="language"]:checked').value;
+        
+        // Agora a caixa de dependências fica visível para C/C++ e Python
+        cCppDependencies.style.display = 'block';
+
         if (selectedLanguage === 'python') {
             pythonOptions.style.display = 'block';
-            cCppDependencies.style.display = 'none';
             editor.setOption('mode', 'python');
         } else {
             pythonOptions.style.display = 'none';
-            cCppDependencies.style.display = 'block';
             editor.setOption('mode', selectedLanguage === 'c' ? 'text/x-csrc' : 'text/x-c++src');
         }
     }
@@ -199,8 +201,6 @@ document.addEventListener('DOMContentLoaded', () => {
         const codigo = editor.getValue();
         const loadingOverlay = document.getElementById('loading-overlay');
         
-        // (Variáveis das abas e resultados já estão definidas no escopo global)
-        
         const linguagemSelecionada = document.querySelector('input[name="language"]:checked').value;
         const pythonInterpreter = document.getElementById('python-interpreter').value;
 
@@ -218,10 +218,9 @@ document.addEventListener('DOMContentLoaded', () => {
             flags.push(selectedSolver);
         }
 
-        // --- MODIFICADO: Esconde todos os resultados e abas antes de analisar ---
         dashboard.style.display = 'none';
         resultadoTextoContainer.style.display = 'none';
-        tabsContainer.style.display = 'none'; // Esconde as abas
+        tabsContainer.style.display = 'none'; 
         loadingOverlay.style.display = 'flex';
         analisarBtn.disabled = true;
         analisarBtn.textContent = 'Analyzing...';
@@ -238,11 +237,18 @@ document.addEventListener('DOMContentLoaded', () => {
                 requestBody.python_interpreter = pythonInterpreter;
             }
 
+            // =========== MODIFICADO AQUI ===========
             const response = await fetch('http://127.0.0.1:5000/analisar', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: { 
+                    'Content-Type': 'application/json',
+                    'Cache-Control': 'no-cache' // Força o navegador a não usar cache
+                },
                 body: JSON.stringify(requestBody),
+                cache: 'no-store' // Garante que a requisição não seja pega do cache
             });
+            // =======================================
+
             const data = await response.json();
 
             // --- LÓGICA DE EXIBIÇÃO DAS ABAS ---
@@ -250,9 +256,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
             if (data.dashboard_data) {
                 renderDashboard(data.dashboard_data, data.codigo_analisado);
-                dashboard.style.display = 'block'; // Mostra o dashboard
-                resultadoTextoContainer.style.display = 'none'; // Esconde o texto
-                tabDashboard.classList.add('active'); // Ativa a aba do dashboard
+                dashboard.style.display = 'block'; 
+                resultadoTextoContainer.style.display = 'none';
+                tabDashboard.classList.add('active');
                 tabRawText.classList.remove('active');
                 showedSomething = true;
             }
@@ -260,7 +266,6 @@ document.addEventListener('DOMContentLoaded', () => {
             if (data.resultado_texto) {
                 resultadoTexto.textContent = data.resultado_texto;
                 
-                // Só exibe a aba de texto por padrão se o dashboard NÃO existir
                 if (!data.dashboard_data) {
                     dashboard.style.display = 'none';
                     resultadoTextoContainer.style.display = 'block';
@@ -270,12 +275,10 @@ document.addEventListener('DOMContentLoaded', () => {
                 showedSomething = true;
             }
 
-            // Se qualquer resultado foi mostrado, exibe o container das abas
             if (showedSomething) {
                 tabsContainer.style.display = 'flex';
             }
             
-            // Lida com erros (exibe alerta)
             if (!data.dashboard_data && (data.error || data.raw_text_error)) {
                  alert('Analysis error: ' + (data.error || data.raw_text_error));
             }
@@ -332,7 +335,7 @@ document.addEventListener('DOMContentLoaded', () => {
             cardPassos.textContent = firstResultWithViolation.steps ? firstResultWithViolation.steps.length : 0;
             violationDetails.forEach(v => {
                 const row = violacoesTabela.insertRow();
-                row.innerHTML = `<td>${v.file}</td><td>${v.function}</td><td>${v.line}</td><td>${v.message}</td>`;
+                row.innerHTML = `<td>${v.file}</td><td>${v.function}</td><td>${v.message}</td>`;
             });
             if (firstResultWithViolation.initial_values) {
                 for (const key in firstResultWithViolation.initial_values) {
