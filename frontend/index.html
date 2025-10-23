@@ -189,12 +189,11 @@
         </fieldset>
 
         <fieldset class="opcoes-analise" id="c-cpp-dependencies">
-            <legend>Dependencies (C/C++)</legend>
-            <label for="dependencyInput">Select dependency files (.c, .h, .cpp):</label>
-            <input type="file" id="dependencyInput" accept=".c,.cpp,.h" multiple>
+            <legend>Dependencies / Modules (C/C++/Python)</legend>
+            <label for="dependencyInput">Select dependency files (.c, .h, .cpp, .py):</label>
+            <input type="file" id="dependencyInput" accept=".c,.cpp,.h,.py" multiple>
             <div id="dependency-files-list-container" class="dependency-tag-list"></div>
         </fieldset>
-
         <div class="opcoes-container">
             <fieldset class="opcoes-analise">
                 <legend>Standard Checks</legend>
@@ -205,10 +204,11 @@
             </fieldset>
 
             <fieldset class="opcoes-analise">
-                <legend>Incremental BMC</legend>
+                <legend>Verification Strategies</legend>
                 <label><input type="checkbox" name="loop-analysis" class="esbmc-flag" value="--incremental-bmc"> <code>--incremental-bmc</code></label>
                 <label><input type="checkbox" name="loop-analysis" class="esbmc-flag" value="--falsification"> <code>--falsification</code></label>
                 <label><input type="checkbox" name="loop-analysis" class="esbmc-flag" value="--termination"> <code>--termination</code></label>
+                <label><input type="checkbox" class="esbmc-flag" value="--k-induction"> <code>--k-induction</code></label>
             </fieldset>
 
             <fieldset class="opcoes-analise">
@@ -225,8 +225,9 @@
 
             <fieldset class="opcoes-analise">
                 <legend>Other Algorithms</legend>
-                <label><input type="checkbox" class="esbmc-flag" value="--k-induction"> <code>--k-induction</code></label>
+                
                 <label><input type="checkbox" class="esbmc-flag" value="--floatbv"> <code>--floatbv</code></label>
+                <label><input type="checkbox" class="esbmc-flag" value="--floatbv"> <code>--fixedbv</code></label>
             </fieldset>
 
 
