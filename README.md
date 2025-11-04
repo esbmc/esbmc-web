@@ -50,7 +50,7 @@ The project is divided into two parts:
 
 /frontend: A static HTML/JS page that serves as the user interface.
 
-## Arquitetura (Fluxo de Dados)
+## Architecture (Data Flow)
 The diagram below illustrates the order of interactions:
 
 ```mermaid
