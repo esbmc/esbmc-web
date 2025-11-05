@@ -101,7 +101,7 @@ sequenceDiagram
 
 2. Clone the repository:
     ```bash
-    git clone [https://github.com/esbmc/esbmc-web.git](https://github.com/esbmc/esbmc-web.git)
+    git clone https://github.com/esbmc/esbmc-web.git
     cd esbmc-web
     ```
 
