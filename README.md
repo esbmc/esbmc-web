@@ -108,9 +108,9 @@ sequenceDiagram
 3. Create and activate a virtual environment (recommended):
     ```bash
     python -m venv venv
-    source venv/bin/activate  # No Linux/macOS
-    # ou
-    .\venv\Scripts\activate   # No Windows
+    source venv/bin/activate  # Linux/macOS
+    # or
+    .\venv\Scripts\activate   # Windows
     ```
 
 4. Install the Python dependencies:
