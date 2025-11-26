@@ -486,7 +486,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const hasYamlOutput = flags.includes('--witness-output-yaml');
         const hasHtmlReportFlag = flags.includes('--generate-html-report');
 
-        if (linguagemSelecionada === 'c' || linguagemSelecionada === 'cpp') {
+        if (linguagemSelecionada === 'c' || linguagemSelecionada === 'cpp' || linguagemSelecionada === 'python') {
             if (!hasHtmlReportFlag) {
                 flags.push('--generate-html-report');
             }
