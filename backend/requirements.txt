@@ -1,4 +1,4 @@
 ast2json
 flask
-flask_cors
+flask-cors
 GitPython
