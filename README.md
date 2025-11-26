@@ -107,6 +107,7 @@ sequenceDiagram
 
 3. Create and activate a virtual environment (recommended):
     ```bash
+    # Dentro da pasta backend
     python -m venv venv
     source venv/bin/activate  # Linux/macOS
     # or
