@@ -1,4 +1,4 @@
-# ESBMC-Web - ESBMC Code Analyzer
+# ESBMC-Web: ESBMC Code Analyzer
 
 ESBMC-Web is a web-based graphical user interface (GUI) for the ESBMC verifier. It allows users to write, upload, and analyze C, C++, or Python code directly in the web browser. The tool provides a user-friendly way to select various ESBMC analysis flags and parameters. Results are presented in two formats:
 - **Raw Text Output**: The complete, unfiltered console log from the ESBMC tool.
