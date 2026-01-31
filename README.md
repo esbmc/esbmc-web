@@ -128,4 +128,8 @@ sequenceDiagram
 
 The server will start on http://127.0.0.1:5000.
 
-2. Open the frontend: Open the index.html file directly in your web browser.
+2. Open the frontend:
+
+```bash
+Open the index.html file directly in your web browser.
+```
