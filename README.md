@@ -108,7 +108,7 @@ sequenceDiagram
 3. Create and activate a virtual environment (recommended):
     ```bash
     # Inside the backend folder
-    python -m venv venv
+    python3 -m venv venv
     source venv/bin/activate  # Linux/macOS
     # or
     .\venv\Scripts\activate   # Windows
