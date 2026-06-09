@@ -118,18 +118,17 @@ If you want to modify the code or are running the project natively on Linux/macO
    cd esbmc-web
 Create and activate a virtual environment:
 
-Bash
-
-
+```Bash
 python3 -m venv venv
 source venv/bin/activate  # Linux/macOS
+
 # or
+
 .\venv\Scripts\activate   # Windows
+
 Install the Python dependencies:
 
-Bash
-
-
+```Bash
 cd backend
 pip install -r requirements.txt
 
@@ -142,9 +141,7 @@ If you used Option 2 (Manual):
 Start the backend server:
 Make sure your venv is activated and run:
 
-Bash
-
-
+```Bash
 python3 backend/app.py
 The server will start on http://127.0.0.1:5000.
 
