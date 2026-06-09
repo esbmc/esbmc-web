@@ -5,7 +5,7 @@ import tempfile
 import os
 import glob
 import json
-import git # Importa a biblioteca GitPython
+import git 
 
 FLAGS_PERMITIDAS_SIMPLES = {
      '--floatbv', '--k-induction', '--memory-leak-check',
@@ -29,6 +29,39 @@ FLAGS_PERMITIDAS_SIMPLES = {
 FLAGS_PERMITIDAS_COM_VALOR = {
     '--unwind', '--context-bound', '--witness-output', '--function', '--timeout',
     '--witness-output-yaml' 
+}
+
+# --- Dicionário de Mapeamento CWE Completo ---
+MAPEAMENTO_CWE = {
+    # 1. Gerenciamento de Memória
+    'memory leak': {'code': 'CWE-401', 'severity': 'Medium'},
+    'double free': {'code': 'CWE-415', 'severity': 'Critical'},
+    'freeing freed': {'code': 'CWE-415', 'severity': 'Critical'},
+    'use after free': {'code': 'CWE-416', 'severity': 'Critical'},
+    'uninitialized': {'code': 'CWE-457', 'severity': 'High'},
+    
+    # 2. Acesso a Memória e Ponteiros
+    'out of bounds': {'code': 'CWE-119', 'severity': 'Critical'},
+    'bounds check': {'code': 'CWE-119', 'severity': 'Critical'},
+    'array bounds': {'code': 'CWE-119', 'severity': 'Critical'},
+    'dereference failure': {'code': 'CWE-476', 'severity': 'Critical'},
+    'null pointer': {'code': 'CWE-476', 'severity': 'Critical'},
+    'invalid pointer': {'code': 'CWE-824', 'severity': 'Critical'},
+
+    # 3. Matemática e Aritmética
+    'division by zero': {'code': 'CWE-369', 'severity': 'High'},
+    'overflow': {'code': 'CWE-190', 'severity': 'High'},
+    'underflow': {'code': 'CWE-191', 'severity': 'High'},
+    'shift count': {'code': 'CWE-682', 'severity': 'Medium'},
+    'nan': {'code': 'CWE-682', 'severity': 'Medium'},
+    
+    # 4. Concorrência (Threads)
+    'data race': {'code': 'CWE-362', 'severity': 'High'},
+    'deadlock': {'code': 'CWE-833', 'severity': 'High'},
+    
+    # 5. Lógica de Programa e Outros
+    'assertion': {'code': 'CWE-617', 'severity': 'High'},
+    'user-specified': {'code': 'CWE-617', 'severity': 'High'} # asserts criados pelo usuário
 }
 
 app = Flask(__name__)
@@ -189,6 +222,21 @@ def analisar_codigo():
                     for dep in dependencias:
                         if dep['filename'].endswith(('.c', '.cpp')):
                             comando.append(dep['filename'])
+            
+            # --- NOVO: INJEÇÃO DINÂMICA DO CLANG PARA ESBMC 8.3 ---
+                # Garante que o ESBMC 8.3 ache os cabeçalhos padrão (como stddef.h)
+                try:
+                    clang_path_proc = subprocess.run(
+                        ['clang', '-print-resource-dir'], 
+                        capture_output=True, 
+                        text=True, 
+                        check=True
+                    )
+                    clang_include_path = os.path.join(clang_path_proc.stdout.strip(), 'include')
+                    comando.extend(['-I', clang_include_path])
+                except Exception as e:
+                    print(f"Aviso interno: Falha ao buscar diretório do Clang: {e}")
+                # ------------------------------------------------------
 
             # Processamento de Flags (Inalterado)
             i = 0
@@ -270,6 +318,34 @@ def analisar_codigo():
                         "message": "Verification failed, but ESBMC did not generate a detailed report. Check the 'Text Output' for more details."
                     }]
                 }]
+
+               # --- LÓGICA DE INJEÇÃO DO CWE E SEVERIDADE NO JSON ---
+            if dashboard_data:
+                for result in dashboard_data:
+                    if result.get("status") == "violation" and "steps" in result:
+                        for step in result["steps"]:
+                            if step.get("type") == "violation":
+                                
+                                # CORREÇÃO: Pega o valor bruto e converte para string de forma segura
+                                raw_message = step.get("message")
+                                raw_property = step.get("property")
+                                
+                                message = str(raw_message).lower() if raw_message else ""
+                                property_desc = str(raw_property).lower() if raw_property else ""
+                                
+                                cwe_atribuido = "N/A"
+                                severidade_atribuida = "N/A"
+                                
+                                for palavra_chave, info in MAPEAMENTO_CWE.items():
+                                    if palavra_chave in message or palavra_chave in property_desc:
+                                        cwe_atribuido = info['code']
+                                        severidade_atribuida = info['severity']
+                                        break
+                                
+                                step["cwe"] = cwe_atribuido
+                                step["severity"] = severidade_atribuida
+            # --- FIM DA LÓGICA CWE ---
+
 
             return jsonify({
                 "resultado_texto": texto_para_exibicao,
