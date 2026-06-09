@@ -119,36 +119,26 @@ The ESBMC binary must be installed and available in your system's PATH.
 
 **Clone the repository:**
 
-  ```bash
-  sudo add-apt-repository ppa:esbmc/esbmc
-  sudo apt update
-  sudo apt install esbmc
-
-
-
-
-
-**Clone the repository:**
-
 ```bash
-sudo add-apt-repository ppa:esbmc/esbmc
-sudo apt update
-sudo apt install esbmc
+git clone [https://github.com/esbmc/esbmc-web.git](https://github.com/esbmc/esbmc-web.git)
+cd esbmc-web
+
+Create and activate a virtual environment:
+
+Bash
 
 
- 
+python3 -m venv venv
+source venv/bin/activate  # Linux/macOS
+# or
+.\venv\Scripts\activate   # Windows
+Install the Python dependencies:
 
-**Clone the repository:**
-
-
-
-    ```bash
-    git clone [https://github.com/esbmc/esbmc-web.git](https://github.com/esbmc/esbmc-web.git)
-    cd esbmc-web
+Bash
 
 
-
-
+cd backend
+pip install -r requirements.txt
 
 
 
