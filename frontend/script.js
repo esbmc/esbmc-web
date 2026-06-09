@@ -467,6 +467,8 @@ document.addEventListener('DOMContentLoaded', () => {
         const linguagemSelecionada = document.querySelector('input[name="language"]:checked').value;
         const pythonInterpreter = document.getElementById('python-interpreter').value;
 
+        
+
         const flags = [];
         document.querySelectorAll('.esbmc-flag:checked').forEach(cb => flags.push(cb.value));
         
@@ -596,7 +598,11 @@ document.addEventListener('DOMContentLoaded', () => {
                 showedSomething = true;
             }
 
-            if (data.html_report_data) {
+           // MODIFICADO: A aba do Dashboard agora tem a prioridade máxima para abrir automaticamente
+            if (data.dashboard_data && data.dashboard_data.length > 0 && data.codigo_analisado) {
+                dashboard.style.display = 'block';
+                tabDashboard.classList.add('active');
+            } else if (data.html_report_data) {
                 htmlReportContainer.style.display = 'block';
                 tabHtmlReport.classList.add('active');
             } else if (data.yaml_report_data) { 
@@ -605,9 +611,6 @@ document.addEventListener('DOMContentLoaded', () => {
             } else if (data.graphml_report_data) {
                 graphmlReportContainer.style.display = 'block';
                 tabGraphmlReport.classList.add('active');
-            } else if (data.dashboard_data && data.dashboard_data.length > 0 && data.codigo_analisado) {
-                dashboard.style.display = 'block';
-                tabDashboard.classList.add('active');
             } else if (data.resultado_texto) {
                 resultadoTextoContainer.style.display = 'block';
                 tabRawText.classList.add('active');
@@ -656,7 +659,9 @@ document.addEventListener('DOMContentLoaded', () => {
                     if (step.type === 'violation') {
                         violationDetails.push({
                             file: step.file || 'N/A', function: step.function || 'N/A',
-                            line: step.line || 'N/A', message: step.message || 'Description not available'
+                            line: step.line || 'N/A', message: step.message || 'Description not available',
+                            cwe: step.cwe || 'N/A', // NOVO: Captura o CWE do JSON
+                            severity: step.severity || 'N/A' // NOVO: Captura a severidade                        
                         });
                     }
                 });
@@ -676,8 +681,26 @@ document.addEventListener('DOMContentLoaded', () => {
             cardPassos.textContent = firstResultWithViolation.steps ? firstResultWithViolation.steps.length : 0;
             violationDetails.forEach(v => {
                 const row = violacoesTabela.insertRow();
-                row.innerHTML = `<td>${v.file}</td><td>${v.function}</td><td>${v.line}</td><td>${v.message}</td>`;
+
+                let cweHtml = v.cwe;
+                if (v.cwe !== 'N/A') {
+                    const cweNumber = v.cwe.replace('CWE-', ''); 
+                    cweHtml = `<a href="https://cwe.mitre.org/data/definitions/${cweNumber}.html" target="_blank" style="color: #007bff; text-decoration: none; font-weight: bold;" title="View MITRE Specification">${v.cwe}</a>`;
+                }
+
+                // NOVO: Lógica das Tags de Severidade
+                let badgeClass = 'severity-na';
+                if (v.severity === 'Critical') badgeClass = 'severity-critical';
+                else if (v.severity === 'High') badgeClass = 'severity-high';
+                else if (v.severity === 'Medium') badgeClass = 'severity-medium';
+                else if (v.severity === 'Low') badgeClass = 'severity-low';
+
+                let severityHtml = `<span class="severity-badge ${badgeClass}">${v.severity}</span>`;
+
+                // Modificado: Inclui a coluna severityHtml no final
+                row.innerHTML = `<td>${v.file}</td><td>${v.function}</td><td>${v.line}</td><td>${v.message}</td><td>${cweHtml}</td><td>${severityHtml}</td>`;
             });
+
             if (firstResultWithViolation.initial_values) {
                 for (const key in firstResultWithViolation.initial_values) {
                     const valueObj = firstResultWithViolation.initial_values[key];
