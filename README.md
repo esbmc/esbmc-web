@@ -118,9 +118,11 @@ Python 3.x
 The ESBMC binary must be installed and available in your system's PATH.
 
 **Clone the repository:**
-´´´bash
-git clone [https://github.com/esbmc/esbmc-web.git](https://github.com/esbmc/esbmc-web.git)
-cd esbmc-web
+` ```bash
+    git clone [https://github.com/esbmc/esbmc-web.git](https://github.com/esbmc/esbmc-web.git)
+    cd esbmc-web
+`
+
 
 
 
