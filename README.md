@@ -131,7 +131,7 @@ Install the Python dependencies:
 ```Bash
 cd backend
 pip install -r requirements.txt
-
+Bash
 
 ## Usage
 If you used Option 1 (Windows/WSL):
