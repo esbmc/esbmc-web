@@ -97,35 +97,46 @@ sequenceDiagram
 
 We offer two ways to run ESBMC-Web, depending on your needs:
 
-### Option 1: Quick Start for Windows/WSL Users (Recommended)
+Option 1: Quick Start for Windows/WSL Users (Recommended)
 If you just want to use the tool without dealing with terminals or manual configurations, use our automated package.
 
-1. **Requirement:** You must have WSL (Ubuntu) installed and enabled on your Windows machine.
-2. Go to the [Releases](https://github.com/esbmc/esbmc-web) tab of this repository.
-3. Download the `.zip` file of the latest release and extract it to any folder on your computer.
-4. Double-click the `1-INSTALAR_ESBMC.bat` file (**First time only**). It will automatically download the official ESBMC binary and set up the Linux environment.
+Requirement: You must have WSL (Ubuntu) installed and enabled on your Windows machine.
 
-### Option 2: Manual Installation (For Developers / Linux / macOS)
+Go to the Releases tab of this repository.
+
+Download the .zip file of the latest release and extract it to any folder on your computer.
+
+Double-click the 1-INSTALAR_ESBMC.bat file (First time only). It will automatically download the latest official ESBMC binary directly from GitHub and set up the Linux environment.
+
+Option 2: Manual Installation (For Developers / Linux / macOS)
 If you want to modify the code or are running the project natively on Linux/macOS, follow these steps:
 
-1. **Prerequisites:**
-   - Python 3.x
-   - The ESBMC binary must be installed and available in your system's PATH. 
+Prerequisites:
 
-2. **Clone the repository:**
-   ```bash
-   git clone [https://github.com/esbmc/esbmc-web.git](https://github.com/esbmc/esbmc-web.git)
-   cd esbmc-web
-   
-3. **Create and activate a virtual environment:**
+Python 3.x
+
+The ESBMC binary must be installed and available in your system's PATH.
+
+Clone the repository:
+
+Bash
+
+
+git clone [https://github.com/esbmc/esbmc-web.git](https://github.com/esbmc/esbmc-web.git)
+cd esbmc-web
+Create and activate a virtual environment:
+
+Bash
+
 
 python3 -m venv venv
 source venv/bin/activate  # Linux/macOS
 # or
 .\venv\Scripts\activate   # Windows
+Install the Python dependencies:
 
+Bash
 
-4. **Install the Python dependencies:**
 
 cd backend
 pip install -r requirements.txt
