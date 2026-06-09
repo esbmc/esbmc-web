@@ -97,10 +97,10 @@ sequenceDiagram
 
 We offer two ways to run ESBMC-Web, depending on your needs:
 
-Option 1: Quick Start for Windows/WSL Users (Recommended)
+**Option 1: Quick Start for Windows/WSL Users (Recommended)**
 If you just want to use the tool without dealing with terminals or manual configurations, use our automated package.
 
-Requirement: You must have WSL (Ubuntu) installed and enabled on your Windows machine.
+**Requirement:** You must have WSL (Ubuntu 24.04) installed and enabled on your Windows machine.
 
 Go to the Releases tab of this repository.
 
@@ -108,53 +108,30 @@ Download the .zip file of the latest release and extract it to any folder on you
 
 Double-click the 1-INSTALAR_ESBMC.bat file (First time only). It will automatically download the latest official ESBMC binary directly from GitHub and set up the Linux environment.
 
-Option 2: Manual Installation (For Developers / Linux / macOS)
+**Option 2: Manual Installation (For Developers / Linux / macOS)**
 If you want to modify the code or are running the project natively on Linux/macOS, follow these steps:
 
-Prerequisites:
+**Prerequisites:**
 
 Python 3.x
 
 The ESBMC binary must be installed and available in your system's PATH.
 
-Clone the repository:
-
-Bash
-
-
+**Clone the repository:**
+´´´bash
 git clone [https://github.com/esbmc/esbmc-web.git](https://github.com/esbmc/esbmc-web.git)
 cd esbmc-web
-Create and activate a virtual environment:
-
-Bash
 
 
-python3 -m venv venv
-source venv/bin/activate  # Linux/macOS
-# or
-.\venv\Scripts\activate   # Windows
-Install the Python dependencies:
-
-Bash
 
 
-cd backend
-pip install -r requirements.txt
+
+
+
+
 
 
 
 
 ## Usage
-If you used Option 1 (Windows/WSL):
-Simply double-click the 2-INICIAR_WEB.bat file whenever you want to use the tool. It will start the server in the background and instantly open the ESBMC-Web page in your default Windows browser.
 
-If you used Option 2 (Manual):
-Start the backend server:
-Make sure your venv is activated and run:
-
-   ```Bash
-   python3 backend/app.py
-   The server will start on http://127.0.0.1:5000.
-
-   Open the frontend:
-   Open the frontend/index.html file directly in your web browser.
