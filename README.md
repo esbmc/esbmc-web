@@ -125,10 +125,15 @@ If you want to modify the code or are running the project natively on Linux/macO
    # or
    .\venv\Scripts\activate   # Windows
 
+ bash
 
-**Install the Python dependencies:**
+**Create and activate a virtual environment:**
 
-   ```bash
+
+Install the Python dependencies:**
+
+   bash
+
    cd backend
    pip install -r requirements.txt
    
