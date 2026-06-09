@@ -117,13 +117,19 @@ If you want to modify the code or are running the project natively on Linux/macO
    git clone [https://github.com/esbmc/esbmc-web.git](https://github.com/esbmc/esbmc-web.git)
    cd esbmc-web
    
-**Create and activate a virtual environment:**
+3. **Create and activate a virtual environment:**
 
-bash
 python3 -m venv venv
 source venv/bin/activate  # Linux/macOS
 # or
 .\venv\Scripts\activate   # Windows
+
+
+4. **Install the Python dependencies:**
+
+cd backend
+pip install -r requirements.txt
+
 
 
 
