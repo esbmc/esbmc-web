@@ -6,6 +6,7 @@ import os
 import glob
 import json
 import git 
+import re
 
 FLAGS_PERMITIDAS_SIMPLES = {
      '--floatbv', '--k-induction', '--memory-leak-check',
@@ -33,41 +34,31 @@ FLAGS_PERMITIDAS_COM_VALOR = {
 
 # --- Dicionário de Mapeamento CWE Completo ---
 MAPEAMENTO_CWE = {
-    # 1. Gerenciamento de Memória
     'memory leak': {'code': 'CWE-401', 'severity': 'Medium'},
     'double free': {'code': 'CWE-415', 'severity': 'Critical'},
     'freeing freed': {'code': 'CWE-415', 'severity': 'Critical'},
     'use after free': {'code': 'CWE-416', 'severity': 'Critical'},
     'uninitialized': {'code': 'CWE-457', 'severity': 'High'},
-    
-    # 2. Acesso a Memória e Ponteiros
     'out of bounds': {'code': 'CWE-119', 'severity': 'Critical'},
     'bounds check': {'code': 'CWE-119', 'severity': 'Critical'},
     'array bounds': {'code': 'CWE-119', 'severity': 'Critical'},
     'dereference failure': {'code': 'CWE-476', 'severity': 'Critical'},
     'null pointer': {'code': 'CWE-476', 'severity': 'Critical'},
     'invalid pointer': {'code': 'CWE-824', 'severity': 'Critical'},
-
-    # 3. Matemática e Aritmética
     'division by zero': {'code': 'CWE-369', 'severity': 'High'},
     'overflow': {'code': 'CWE-190', 'severity': 'High'},
     'underflow': {'code': 'CWE-191', 'severity': 'High'},
     'shift count': {'code': 'CWE-682', 'severity': 'Medium'},
     'nan': {'code': 'CWE-682', 'severity': 'Medium'},
-    
-    # 4. Concorrência (Threads)
     'data race': {'code': 'CWE-362', 'severity': 'High'},
     'deadlock': {'code': 'CWE-833', 'severity': 'High'},
-    
-    # 5. Lógica de Programa e Outros
     'assertion': {'code': 'CWE-617', 'severity': 'High'},
-    'user-specified': {'code': 'CWE-617', 'severity': 'High'} # asserts criados pelo usuário
+    'user-specified': {'code': 'CWE-617', 'severity': 'High'}
 }
 
 app = Flask(__name__)
 CORS(app)
 
-# --- ENDPOINT DE LISTAGEM DE ARQUIVOS (Inalterado) ---
 @app.route('/fetch-repo-files', methods=['POST'])
 def fetch_repo_files():
     dados = request.get_json()
@@ -78,33 +69,25 @@ def fetch_repo_files():
 
     with tempfile.TemporaryDirectory() as temp_dir:
         try:
-            # Otimização: depth=1 faz um "shallow clone" (superficial)
             git.Repo.clone_from(git_url, temp_dir, depth=1)
         except Exception as e:
             return jsonify({'error': f"Failed to clone repository: {str(e)}"}), 500
 
         file_list = []
-        # Extensões que nos interessam
         extensions = ('.c', '.cpp', '.py', '.h', '.hpp')
 
-        # Escaneia o diretório
         for root, dirs, files in os.walk(temp_dir):
-            # Impede o os.walk de entrar no diretório .git
             if '.git' in dirs:
                 dirs.remove('.git')
                 
             for file in files:
                 if file.endswith(extensions):
-                    # Pega o caminho completo (ex: /tmp/xyz/src/main.c)
                     full_path = os.path.join(root, file)
-                    # Converte para o caminho relativo (ex: src/main.c)
                     relative_path = os.path.relpath(full_path, temp_dir)
-                    # Converte para o formato de barra (Linux)
                     file_list.append(relative_path.replace(os.path.sep, '/'))
         
         return jsonify({'files': file_list})
 
-# --- NOVO ENDPOINT (PARA BUSCAR CONTEÚDO DE ARQUIVO) ---
 @app.route('/fetch-file-content', methods=['POST'])
 def fetch_file_content():
     dados = request.get_json()
@@ -114,34 +97,27 @@ def fetch_file_content():
     if not git_url or not file_path:
         return jsonify({'error': 'Git URL or file path missing.'}), 400
     
-    # Validação de segurança simples
     if '..' in file_path or file_path.startswith('/'):
         return jsonify({'error': 'Invalid file path.'}), 400
 
     with tempfile.TemporaryDirectory() as temp_dir:
         try:
-            # Otimização: depth=1, não precisamos do histórico
             git.Repo.clone_from(git_url, temp_dir, depth=1)
         except Exception as e:
             return jsonify({'error': f"Failed to clone repository: {str(e)}"}), 500
         
-        # Constrói o caminho completo para o arquivo
         full_file_path = os.path.join(temp_dir, file_path)
 
         if not os.path.exists(full_file_path):
             return jsonify({'error': 'File not found in repository.'}), 404
         
         try:
-            # Lê o conteúdo do arquivo
             with open(full_file_path, 'r', encoding='utf-8') as f:
                 content = f.read()
             return jsonify({'content': content})
         except Exception as e:
             return jsonify({'error': f"Failed to read file content: {str(e)}"}), 500
-# --- FIM DO NOVO ENDPOINT ---
 
-
-# --- ENDPOINT DE ANÁLISE (Otimizado e Corrigido) ---
 @app.route('/analisar', methods=['POST'])
 def analisar_codigo():
     dados = request.get_json()
@@ -159,14 +135,12 @@ def analisar_codigo():
             nome_arquivo_principal = ""
             dependencias = [] 
             
-            # --- FLUXO 1: GIT ---
+            # --- FLUXO GIT ---
             if git_url and main_file_path_in_repo:
-                
                 if '..' in main_file_path_in_repo or main_file_path_in_repo.startswith('/'):
                      return jsonify({'error': 'Invalid main file path.'}), 400
                 
                 try:
-                    # Otimização: depth=1 (shallow) e recursive=True (pega submodulos)
                     git.Repo.clone_from(git_url, temp_dir, depth=1, recursive=True)
                 except Exception as e:
                     return jsonify({'error': f"Failed to clone Git repository: {str(e)}"}), 500
@@ -177,12 +151,10 @@ def analisar_codigo():
                 if not os.path.exists(caminho_arquivo_principal_completo):
                     return jsonify({'error': f"Main file '{main_file_path_in_repo}' not found in the repository."}), 400
                 
-                # Lê o código do arquivo principal para enviar de volta ao dashboard
-                # (O frontend já terá esse código, mas é bom para o dashboard)
                 with open(caminho_arquivo_principal_completo, 'r', encoding='utf-8') as f:
                     codigo_para_dashboard = f.read()
 
-            # --- FLUXO 2: CÓDIGO LOCAL (Inalterado) ---
+            # --- FLUXO LOCAL ---
             else:
                 codigo_principal = dados.get('codigo', '')
                 if not codigo_principal:
@@ -206,39 +178,34 @@ def analisar_codigo():
                     with open(caminho_dep, 'w', encoding='utf-8') as f:
                         f.write(dep['content'])
 
-            # --- LÓGICA COMUM (Construção do Comando) ---
-            
             comando = ['esbmc', nome_arquivo_principal]
             
-            # --- CORREÇÃO PYTHON (Inalterada desta vez) ---
+            # --- PROTEÇÃO UNIVERSAL PARA VERSÕES DO ESBMC ---
             if linguagem == 'python':
+                # Verifica se a versão instalada do ESBMC suporta Python antes de prosseguir
+                help_check = subprocess.run(['esbmc', '--help'], capture_output=True, text=True)
+                if '--python' not in help_check.stdout:
+                    return jsonify({'error': 'A versão do ESBMC instalada na sua máquina não suporta a análise de código Python (requer v8.0+). Por favor, atualize o ESBMC ou utilize apenas código C/C++.'}), 400
+                
                 interpretador_python = dados.get('python_interpreter', '').strip()
                 if not interpretador_python:
                     interpretador_python = 'python3' 
                 comando.extend(['--python', interpretador_python])
-            # --- FIM DA CORREÇÃO ---
             else:
                 if not (git_url and main_file_path_in_repo):
                     for dep in dependencias:
                         if dep['filename'].endswith(('.c', '.cpp')):
                             comando.append(dep['filename'])
             
-            # --- NOVO: INJEÇÃO DINÂMICA DO CLANG PARA ESBMC 8.3 ---
-                # Garante que o ESBMC 8.3 ache os cabeçalhos padrão (como stddef.h)
+                # Injeção Dinâmica do Clang (Segura)
                 try:
-                    clang_path_proc = subprocess.run(
-                        ['clang', '-print-resource-dir'], 
-                        capture_output=True, 
-                        text=True, 
-                        check=True
-                    )
+                    clang_path_proc = subprocess.run(['clang', '-print-resource-dir'], capture_output=True, text=True, check=True)
                     clang_include_path = os.path.join(clang_path_proc.stdout.strip(), 'include')
                     comando.extend(['-I', clang_include_path])
                 except Exception as e:
                     print(f"Aviso interno: Falha ao buscar diretório do Clang: {e}")
-                # ------------------------------------------------------
 
-            # Processamento de Flags (Inalterado)
+            # Processamento de Flags
             i = 0
             while i < len(flags_recebidas):
                 flag = flags_recebidas[i]
@@ -257,7 +224,6 @@ def analisar_codigo():
 
             comando.append('--generate-json-report')
 
-            # Configuração do Ambiente (Inalterado)
             env = os.environ.copy()
             existing_pythonpath = env.get('PYTHONPATH')
             if existing_pythonpath:
@@ -265,7 +231,6 @@ def analisar_codigo():
             else:
                 env['PYTHONPATH'] = temp_dir
             
-            # Execução do Subprocesso (Inalterado)
             processo = subprocess.run(
                 comando, 
                 capture_output=True, 
@@ -276,57 +241,57 @@ def analisar_codigo():
             )
 
             texto_para_exibicao = (processo.stdout + "\n" + processo.stderr).strip()
+            texto_lower = texto_para_exibicao.lower()
 
-            # Lógica de processamento de resultados (Inalterada)
             dashboard_data = []
             lista_json = glob.glob(os.path.join(temp_dir, '*.json'))
             if lista_json:
-                caminho_json = lista_json[0]
-                with open(caminho_json, 'r', encoding='utf-8') as f:
+                with open(lista_json[0], 'r', encoding='utf-8') as f:
                     try:
                         dashboard_data = json.load(f)
                     except json.JSONDecodeError:
                         pass
+
+            # --- CAPTURA DE ERROS DE VERSÃO ---
+            # Se o ESBMC não gerar JSON, verificamos se ele rejeitou alguma flag (versão incompatível)
+            if not dashboard_data:
+                if "unrecognized option" in texto_lower or "unknown option" in texto_lower or "invalid option" in texto_lower:
+                    return jsonify({'error': f"A sua versão do ESBMC não reconhece uma das opções selecionadas.\n\nDetalhes do Erro:\n{texto_para_exibicao}"}), 400
+
+                if "VERIFICATION FAILED" in texto_para_exibicao:
+                    dashboard_data = [{
+                        "status": "violation",
+                        "steps": [{
+                            "type": "violation",
+                            "file": "N/A", "function": "N/A", "line": "N/A",
+                            "message": "Verification failed, but ESBMC did not generate a detailed JSON report. Check the 'Raw Text Output' tab for more details."
+                        }]
+                    }]
             
             html_report_content = None
             lista_html = glob.glob(os.path.join(temp_dir, '*.html'))
             if lista_html:
-                caminho_html = lista_html[0]
-                with open(caminho_html, 'r', encoding='utf-8') as f:
+                with open(lista_html[0], 'r', encoding='utf-8') as f:
                     html_report_content = f.read()
 
             yaml_report_content = None
             lista_yaml = glob.glob(os.path.join(temp_dir, '*.yml')) + glob.glob(os.path.join(temp_dir, '*.yaml'))
             if lista_yaml:
-                caminho_yaml = lista_yaml[0]
-                with open(caminho_yaml, 'r', encoding='utf-8') as f:
+                with open(lista_yaml[0], 'r', encoding='utf-8') as f:
                     yaml_report_content = f.read()
 
             graphml_report_content = None
             lista_graphml = glob.glob(os.path.join(temp_dir, '*.graphml'))
             if lista_graphml:
-                caminho_graphml = lista_graphml[0]
-                with open(caminho_graphml, 'r', encoding='utf-8') as f:
+                with open(lista_graphml[0], 'r', encoding='utf-8') as f:
                     graphml_report_content = f.read()
 
-            if not dashboard_data and "VERIFICATION FAILED" in texto_para_exibicao:
-                dashboard_data = [{
-                    "status": "violation",
-                    "steps": [{
-                        "type": "violation",
-                        "file": "N/A", "function": "N/A", "line": "N/A",
-                        "message": "Verification failed, but ESBMC did not generate a detailed report. Check the 'Text Output' for more details."
-                    }]
-                }]
-
-               # --- LÓGICA DE INJEÇÃO DO CWE E SEVERIDADE NO JSON ---
+            # Lógica de injeção do CWE
             if dashboard_data:
                 for result in dashboard_data:
                     if result.get("status") == "violation" and "steps" in result:
                         for step in result["steps"]:
                             if step.get("type") == "violation":
-                                
-                                # CORREÇÃO: Pega o valor bruto e converte para string de forma segura
                                 raw_message = step.get("message")
                                 raw_property = step.get("property")
                                 
@@ -344,8 +309,6 @@ def analisar_codigo():
                                 
                                 step["cwe"] = cwe_atribuido
                                 step["severity"] = severidade_atribuida
-            # --- FIM DA LÓGICA CWE ---
-
 
             return jsonify({
                 "resultado_texto": texto_para_exibicao,
@@ -361,7 +324,6 @@ def analisar_codigo():
         except Exception as e:
             return jsonify({"error": "Backend process failed.", "details": str(e)}), 500
 
-# =========== ENDPOINT DE AJUDA (Inalterado) ===========
 @app.route('/help', methods=['GET'])
 def get_esbmc_help():
     try:
@@ -371,19 +333,15 @@ def get_esbmc_help():
             text=True, 
             timeout=30
         )
-        
         help_text = (processo.stdout + "\n" + processo.stderr).strip()
-        
         if not help_text:
             help_text = "Could not retrieve help text from ESBMC. Is it installed and in PATH?"
-        
         return jsonify({"help_text": help_text})
 
     except FileNotFoundError:
         return jsonify({"help_text": "ERROR: 'esbmc' command not found. Make sure it is installed and in your system's PATH."}), 500
     except Exception as e:
         return jsonify({"help_text": f"An error occurred: {str(e)}"}), 500
-# ===============================================
 
 if __name__ == '__main__':
     app.run(debug=True)
