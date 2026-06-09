@@ -119,24 +119,13 @@ If you want to modify the code or are running the project natively on Linux/macO
    
 **Create and activate a virtual environment:**
 
-   ```bash
-   python3 -m venv venv
-   source venv/bin/activate  # Linux/macOS
-   # or
-   .\venv\Scripts\activate   # Windows
-
- bash
-
-**Create and activate a virtual environment:**
+bash
+python3 -m venv venv
+source venv/bin/activate  # Linux/macOS
+# or
+.\venv\Scripts\activate   # Windows
 
 
-Install the Python dependencies:**
-
-   bash
-
-   cd backend
-   pip install -r requirements.txt
-   
 
 ## Usage
 If you used Option 1 (Windows/WSL):
