@@ -122,24 +122,45 @@ The ESBMC binary must be installed and available in your system's PATH.
 ```bash
 git clone [https://github.com/esbmc/esbmc-web.git](https://github.com/esbmc/esbmc-web.git)
 cd esbmc-web
+```
 
-Create and activate a virtual environment:
+***Create and activate a virtual environment:***
 
-Bash
-
-
+```bash
 python3 -m venv venv
 source venv/bin/activate  # Linux/macOS
 # or
 .\venv\Scripts\activate   # Windows
-Install the Python dependencies:
 
-Bash
+```
 
+**Install the Python dependencies:**
 
+```bash
 cd backend
 pip install -r requirements.txt
+```
 
+
+## Usage
+**If you used Option 1 (Windows/WSL):**
+
+Simply double-click the 2-INICIAR_WEB.bat file whenever you want to use the tool. 
+It will start the server in the background, check for required dependencies automatically, and instantly open the ESBMC-Web page in your default Windows browser.
+
+**If you used Option 2 (Manual):**
+
+Start the backend server:
+Make sure your venv is activated and run:
+
+
+
+
+python3 backend/app.py
+The server will start on http://127.0.0.1:5000.
+
+Open the frontend:
+Open the frontend/index.html file directly in your web browser.
 
 
 
