@@ -1,49 +1,40 @@
 #!/bin/bash
+
 echo "============================================="
-echo "  Iniciando servidor backend do ESBMC-Web... "
+echo "  A iniciar o servidor backend do ESBMC-Web... "
 echo "============================================="
 
-# Garante que estamos na pasta correta onde o script está localizado
+# Garante que o terminal está na pasta correta
 cd "$(dirname "$0")"
 
-# Cria o ambiente virtual se não existir usando --copies para compatibilidade com NTFS/Windows
+# Remove o ambiente virtual se ele estiver corrompido ou vazio
+if [ -d "venv" ] && [ ! -f "venv/bin/python3" ]; then
+    echo "Ambiente virtual corrompido. A remover para recriar..."
+    rm -rf venv
+fi
+
+# Cria o ambiente virtual com --copies (essencial para partições Windows)
 if [ ! -d "venv" ]; then
-    echo "Criando ambiente virtual Python (venv) usando --copies..."
-    echo "Nota: --copies e usado para compatibilidade com caminhos do Windows no WSL."
+    echo "A criar o ambiente virtual (venv) com --copies..."
     python3 -m venv venv --copies
     if [ $? -ne 0 ]; then
-        echo "ERRO: Falha ao criar o venv. Certifique-se de que o python3-venv esta instalado."
+        echo "ERRO: Falha ao criar o venv. Verifique se o pacote python3-venv está instalado."
         read -p "Pressione Enter para fechar..."
         exit 1
     fi
 fi
 
-# Ativa o ambiente virtual
-source venv/bin/activate
+# Atualiza o pip e instala os requisitos DIRETAMENTE pelo Python do venv (sem usar o comando source)
+echo "A verificar e a atualizar as dependências..."
+./venv/bin/python3 -m pip install --upgrade pip
+./venv/bin/python3 -m pip install -r backend/requirements.txt
 if [ $? -ne 0 ]; then
-    echo "ERRO: Falha ao ativar o ambiente virtual (venv)."
+    echo "ERRO: Falha ao instalar as dependências do Python."
     read -p "Pressione Enter para fechar..."
     exit 1
 fi
 
-# Entra na pasta do backend
+# Inicia o servidor Flask
+echo "A iniciar o servidor Flask..."
 cd backend
-if [ $? -ne 0 ]; then
-    echo "ERRO: Pasta 'backend' nao encontrada na raiz do projeto."
-    read -p "Pressione Enter para fechar..."
-    exit 1
-fi
-
-# Garante a instalação e atualização segura das dependências
-echo "Verificando dependencias (requirements.txt)..."
-python3 -m pip install --upgrade pip
-python3 -m pip install -r requirements.txt
-if [ $? -ne 0 ]; then
-    echo "ERRO: Falha ao instalar as dependencias do Python."
-    read -p "Pressione Enter para fechar..."
-    exit 1
-fi
-
-# Executa o Flask com segurança
-echo "Iniciando o servidor Flask..."
-python3 app.py
+../venv/bin/python3 app.py
