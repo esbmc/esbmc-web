@@ -1,0 +1,33 @@
+# Ambientes virtuais Python
+venv/
+.venv/
+env/
+Lib/
+
+# Caches e Bytecode Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.pytest_cache/
+
+# Logs do servidor e arquivos de execução
+*.log
+backend/server.log
+server.log
+backend/uploads/
+uploads/
+
+# Arquivos de saída do ESBMC e relatórios transitórios
+auto-witness.*
+*.graphml
+*.yaml
+test_report.json
+scratch/
+
+# Arquivos de sistema operacional e IDEs
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
