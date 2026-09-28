@@ -14,9 +14,9 @@ wsl -e bash -c "sed -i 's/\r$//' backend/requirements.txt"
 :: Executa o script do Linux e mantém a janela aberta
 start "Backend ESBMC-Web" cmd /k "wsl -e bash runner.sh"
 
-echo A aguardar que o servidor inicie...
-timeout /t 8 /nobreak > nul
+echo A abrir interface ESBMC-Web (o painel monitorizara o arranque do servidor em tempo real)...
+timeout /t 1 /nobreak > nul
 
-:: Abre o navegador
+:: Abre o navegador imediatamente com a tela de inicializacao inteligente
 start "" "frontend\index.html"
 exit
