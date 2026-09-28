@@ -42,6 +42,16 @@ echo "A verificar e a atualizar as dependências..."
 ./venv/bin/python3 -m pip install --upgrade pip
 ./venv/bin/python3 -m pip install -r backend/requirements.txt
 
+# Garante que a porta 5000 está livre (elimina processos zombies anteriores)
+echo "A verificar e a libertar a porta 5000..."
+if command -v fuser >/dev/null 2>&1; then
+    fuser -k 5000/tcp 2>/dev/null || true
+fi
+for p in $(ss -tulpn 'sport = :5000' 2>/dev/null | grep -o 'pid=[0-9]*' | cut -d= -f2); do
+    kill -9 "$p" 2>/dev/null || true
+done
+sleep 1
+
 # Inicia o servidor Flask
 echo "A iniciar o servidor Flask..."
 cd backend
