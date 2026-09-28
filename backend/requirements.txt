@@ -1,6 +1,0 @@
-ast2json
-flask
-flask-cors
-GitPython
-requests
-libclang
