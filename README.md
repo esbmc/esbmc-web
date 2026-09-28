@@ -3,12 +3,6 @@
 It allows software engineers, students, and researchers to verify C, C++, and Python software directly in the web browser — supporting single files, multi-file projects, and **remote Git repositories with subfolder isolation and automatic dependency resolution**.
 ---
 
-
-
-
-
-
-
 ## Key Features
 ### 1. In-Browser Editor & Multi-Language Support
 - **Full-featured Editor**: CodeMirror editor with syntax highlighting for C, C++, and Python.
@@ -42,43 +36,81 @@ It allows software engineers, students, and researchers to verify C, C++, and Py
 - Automatic port freeing on startup to avoid port 5000 conflicts.
 ---
 
+## Architecture (Data Flow)
 
+```mermaid
+flowchart TD
+    subgraph Client ["Client Layer (Web Browser)"]
+        UI["Frontend UI (index.html)"]
+        Editor["CodeMirror & Repo Explorer"]
+        Dash["Interactive Dashboard (script.js)"]
+    end
 
+    subgraph Server ["Backend Server (Flask / Python)"]
+        API["REST API (app.py)"]
+        TaskManager["Async Task Engine"]
+        GitWorker["Git Cloner & Subfolder Slicer"]
+        RepoSlice["RepoSlice-BMC Linker"]
+        Homogenizer["Homogenizer & Auto-Healer"]
+        Mocks["Boost & STL Mocks"]
+    end
+
+    subgraph Engine ["Formal Verification Engine"]
+        ESBMC["ESBMC Core (GOTO / Symex)"]
+        Solvers["SMT Solvers (Z3 / Bitwuzla / Boolector)"]
+    end
+
+    UI --> Editor
+    Editor -->|1. Submit Code or Git URL| API
+    API --> TaskManager
+    TaskManager --> GitWorker
+    GitWorker --> RepoSlice
+    RepoSlice --> Homogenizer
+    Homogenizer --> Mocks
+    Mocks --> ESBMC
+    ESBMC --> Solvers
+    Solvers -->|2. VCCs & Proofs| ESBMC
+    ESBMC -->|3. Verification Output| TaskManager
+    TaskManager -->|4. Live Status & Witnesses| Dash
+    Dash -->|5. Render Dashboard| UI
+```
+
+---
 
 ## Architecture (Sequence of Events)
-The diagram below illustrates the order of interactions:
 
 ```mermaid
 sequenceDiagram
-    actor User
-    participant Frontend as "Frontend (index.htm)"
-    participant Backend_App as "Backend (app.py)"
-    participant ESBMC as ESBMC
-    participant Dashboard as "Dashboard (script.js)"
+    actor User as User
+    participant Frontend as Frontend (index.html)
+    participant Backend as Backend (app.py)
+    participant Engine as ESBMC / RepoSlice
+    participant Dashboard as Dashboard (script.js)
 
-    User->>Frontend: 1. Inserts Code, Selects Flags, Clicks "Analyze"
+    User->>Frontend: 1. Input Code / Git Repo & Options
     activate Frontend
-    Frontend->>Backend_App: 2. POST /analyze (Code + Flags)
+    Frontend->>Backend: 2. POST /analisar (Code + Options)
     deactivate Frontend
-    activate Backend_App
-    Backend_App->>ESBMC: 3. Executes ESBMC with code.c and flags
-    activate ESBMC
-    ESBMC-->>Backend_App: 4. Returns ESBMC Output (JSON + Text)
-    deactivate ESBMC
+    activate Backend
+    Backend->>Engine: 3. RepoSlice + Homogenizer + ESBMC
+    activate Engine
+    Engine-->>Backend: 4. Verification Output & Witnesses
+    deactivate Engine
 
-    alt Analysis Successful
-        Backend_App->>Dashboard: 5a. Returns JSON (SUCCESS)
+    alt Verification Successful
+        Backend-->>Dashboard: 5a. Return Status SUCCESS (JSON)
         activate Dashboard
-        Dashboard->>User: 6a. Displays SUCCESS Result on UI
+        Dashboard-->>User: 6a. Display Green Status & Metrics
         deactivate Dashboard
-    else Analysis Failed / Violation
-        Backend_App->>Dashboard: 5b. Returns JSON (ERROR / VIOLATION)
+    else Verification Failed / Violation
+        Backend-->>Dashboard: 5b. Return Status VIOLATION (JSON)
         activate Dashboard
-        Dashboard->>User: 6b. Displays ERROR / VIOLATION (Counter-example) on UI
+        Dashboard-->>User: 6b. Display Counterexample & Trace
         deactivate Dashboard
     end
-    deactivate Backend_App
+    deactivate Backend
 ```
+
 
 ## Setup and Installation
 
