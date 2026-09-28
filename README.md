@@ -3,6 +3,12 @@
 It allows software engineers, students, and researchers to verify C, C++, and Python software directly in the web browser — supporting single files, multi-file projects, and **remote Git repositories with subfolder isolation and automatic dependency resolution**.
 ---
 
+
+
+
+
+
+
 ## Key Features
 ### 1. In-Browser Editor & Multi-Language Support
 - **Full-featured Editor**: CodeMirror editor with syntax highlighting for C, C++, and Python.
@@ -37,68 +43,7 @@ It allows software engineers, students, and researchers to verify C, C++, and Py
 ---
 
 
-## Architecture
-```mermaid
-graph TD;
-    subgraph "Client Layer (Browser)"
-        UI["Frontend UI (index.html)"]
-        Editor["CodeMirror & Git Tree Explorer"]
-        Dash["Interactive Dashboard & Witnesses (script.js)"]
-    end
-    subgraph "Backend Orchestration (Flask / Python)"
-        API["REST API (app.py)"]
-        TaskManager["Async Task & Status Engine"]
-        GitWorker["Git Cloner (blob:none / subfolder filter)"]
-        RepoSlice["RepoSlice-BMC & Dependency Linker"]
-        Homogenizer["Homogenizer & Auto-Healer (C / C++ / Python)"]
-        Mocks["Boost & STL Compatibility Mocks"]
-    end
-    subgraph "Formal Verification Engine"
-        ESBMC["ESBMC Engine (GOTO & Symbolic Execution)"]
-        Solvers["SMT Solvers (Z3, Bitwuzla, Boolector, CVC5, MathSAT)"]
-    end
-    UI --> Editor
-    Editor -- "POST /analisar or /fetch-repo-files" --> API
-    API --> TaskManager
-    TaskManager --> GitWorker
-    GitWorker --> RepoSlice
-    RepoSlice --> Homogenizer
-    Homogenizer --> Mocks
-    Mocks --> ESBMC
-    ESBMC --> Solvers
-    Solvers -- "Verification Outcome / VCCs / Witnesses" --> ESBMC
-    ESBMC -- "Results & Logs" --> TaskManager
-    TaskManager -- "Live Polling /status/<id>" --> Dash
-    Dash --> UI
 
-
-## Architecture (Data Flow)
-
-The diagram below illustrates the order of interactions:
-
-```mermaid
-graph TD;
-    subgraph "User Browser"
-        A["Frontend (index.html)"]
-        D["Dashboard (script.js)"]
-    end
-
-    subgraph "Server"
-        B["Backend (app.py)"]
-    end
-
-    subgraph "Tool"
-         C["ESBMC (Core)"]
-
-    end
-    
-    A -- "1. Sends (Code + Flags) via API" --> B;
-    B -- "2. Executes ESBMC with data" --> C;
-    C -- "3. Returns Report (JSON/Text)" --> B;
-    B -- "4. Sends Result (JSON) back" --> D;
-    D -- "5. Renders Dashboard on UI" --> A;
-
-```
 
 ## Architecture (Sequence of Events)
 The diagram below illustrates the order of interactions:
