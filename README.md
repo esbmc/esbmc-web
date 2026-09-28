@@ -1,35 +1,43 @@
-# ESBMC-Web: ESBMC Code Analyzer
+# ESBMC-Web: Advanced Formal Verification Platform & Code Analyzer
+**ESBMC-Web** is a modern, extensible web-based graphical user interface (GUI) and formal verification workbench for the **ESBMC (Efficient SMT-Based Bounded Model Checker)** verifier. 
+It allows software engineers, students, and researchers to verify C, C++, and Python software directly in the web browser — supporting single files, multi-file projects, and **remote Git repositories with subfolder isolation and automatic dependency resolution**.
+---
 
-ESBMC-Web is a web-based graphical user interface (GUI) for the ESBMC verifier. It allows users to write, upload, and analyze C, C++, or Python code directly in the web browser. The tool provides a user-friendly way to select various ESBMC analysis flags and parameters. Results are presented in two formats:
-- **Raw Text Output**: The complete, unfiltered console log from the ESBMC tool.
-- **Dashboard View**: A rich, interactive dashboard that visualizes violations, counterexamples, and execution traces, making it easier to debug failed verifications.
+## Key Features
+### 1. In-Browser Editor & Multi-Language Support
+- **Full-featured Editor**: CodeMirror editor with syntax highlighting for C, C++, and Python.
+- **Multi-File & Dependency Management**: Upload main files alongside local dependencies (`.h`, `.hpp`, `.c`, `.cpp`, `.py`).
+### 2. Remote Git Repository Analysis & Subfolder Isolation
+- **Direct Git Cloning**: Provide a Git repository URL (e.g., `https://github.com/esbmc/esbmc` or `https://github.com/lucasccordeiro/vllm`).
+- **Targeted Subfolder Scoping**: Paste links to specific subfolders (e.g., `https://github.com/esbmc/esbmc/tree/master/src/util`) or supply a folder filter to isolate and inspect only relevant files without repository clutter.
+- **Single-File Isolated Verification**: Select any individual component within a complex repository and verify it with automated local dependency resolution.
+### 3. RepoSlice-BMC & Intelligent Code Homogenizers (`backend/sanitizers/`)
+- **C/C++ Homogenizer**:
+  - Automatically heals Clang compiler diagnostics and missing type definitions.
+  - Generates symbolic `int main()` harnesses with non-deterministic inputs (`nondet_int()`, symbolic buffers) for modular libraries that lack entry points.
+  - Down-transpiles modern C++20 constructs (`requires`, `consteval`, `[[nodiscard]]`, standard traits) to C++14 compatibility.
+- **Boost & STL Compatibility Mock Layer (`mock_boost`)**:
+  - Provides lightweight stubs for missing or incomplete `esbmclibc` standard headers: `<string_view>`, `<functional>`, `<atomic>`, `<mutex>`, `<shared_mutex>`, `<condition_variable>`, `<thread>`, `<system_error>`, and recursive pointer-based `<map>` / `<unordered_map>`.
+- **Cross-Directory Dependency Linker**:
+  - Recursively discovers headers across the cloned tree and safely links required implementation files (`.cpp`/`.c`) while strictly respecting subsystem boundaries.
+- **Python AST Sanitizer**:
+  - Validates and prepares Python code for ESBMC's native Python frontend (`--python python3`).
+### 4. Interactive Dashboard & Verification Reports
+- **Dual View**: Seamlessly switch between the raw ESBMC terminal output and the rich visual dashboard.
+- **Visual Counterexamples**:
+  - Pinpoints violation locations directly on the source code.
+  - Step-by-step execution traces and initial variable counterexample assignments.
+- **Comprehensive Scientific Reporting**:
+  - **SV-COMP Witness Export**: Download verification witnesses in **GraphML** and **YAML** formats.
+  - **Academic Formats**: Automatic generation of **LaTeX tables** (ready for papers and dissertations), **CSV summary**, **interactive HTML report**, and structured **JSON**.
+### 5. Asynchronous Task Architecture
+- Non-blocking background verification queue with live log streaming and progress tracking.
+- Interactive **Cancel Verification** control to safely terminate long-running solver tasks.
+- Automatic port freeing on startup to avoid port 5000 conflicts.
+---
 
-## Features:
-
-- **In-Browser Code Editor**: A full-featured editor (powered by CodeMirror) with syntax highlighting for C, C++, and Python.
-- **File Support**: Upload the main code file and add multiple dependency files (e.g., .h, .c, .cpp, .py) for C/C++ and Python projects.
-- **Comprehensive Flag Selection**: A user-friendly interface to select dozens of ESBMC flags and parameters, including:
-  - **Standard Checks**: memory-leak-check, overflow-check, data-races-check, etc.
-  - **Analysis Algorithms**: incremental-bmc, k-induction, falsification, termination.
-  - **Property Checking**: Granular control to disable assertions, bounds checks, pointer checks, and more.
-  - **Parameters**: Set unwind, timeout, function, and context-bound.
-  - **SMT Solvers**: Easily switch between Boolector (default), Z3, CVC5, Bitwuzla, and others.
-  - **Dual Result View**: Toggle between the raw text log and the interactive dashboard.
-  - **Interactive Dashboard**: When a violation is found, the dashboard clearly displays:
-    - A clear "VERIFICATION FAILED" status.
-    - Summary cards for total steps and violations.
-    - A detailed table of all violations (file, function, line, and message).
-    - The Counterexample (initial variable values) that triggered the failure.
-    - The complete Execution Trace leading to the violation.
-    - The Analyzed Source Code with the specific lines causing violations highlighted in red.
 
 
-## Architecture (Simplified)
-
-The project is divided into two parts:
-
-- **/backend**: A Flask (Python) server that receives the code and executes ESBMC.
-- **/frontend**: A static HTML/JS page that serves as the user interface.
 
 ## Architecture (Data Flow)
 
@@ -48,6 +56,7 @@ graph TD;
 
     subgraph "Tool"
          C["ESBMC (Core)"]
+
     end
     
     A -- "1. Sends (Code + Flags) via API" --> B;
