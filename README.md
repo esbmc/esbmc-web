@@ -1,8 +1,8 @@
 # ESBMC-Web: Advanced Formal Verification Platform & Code Analyzer
 
-**ESBMC-Web** is a modern, extensible web-based graphical user interface (GUI) and formal verification workbench for the **ESBMC (Efficient SMT-Based Bounded Model Checker)** verifier. 
+**ESBMC-Web** is an extensible, enterprise-grade web graphical interface (GUI) and verification workbench for **ESBMC (Efficient SMT-Based Bounded Model Checker)**. 
 
-It allows software engineers, students, and researchers to verify C, C++, and Python software directly in the web browser — supporting single files, multi-file projects, and **remote Git repositories with subfolder isolation and automatic dependency resolution**.
+It empowers researchers, software engineers, and students to formally verify C, C++, and Python software directly in the web browser — supporting single files, multi-file projects, and **remote Git repositories with subfolder isolation and automatic semantic dependency resolution**.
 
 ---
 
@@ -13,7 +13,7 @@ It allows software engineers, students, and researchers to verify C, C++, and Py
 - **Multi-File & Dependency Management**: Upload main files alongside local dependencies (`.h`, `.hpp`, `.c`, `.cpp`, `.py`).
 
 ### 2. Remote Git Repository Analysis & Subfolder Isolation
-- **Direct Git Cloning**: Provide a Git repository URL (e.g., `https://github.com/esbmc/esbmc` or `https://github.com/lucasccordeiro/vllm`).
+- **Direct Git Ingestion**: Analyze public Git repositories via URL (`https://github.com/esbmc/esbmc` or `https://github.com/lucasccordeiro/vllm`).
 - **Targeted Subfolder Scoping**: Paste links to specific subfolders (e.g., `https://github.com/esbmc/esbmc/tree/master/src/util`) or supply a folder filter to isolate and inspect only relevant files without repository clutter.
 - **Single-File Isolated Verification**: Select any individual component within a complex repository and verify it with automated local dependency resolution.
 
@@ -45,79 +45,154 @@ It allows software engineers, students, and researchers to verify C, C++, and Py
 
 ---
 
-## Architecture (Data Flow)
+## System Architecture
+
+The architecture of **ESBMC-Web** is structured into five cohesive, decoupled layers designed for modularity, safety, and high-performance formal verification:
 
 ```mermaid
 flowchart TD
-    subgraph Client ["Client Layer (Web Browser)"]
-        UI["Frontend UI (index.html)"]
-        Editor["CodeMirror & Repo Explorer"]
-        Dash["Interactive Dashboard (script.js)"]
+    subgraph Layer1 ["Layer 1: Presentation & User Experience"]
+        UI["Modern Web Interface (HTML5 / Bootstrap 5)"]
+        Editor["Syntax-Aware Editor (CodeMirror)"]
+        Tree["Git Repository & Subfolder Explorer"]
+        Dash["Interactive Dashboard & Trace Inspector"]
+        LogTerm["Live Streaming Console & Cancel Controller"]
     end
 
-    subgraph Server ["Backend Server (Flask / Python)"]
-        API["REST API (app.py)"]
-        TaskManager["Async Task Engine"]
-        GitWorker["Git Cloner & Subfolder Slicer"]
-        RepoSlice["RepoSlice-BMC Linker"]
-        Homogenizer["Homogenizer & Auto-Healer"]
-        Mocks["Boost & STL Mocks"]
+    subgraph Layer2 ["Layer 2: Orchestration & Asynchronous Ingestion"]
+        API["Flask RESTful API (app.py)"]
+        TaskQueue["Background Task Worker & State Machine"]
+        PortSentinel["Process Sentinel & Port Auto-Recovery"]
+        GitEngine["Sparse Git Cloner & Subfolder Slicer"]
     end
 
-    subgraph Engine ["Formal Verification Engine"]
-        ESBMC["ESBMC Core (GOTO / Symex)"]
-        Solvers["SMT Solvers (Z3 / Bitwuzla / Boolector)"]
+    subgraph Layer3 ["Layer 3: RepoSlice-BMC & Semantic Homogenization Pipeline"]
+        SubsystemLinker["Cross-Directory Linker & Scope Boundary Guard"]
+        ClangHealer["Clang AST Diagnostics & Auto-Healing Engine"]
+        HarnessGen["Symbolic Entrypoint Synthesizer (nondet_int)"]
+        Cpp20Lowering["Modern C++20 to C++14 Transpiler"]
+        MocksBoost["Boost & STL Shims (mock_boost: string_view, functional, atomic, map)"]
+        PySanitizer["Python AST Analyzer & Sanitizer"]
+    end
+
+    subgraph Layer4 ["Layer 4: Formal Verification Core (ESBMC)"]
+        FrontendAST["Clang C/C++ & Python Bytecode Frontends"]
+        GOTO["GOTO-Program Lowering & SSA Formula Slicer"]
+        BMC["Bounded Model Checker (BMC / k-Induction / Falsification)"]
+        Solvers["SMT Decision Procedures (Z3 / Bitwuzla / Boolector / CVC5)"]
+    end
+
+    subgraph Layer5 ["Layer 5: Telemetry & Scientific Reporting"]
+        Witnesses["SV-COMP Witnesses (GraphML & YAML)"]
+        LaTeX["Automated LaTeX Scientific Table Generator"]
+        Telemetry["Verification Telemetry (VCCs, Step Counters, JSON / CSV)"]
+        HTMLRep["Self-Contained Interactive HTML Report"]
     end
 
     UI --> Editor
+    Tree --> UI
     Editor -->|1. Submit Code or Git URL| API
-    API --> TaskManager
-    TaskManager --> GitWorker
-    GitWorker --> RepoSlice
-    RepoSlice --> Homogenizer
-    Homogenizer --> Mocks
-    Mocks --> ESBMC
-    ESBMC --> Solvers
-    Solvers -->|2. VCCs & Proofs| ESBMC
-    ESBMC -->|3. Verification Output| TaskManager
-    TaskManager -->|4. Live Status & Witnesses| Dash
-    Dash -->|5. Render Dashboard| UI
+    API --> TaskQueue
+    PortSentinel -.->|Auto-Free Port 5000| API
+    TaskQueue --> GitEngine
+    GitEngine --> SubsystemLinker
+    SubsystemLinker --> ClangHealer
+    ClangHealer --> HarnessGen
+    HarnessGen --> Cpp20Lowering
+    Cpp20Lowering --> MocksBoost
+    MocksBoost --> PySanitizer
+    PySanitizer --> FrontendAST
+    FrontendAST --> GOTO
+    GOTO --> BMC
+    BMC --> Solvers
+    Solvers -->|VCC Satisfiability| BMC
+    BMC -->|Verification Verdict| TaskQueue
+    TaskQueue --> Witnesses
+    TaskQueue --> LaTeX
+    TaskQueue --> Telemetry
+    TaskQueue --> HTMLRep
+    TaskQueue -->|Polling: Live Logs & Telemetry| Dash
+    Dash --> LogTerm
+    LogTerm --> UI
 ```
 
 ---
 
-## Architecture (Sequence of Events)
+### Architectural Layers Breakdown
+
+1. **Presentation & User Experience Layer**:
+   - Built on a lightweight, reactive HTML5/Bootstrap 5 frontend.
+   - Embeds CodeMirror with dynamic syntax detection and an expandable Git repository tree view.
+   - Provides live polling for asynchronous tasks, real-time log streaming, and visual highlighting of source lines where counterexamples occur.
+
+2. **Orchestration & Asynchronous Ingestion Layer**:
+   - Managed by Flask (`backend/app.py`) running within WSL/Linux.
+   - Implements a non-blocking task queue (`TAREFAS_ATIVAS` and `CLONE_TASKS`) with UUID-based tracking.
+   - Uses `blob:none` sparse Git cloning to minimize network overhead and applies path prefixes to strictly isolate requested subfolders.
+   - Incorporates a Process Sentinel that automatically cleans up zombie sockets on port 5000 prior to initialization.
+
+3. **RepoSlice-BMC & Semantic Homogenization Pipeline (`backend/sanitizers/`)**:
+   - **Cross-Directory Dependency Linker**: Resolves local header hierarchies and locates required implementation files (`.cpp`/`.c`) while strictly confining the search space to the target subsystem.
+   - **Clang Auto-Healer**: Executes `clang -fsyntax-only` diagnostic sweeps to identify undefined types, missing functions, and uninstantiated constants, automatically generating corresponding fallback stubs.
+   - **Symbolic Entrypoint Synthesizer**: Detects libraries without an explicit `main()` and synthesizes an entry point populated with nondeterministic variables (`nondet_int()`, symbolic arrays).
+   - **ABI Compatibility Mocking**: Injects standard STL and Boost shims into `mock_boost/` (`string_view`, `functional`, `atomic`, `mutex`, pointer-based `map`) to bridge gaps in the default `esbmclibc`.
+
+4. **Formal Verification Core (ESBMC Engine)**:
+   - Translates sanitized ASTs into GOTO intermediate representations.
+   - Generates Static Single Assignment (SSA) verification conditions (VCCs).
+   - Encodes formulas into bit-vector and floating-point arithmetic theories and solves them using state-of-the-art SMT solvers (Z3, Bitwuzla, Boolector, CVC5).
+
+5. **Telemetry & Scientific Reporting Layer**:
+   - Aggregates solver execution metrics (CPU time, VCC generation count, solver decision procedure time).
+   - Produces formal correctness witnesses conforming to the SV-COMP specification in GraphML and YAML.
+   - Generates publication-ready LaTeX tables for research papers and dissertations.
+
+---
+
+## Verification Pipeline & Reactive Execution Flow
+
+The sequence diagram below details the reactive, asynchronous life-cycle of a verification request from submission to report generation:
 
 ```mermaid
 sequenceDiagram
-    actor User as User
-    participant Frontend as Frontend (index.html)
-    participant Backend as Backend (app.py)
-    participant Engine as ESBMC / RepoSlice
-    participant Dashboard as Dashboard (script.js)
+    autonumber
+    actor Researcher as Researcher / Engineer
+    participant UI as Frontend Client (UI / CodeMirror)
+    participant Flask as Orchestration API (app.py)
+    participant Slicer as RepoSlice & Homogenizers
+    participant Clang as Clang Diagnostics Engine
+    participant ESBMC as ESBMC Verification Core
+    participant SMT as SMT Solver (Z3 / Bitwuzla)
 
-    User->>Frontend: 1. Input Code / Git Repo & Options
-    activate Frontend
-    Frontend->>Backend: 2. POST /analisar (Code + Options)
-    deactivate Frontend
-    activate Backend
-    Backend->>Engine: 3. RepoSlice + Homogenizer + ESBMC
-    activate Engine
-    Engine-->>Backend: 4. Verification Output & Witnesses
-    deactivate Engine
+    Researcher->>UI: Selects Code or Git Repo URL & Flags
+    UI->>Flask: POST /analisar (Source Payload + Parameters)
+    Flask-->>UI: 202 Accepted (task_id, status: "starting")
 
-    alt Verification Successful
-        Backend-->>Dashboard: 5a. Return Status SUCCESS (JSON)
-        activate Dashboard
-        Dashboard-->>User: 6a. Display Green Status & Metrics
-        deactivate Dashboard
-    else Verification Failed / Violation
-        Backend-->>Dashboard: 5b. Return Status VIOLATION (JSON)
-        activate Dashboard
-        Dashboard-->>User: 6b. Display Counterexample & Trace
-        deactivate Dashboard
+    par Asynchronous Ingestion & Slicing
+        Flask->>Slicer: Dispatch Task & Ingest Repository
+        Slicer->>Slicer: Scope to Subfolder & Resolve Dependencies
+        Slicer->>Clang: Query Clang Diagnostics for Missing Types
+        Clang-->>Slicer: Return Missing Symbols & Header Suggestions
+        Slicer->>Slicer: Synthesize Symbolic main() & Inject Boost/STL Mocks
     end
-    deactivate Backend
+
+    Flask->>ESBMC: Launch Verification (Homogenized AST / GOTO)
+    activate ESBMC
+    ESBMC->>ESBMC: Lower to GOTO & Generate SSA Slices
+    ESBMC->>SMT: Assert Verification Conditions (VCCs)
+    activate SMT
+    SMT-->>ESBMC: SAT (Counterexample Trace) / UNSAT (Proof)
+    deactivate SMT
+    ESBMC-->>Flask: Verification Verdict, Step Count, Witnesses
+    deactivate ESBMC
+
+    loop Reactive Client Polling
+        UI->>Flask: GET /status/task_id
+        Flask-->>UI: Stream Logs, Progress % & Partial Metrics
+    end
+
+    Flask-->>UI: Status "completed" (Dashboard JSON, GraphML, LaTeX)
+    UI->>Researcher: Renders Visual Counterexample, Trace & Safe Status
 ```
 
 ---
