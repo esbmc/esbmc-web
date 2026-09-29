@@ -9,9 +9,19 @@ STDLIB_CPP = {
     'memory', 'utility', 'functional', 'limits', 'numeric', 'iterator',
     'stdexcept', 'exception', 'sstream', 'fstream', 'iomanip', 'tuple',
     'array', 'bitset', 'type_traits', 'thread', 'mutex', 'atomic',
+    'shared_mutex', 'condition_variable', 'regex', 'typeindex',
+    'iosfwd', 'ios', 'streambuf', 'istream', 'ostream', 'cstdbool',
     'string.h', 'math.h', 'stdbool.h', 'stdint.h', 'stddef.h', 'assert.h',
     'time.h', 'unistd.h', 'pthread.h', 'limits.h', 'chrono', 'random',
-    'optional', 'variant', 'any', 'string_view', 'filesystem'
+    'optional', 'variant', 'any', 'string_view', 'filesystem',
+    'ctype.h', 'cctype', 'errno.h', 'cerrno', 'signal.h', 'csignal',
+    'setjmp.h', 'csetjmp', 'stdarg.h', 'cstdarg', 'float.h', 'cfloat',
+    'climits', 'locale.h', 'clocale', 'wchar.h', 'cwchar', 'wctype.h', 'cwctype',
+    'ctime', 'complex.h', 'ccomplex', 'fenv.h', 'cfenv', 'inttypes.h', 'cinttypes',
+    'uchar.h', 'cuchar', 'fcntl.h', 'dirent.h', 'dlfcn.h', 'sched.h', 'semaphore.h',
+    'sys/types.h', 'sys/stat.h', 'sys/time.h', 'sys/resource.h', 'sys/mman.h',
+    'concepts', 'coroutine', 'ranges', 'span', 'version', 'bit', 'compare',
+    'numbers', 'format', 'source_location', 'scoped_allocator', 'valarray', 'charconv'
 }
 
 CPP_KEYWORDS = {
@@ -130,8 +140,11 @@ def _header_existe_no_projeto(inc: str, temp_dir: str, dir_arquivo: str, headers
         return True
     if os.path.exists(os.path.join(temp_dir, inc_norm)):
         return True
-    if dir_arquivo and os.path.exists(os.path.join(dir_arquivo, inc_norm)):
-        return True
+    if dir_arquivo:
+        if os.path.exists(os.path.join(dir_arquivo, inc_norm)):
+            return True
+        if os.path.exists(os.path.join(dir_arquivo, 'src', inc_norm)):
+            return True
     return False
 
 
@@ -279,7 +292,7 @@ def _remover_clausulas_requires_cpp20(codigo: str) -> str:
     return "".join(resultado)
 
 
-def _sanitizar_constructos_rtti_e_headers_padrao(codigo: str) -> str:
+def _sanitizar_constructos_rtti_e_headers_padrao(codigo: str, eh_header: bool = False) -> str:
     """Transpila constructos C++17/C++20 (`requires(...)`, `if constexpr`, `consteval`, `std::is_*_v`,
     `typeid(T).name()` sem `<typeinfo>` e diretivas `#include MACRO_IDENT`) para C++14 compatível com ESBMC."""
     codigo_limpo = re.sub(r'\btypeid\s*\([^()]*\)\s*\.name\s*\(\s*\)', '"type"', codigo)
@@ -315,8 +328,22 @@ def _sanitizar_constructos_rtti_e_headers_padrao(codigo: str) -> str:
     )
     codigo_limpo = re.sub(r'\bchunk_storage\s*\{\s*\}\s*;', 'chunk_storage;', codigo_limpo)
 
+    # Transpilação de comparações em as_string() para irep_idt
+    codigo_limpo = re.sub(r'(\bas_string\s*\(\s*\))\s*<=\s*([A-Za-z0-9_.]+)', r'\1.compare(\2) <= 0', codigo_limpo)
+    codigo_limpo = re.sub(r'(\bas_string\s*\(\s*\))\s*>=\s*([A-Za-z0-9_.]+)', r'\1.compare(\2) >= 0', codigo_limpo)
+    codigo_limpo = re.sub(r'(\bas_string\s*\(\s*\))\s*<\s*([A-Za-z0-9_.]+)', r'\1.compare(\2) < 0', codigo_limpo)
+    codigo_limpo = re.sub(r'(\bas_string\s*\(\s*\))\s*>\s*([A-Za-z0-9_.]+)', r'\1.compare(\2) > 0', codigo_limpo)
+
     # Transpilação de as_string()[i] -> as_string().c_str()[i]
     codigo_limpo = re.sub(r'(\bas_string\s*\(\s*\))\[([0-9A-Za-z_]+)\]', r'\1.c_str()[\2]', codigo_limpo)
+
+    # Transpilação de indexação em const std::string: const std::string &var ... var[i] -> var.c_str()[i]
+    for m_param in re.finditer(r'\bconst\s+(?:std::)?(?:basic_)?string(?:<[^>]+>)?\s*&\s*([A-Za-z_][A-Za-z0-9_]*)', codigo_limpo):
+        var_name = m_param.group(1)
+        codigo_limpo = re.sub(rf'\b{var_name}\s*\[([^\[\]]+)\]', rf'{var_name}.c_str()[\1]', codigo_limpo)
+    for m_local in re.finditer(r'\bconst\s+(?:std::)?(?:basic_)?string(?:<[^>]+>)?\s+([A-Za-z_][A-Za-z0-9_]*)\s*=', codigo_limpo):
+        var_name = m_local.group(1)
+        codigo_limpo = re.sub(rf'\b{var_name}\s*\[([^\[\]]+)\]', rf'{var_name}.c_str()[\1]', codigo_limpo)
 
     # Substituição de std::addressof(...) -> (&(...))
     codigo_limpo = re.sub(r'\bstd::addressof\s*\(([^()]+)\)', r'(&(\1))', codigo_limpo)
@@ -338,13 +365,33 @@ def _sanitizar_constructos_rtti_e_headers_padrao(codigo: str) -> str:
     codigo_limpo = re.sub(r'\bstd::chrono::system_clock::to_time_t\s*\([^()]+\)', '0', codigo_limpo)
     codigo_limpo = re.sub(r'\bstd::chrono::system_clock::now\s*\(\s*\)', '0', codigo_limpo)
     codigo_limpo = re.sub(r'\bstd::hash<\s*std::thread::id\s*>\s*\{\s*\}\s*\([^()]+\)', '0', codigo_limpo)
+    # Transpilação de std::hash para string / string_view (usa .size() ao invés de cast direto)
+    codigo_limpo = re.sub(
+        r'\bstd::hash\s*<\s*(?:std::)?(?:basic_)?string(?:_view)?(?:<[^>]+>)?\s*>\s*\{\s*\}\s*\(\s*([^()]+)\s*\)',
+        r'((unsigned long)((\1).size()))',
+        codigo_limpo
+    )
     codigo_limpo = re.sub(r'\bstd::hash\s*<\s*[^<>]+\s*>\s*\{\s*\}\s*\(\s*([^()]+)\s*\)', r'((unsigned long)(\1))', codigo_limpo)
     codigo_limpo = re.sub(r'\b(?:std::)?time_t\s+[A-Za-z0-9_]+\s*=\s*std::chrono::system_clock::to_time_t\s*\([^;]+;', 'time_t currentTime = 0;', codigo_limpo)
     codigo_limpo = re.sub(r'\bstd::put_time\s*\([^()]*(?:\([^()]*\)[^()]*)*\)', '""', codigo_limpo)
+    # Transpilação do idiom de log com rvalue stringstream/ostringstream: (std::ostringstream{} << ...).str() -> std::string("")
+    codigo_limpo = re.sub(
+        r'\(\s*(?:std::)?(?:o)?stringstream\s*(?:\{\s*\}|\(\s*\))\s*<<\s*.*?\)\s*\.str\s*\(\s*\)',
+        'std::string("")',
+        codigo_limpo,
+        flags=re.DOTALL
+    )
     codigo_limpo = re.sub(r'\bstd::unreachable\s*\(\s*\)', '((void)0)', codigo_limpo)
     codigo_limpo = re.sub(r'(\b[A-Za-z0-9_]+)\.data\s*\(\s*\)', r'(&\1[0])', codigo_limpo)
+    # Transpilação de métodos virtuais para evitar bugs de vtable duplicada / thunk collisions no frontend do ESBMC 8.4.0
+    codigo_limpo = re.sub(r'\bvirtual\s+~([A-Za-z0-9_]+)\s*\([^)]*\)\s*=\s*default\s*;', r'~\1() = default;', codigo_limpo)
+    codigo_limpo = re.sub(r'\bvirtual\s+~([A-Za-z0-9_]+)\s*\(\s*\)', r'~\1()', codigo_limpo)
+    codigo_limpo = re.sub(r'\bvirtual\s+(?![a-z_]*\s*=[^;]*0)([^;=]+;)', r'\1', codigo_limpo)
+    # Transpilação de begin(c) e end(c) em containers
+    codigo_limpo = re.sub(r'\bbegin\s*\(\s*([A-Za-z0-9_]+)\s*\)', r'(const_cast<decltype(\1)&>(\1)).begin()', codigo_limpo)
+    codigo_limpo = re.sub(r'\bend\s*\(\s*([A-Za-z0-9_]+)\s*\)', r'(const_cast<decltype(\1)&>(\1)).end()', codigo_limpo)
 
-    if 'BOOST_SYMBOL_VISIBLE' not in codigo_limpo:
+    if not eh_header and 'BOOST_SYMBOL_VISIBLE' not in codigo_limpo:
         boost_compat_header = (
             "// === BOOST & COMPILER VISIBILITY & STL COMPATIBILITY LAYER ===\n"
             "#ifndef BOOST_SYMBOL_VISIBLE\n#define BOOST_SYMBOL_VISIBLE\n#endif\n"
@@ -352,93 +399,7 @@ def _sanitizar_constructos_rtti_e_headers_padrao(codigo: str) -> str:
             "#ifndef BOOST_SYMBOL_EXPORT\n#define BOOST_SYMBOL_EXPORT\n#endif\n"
             "#ifndef BOOST_SYMBOL_IMPORT\n#define BOOST_SYMBOL_IMPORT\n#endif\n"
             "#ifndef BOOST_FORCEINLINE\n#define BOOST_FORCEINLINE inline\n#endif\n"
-            "#include <vector>\n"
-            "#include <string>\n"
-            "#include <sstream>\n"
-            "#include <utility>\n"
-            "#include <tuple>\n"
-            "#include <ctime>\n"
-            "#include <iomanip>\n\n"
-            "typedef long time_t;\n\n"
-            "#ifndef _ESBMC_COMPAT_TRAITS_DEFINED\n"
-            "#define _ESBMC_COMPAT_TRAITS_DEFINED\n"
-            "namespace std {\n"
-            "    using time_t = ::time_t;\n"
-            "    template<typename T>\n"
-            "    inline const char* put_time(const T*, const char*) { return \"\"; }\n"
-            "    inline void* localtime(const ::time_t*) { static int d; return &d; }\n"
-            "    namespace chrono {\n"
-            "        struct system_clock {\n"
-            "            template<typename T = int>\n"
-            "            static ::time_t to_time_t(const T& = T{}) noexcept { return 0; }\n"
-            "            template<typename T = int>\n"
-            "            static int now() noexcept { return 0; }\n"
-            "        };\n"
-            "    }\n"
-            "    template<typename T, typename Alloc = std::allocator<T>>\n"
-            "    inline bool operator==(const vector<T, Alloc>& a, const vector<T, Alloc>& b) {\n"
-            "        if (a.size() != b.size()) return false;\n"
-            "        for (size_t i = 0; i < a.size(); ++i) { if (!(a[i] == b[i])) return false; }\n"
-            "        return true;\n"
-            "    }\n"
-            "    template<typename T, typename Alloc = std::allocator<T>>\n"
-            "    inline bool operator!=(const vector<T, Alloc>& a, const vector<T, Alloc>& b) {\n"
-            "        return !(a == b);\n"
-            "    }\n"
-            "    [[noreturn]] inline void unreachable() { __builtin_unreachable(); }\n"
-            "    template<typename T> struct _rm_const { using type = T; };\n"
-            "    template<typename T> struct _rm_const<const T> { using type = T; };\n"
-            "    template<typename T> struct _rm_volatile { using type = T; };\n"
-            "    template<typename T> struct _rm_volatile<volatile T> { using type = T; };\n"
-            "    template<typename T> struct _rm_cv { using type = typename _rm_const<typename _rm_volatile<T>::type>::type; };\n"
-            "    template<typename T> struct _rm_ref { using type = T; };\n"
-            "    template<typename T> struct _rm_ref<T&> { using type = T; };\n"
-            "    template<typename T> struct _rm_ref<T&&> { using type = T; };\n"
-            "    template<typename T> using remove_cvref_t = typename _rm_cv<typename _rm_ref<T>::type>::type;\n\n"
-            "    template<size_t N, size_t... Next>\n"
-            "    struct _make_idx_seq : _make_idx_seq<N - 1, N - 1, Next...> {};\n"
-            "    template<size_t... Next>\n"
-            "    struct _make_idx_seq<0, Next...> {\n"
-            "        using type = index_sequence<Next...>;\n"
-            "    };\n"
-            "    template<size_t N>\n"
-            "    using make_index_sequence = typename _make_idx_seq<N>::type;\n\n"
-            "    template<typename T>\n"
-            "    constexpr T* addressof(T& arg) noexcept {\n"
-            "        return &arg;\n"
-            "    }\n\n"
-            "    template<typename Base, typename Derived>\n"
-            "    struct is_base_of {\n"
-            "        static constexpr bool value = __is_base_of(Base, Derived);\n"
-            "    };\n\n"
-            "    template<typename F, typename Tuple, size_t... I>\n"
-            "    constexpr auto _apply_impl(F&& f, Tuple&& t, index_sequence<I...>) -> decltype(f(std::get<I>(t)...)) {\n"
-            "        return f(std::get<I>(t)...);\n"
-            "    }\n"
-            "    template<typename F, typename Tuple>\n"
-            "    constexpr auto apply(F&& f, Tuple&& t) -> decltype(_apply_impl(f, t, make_index_sequence<tuple_size<typename remove_reference<Tuple>::type>::value>{})) {\n"
-            "        return _apply_impl(f, t, make_index_sequence<tuple_size<typename remove_reference<Tuple>::type>::value>{});\n"
-            "    }\n"
-            "}\n\n"
-            "template<typename T>\n"
-            "inline bool operator==(const std::vector<T>& a, const std::vector<T>& b) {\n"
-            "    if (a.size() != b.size()) return false;\n"
-            "    for (size_t i = 0; i < a.size(); ++i) { if (!(a[i] == b[i])) return false; }\n"
-            "    return true;\n"
-            "}\n"
-            "template<typename T>\n"
-            "inline bool operator!=(const std::vector<T>& a, const std::vector<T>& b) {\n"
-            "    return !(a == b);\n"
-            "}\n\n"
-            "template<typename CharT, typename Traits, typename Alloc>\n"
-            "inline bool operator>=(const std::basic_string<CharT, Traits, Alloc>& a, const std::basic_string<CharT, Traits, Alloc>& b) {\n"
-            "    return !(a < b);\n"
-            "}\n"
-            "template<typename CharT, typename Traits, typename Alloc>\n"
-            "inline bool operator<=(const std::basic_string<CharT, Traits, Alloc>& a, const std::basic_string<CharT, Traits, Alloc>& b) {\n"
-            "    return !(b < a);\n"
-            "}\n"
-            "#endif\n\n"
+            "#include <ctype.h>\n\n"
         )
         codigo_limpo = boost_compat_header + codigo_limpo
     return codigo_limpo
@@ -459,8 +420,8 @@ def _sanitizar_headers_cpp20_recursivo(temp_dir: str):
                     try:
                         with open(h_path, 'r', encoding='utf-8', errors='replace') as fh:
                             h_content = fh.read()
-                        if any(tok in h_content for tok in ('requires', 'consteval', 'constinit', 'constexpr', '_v<', 'typeid', '[[')):
-                            h_clean = _sanitizar_constructos_rtti_e_headers_padrao(h_content)
+                        if any(tok in h_content for tok in ('requires', 'consteval', 'constinit', 'constexpr', '_v<', 'typeid', '[[', 'ostringstream', 'put_time', 'std::hash', 'as_string', 'operator<=', 'virtual', '.substr', 'begin(', 'end(')):
+                            h_clean = _sanitizar_constructos_rtti_e_headers_padrao(h_content, eh_header=True)
                             if h_clean != h_content:
                                 with open(h_path, 'w', encoding='utf-8') as fhw:
                                     fhw.write(h_clean)
@@ -512,16 +473,16 @@ def _diagnosticar_erros_clang_cpp(caminho_arquivo: str, include_dirs: list):
 
 
 def _gerar_harness_main_cpp(funcoes) -> str:
-    """Gera `int main()` simbólico para módulos C++ de repositórios Git sem `main()`."""
+    """Gera `int __esbmc_main()` simbólico para módulos C++ de repositórios Git sem `main()`."""
     if not funcoes:
-        return "\n// Harness Simbólico ESBMC C++ Homogenizer\nint main() {\n    return 0;\n}\n"
+        return "\n// Harness Simbólico ESBMC C++ Homogenizer\nint __esbmc_main() {\n    return 0;\n}\n"
 
     linhas = [
         "\n// ==========================================================================",
         "// HARNESS SIMBÓLICO GERADO PELO ESBMC C++ HOMOGENIZER (MÓDULO SEM MAIN)",
         "// ==========================================================================",
         "extern \"C\" int nondet_int();",
-        "int main() {"
+        "int __esbmc_main() {"
     ]
 
     for idx, (fn_name, params) in enumerate(funcoes[:5]):
@@ -585,16 +546,122 @@ def _injetar_mocks_boost_e_headers_compatibilidade(temp_dir: str) -> str:
         with open(config_hpp, 'w', encoding='utf-8') as f:
             f.write(
                 "#pragma once\n"
+                "#ifndef BOOST_CONFIG_HPP\n#define BOOST_CONFIG_HPP\n#endif\n"
                 "#if __has_include_next(<boost/config.hpp>)\n"
                 "#  include_next <boost/config.hpp>\n"
                 "#endif\n"
-                "#ifndef BOOST_SYMBOL_VISIBLE\n#define BOOST_SYMBOL_VISIBLE\n#endif\n"
-                "#ifndef BOOST_PROGRAM_OPTIONS_DECL\n#define BOOST_PROGRAM_OPTIONS_DECL\n#endif\n"
-                "#ifndef BOOST_SYMBOL_EXPORT\n#define BOOST_SYMBOL_EXPORT\n#endif\n"
-                "#ifndef BOOST_SYMBOL_IMPORT\n#define BOOST_SYMBOL_IMPORT\n#endif\n"
-                "#ifndef BOOST_FORCEINLINE\n#define BOOST_FORCEINLINE inline\n#endif\n"
-                "#ifndef BOOST_STATIC_CONSTANT\n#define BOOST_STATIC_CONSTANT(type, assignment) static const type assignment\n#endif\n"
-                "#ifndef BOOST_CONSTEXPR\n#define BOOST_CONSTEXPR constexpr\n#endif\n"
+                "#include <boost/config/suffix.hpp>\n"
+            )
+
+    detail_dir = os.path.join(boost_dir, 'detail')
+    config_dir = os.path.join(boost_dir, 'config')
+    config_detail_dir = os.path.join(config_dir, 'detail')
+    os.makedirs(detail_dir, exist_ok=True)
+    os.makedirs(config_detail_dir, exist_ok=True)
+
+    workaround_hpp = os.path.join(detail_dir, 'workaround.hpp')
+    if not os.path.exists(workaround_hpp):
+        with open(workaround_hpp, 'w', encoding='utf-8') as f:
+            f.write(
+                "#pragma once\n"
+                "#ifndef BOOST_WORKAROUND\n#define BOOST_WORKAROUND(symbol, test) 0\n#endif\n"
+                "#ifndef BOOST_TESTED_AT\n#define BOOST_TESTED_AT(value) != 0\n#endif\n"
+            )
+
+    suffix_content = (
+        "#pragma once\n"
+        "#ifndef BOOST_CONFIG_HPP\n#define BOOST_CONFIG_HPP\n#endif\n"
+        "#ifndef BOOST_CONFIG_SUFFIX_HPP\n#define BOOST_CONFIG_SUFFIX_HPP\n#endif\n"
+        "#ifndef BOOST_WORKAROUND\n#define BOOST_WORKAROUND(symbol, test) 0\n#endif\n"
+        "#ifndef BOOST_TESTED_AT\n#define BOOST_TESTED_AT(value) != 0\n#endif\n"
+        "#ifndef BOOST_NOEXCEPT\n#define BOOST_NOEXCEPT noexcept\n#endif\n"
+        "#ifndef BOOST_NOEXCEPT_OR_NOTHROW\n#define BOOST_NOEXCEPT_OR_NOTHROW noexcept\n#endif\n"
+        "#ifndef BOOST_NOEXCEPT_IF\n#define BOOST_NOEXCEPT_IF(predicate) noexcept((predicate))\n#endif\n"
+        "#ifndef BOOST_NOEXCEPT_EXPR\n#define BOOST_NOEXCEPT_EXPR(expr) noexcept((expr))\n#endif\n"
+        "#ifndef BOOST_CONSTEXPR\n#define BOOST_CONSTEXPR constexpr\n#endif\n"
+        "#ifndef BOOST_CONSTEXPR_OR_CONST\n#define BOOST_CONSTEXPR_OR_CONST constexpr\n#endif\n"
+        "#ifndef BOOST_CXX14_CONSTEXPR\n#define BOOST_CXX14_CONSTEXPR constexpr\n#endif\n"
+        "#ifndef BOOST_STATIC_CONSTANT\n#define BOOST_STATIC_CONSTANT(type, assignment) static const type assignment\n#endif\n"
+        "#ifndef BOOST_FORCEINLINE\n#define BOOST_FORCEINLINE inline\n#endif\n"
+        "#ifndef BOOST_MOVE_FORCEINLINE\n#define BOOST_MOVE_FORCEINLINE inline\n#endif\n"
+        "#ifndef BOOST_SYMBOL_VISIBLE\n#define BOOST_SYMBOL_VISIBLE\n#endif\n"
+        "#ifndef BOOST_SYMBOL_EXPORT\n#define BOOST_SYMBOL_EXPORT\n#endif\n"
+        "#ifndef BOOST_SYMBOL_IMPORT\n#define BOOST_SYMBOL_IMPORT\n#endif\n"
+        "#ifndef BOOST_PROGRAM_OPTIONS_DECL\n#define BOOST_PROGRAM_OPTIONS_DECL\n#endif\n"
+        "#ifndef BOOST_LIKELY\n#define BOOST_LIKELY(x) (x)\n#endif\n"
+        "#ifndef BOOST_UNLIKELY\n#define BOOST_UNLIKELY(x) (x)\n#endif\n"
+        "#ifndef BOOST_ATTRIBUTE_UNUSED\n#define BOOST_ATTRIBUTE_UNUSED\n#endif\n"
+        "#ifndef BOOST_ATTRIBUTE_NODISCARD\n#define BOOST_ATTRIBUTE_NODISCARD\n#endif\n"
+        "#ifndef BOOST_STATIC_ASSERT\n#define BOOST_STATIC_ASSERT(expr) static_assert(expr, #expr)\n#endif\n"
+        "#ifndef BOOST_STATIC_ASSERT_MSG\n#define BOOST_STATIC_ASSERT_MSG(expr, msg) static_assert(expr, msg)\n#endif\n"
+        "#ifndef BOOST_OVERRIDE\n#define BOOST_OVERRIDE override\n#endif\n"
+        "#ifndef BOOST_FINAL\n#define BOOST_FINAL final\n#endif\n"
+        "#ifndef BOOST_NORETURN\n#define BOOST_NORETURN [[noreturn]]\n#endif\n"
+        "#ifndef BOOST_INLINE_CONSTEXPR\n#define BOOST_INLINE_CONSTEXPR inline constexpr\n#endif\n"
+        "#ifndef BOOST_RESTRICT\n#define BOOST_RESTRICT __restrict\n#endif\n"
+        "#ifndef BOOST_DEDUCED_TYPENAME\n#define BOOST_DEDUCED_TYPENAME typename\n#endif\n"
+        "#ifndef BOOST_NESTED_TEMPLATE\n#define BOOST_NESTED_TEMPLATE template\n#endif\n"
+        "#ifndef BOOST_HAS_LONG_LONG\n#define BOOST_HAS_LONG_LONG\n#endif\n"
+        "#ifndef BOOST_NO_CXX11_ALLOCATOR\n#define BOOST_NO_CXX11_ALLOCATOR\n#endif\n"
+        "#ifndef BOOST_NO_CXX11_HDR_TUPLE\n#define BOOST_NO_CXX11_HDR_TUPLE\n#endif\n"
+        "#ifndef BOOST_NO_CXX11_HDR_FUNCTIONAL\n#define BOOST_NO_CXX11_HDR_FUNCTIONAL\n#endif\n"
+        "#ifndef BOOST_NO_CXX17_IF_CONSTEXPR\n#define BOOST_NO_CXX17_IF_CONSTEXPR\n#endif\n"
+        "#ifndef BOOST_NO_CXX17_HDR_VARIANT\n#define BOOST_NO_CXX17_HDR_VARIANT\n#endif\n"
+        "#ifndef BOOST_NO_CXX17_HDR_STRING_VIEW\n#define BOOST_NO_CXX17_HDR_STRING_VIEW\n#endif\n"
+        "#ifndef BOOST_NO_CXX17_HDR_OPTIONAL\n#define BOOST_NO_CXX17_HDR_OPTIONAL\n#endif\n"
+        "#ifndef BOOST_NULLPTR\n#define BOOST_NULLPTR nullptr\n#endif\n"
+        "#ifndef BOOST_GPU_ENABLED\n#define BOOST_GPU_ENABLED\n#endif\n"
+        "#ifndef BOOST_DEFAULTED_FUNCTION\n#define BOOST_DEFAULTED_FUNCTION(fun, body) fun = default;\n#endif\n"
+        "#ifndef BOOST_DELETED_FUNCTION\n#define BOOST_DELETED_FUNCTION(fun) fun = delete;\n#endif\n"
+        "#ifndef BOOST_FALLTHROUGH\n#define BOOST_FALLTHROUGH ((void)0)\n#endif\n\n"
+        "namespace boost {\n"
+        "    using long_long_type = long long;\n"
+        "    using ulong_long_type = unsigned long long;\n"
+        "}\n"
+    )
+    for s_path in [os.path.join(config_dir, 'suffix.hpp'), os.path.join(config_detail_dir, 'suffix.hpp')]:
+        if not os.path.exists(s_path):
+            with open(s_path, 'w', encoding='utf-8') as f:
+                f.write(suffix_content)
+
+    cstdint_hpp = os.path.join(boost_dir, 'cstdint.hpp')
+    if not os.path.exists(cstdint_hpp):
+        with open(cstdint_hpp, 'w', encoding='utf-8') as f:
+            f.write(
+                "#pragma once\n"
+                "#include <cstdint>\n"
+                "namespace boost {\n"
+                "    using int8_t = ::int8_t;\n"
+                "    using int_least8_t = ::int8_t;\n"
+                "    using int_fast8_t = ::int8_t;\n"
+                "    using uint8_t = ::uint8_t;\n"
+                "    using uint_least8_t = ::uint8_t;\n"
+                "    using uint_fast8_t = ::uint8_t;\n\n"
+                "    using int16_t = ::int16_t;\n"
+                "    using int_least16_t = ::int16_t;\n"
+                "    using int_fast16_t = ::int16_t;\n"
+                "    using uint16_t = ::uint16_t;\n"
+                "    using uint_least16_t = ::uint16_t;\n"
+                "    using uint_fast16_t = ::uint16_t;\n\n"
+                "    using int32_t = ::int32_t;\n"
+                "    using int_least32_t = ::int32_t;\n"
+                "    using int_fast32_t = ::int32_t;\n"
+                "    using uint32_t = ::uint32_t;\n"
+                "    using uint_least32_t = ::uint32_t;\n"
+                "    using uint_fast32_t = ::uint32_t;\n\n"
+                "    using int64_t = ::int64_t;\n"
+                "    using int_least64_t = ::int64_t;\n"
+                "    using int_fast64_t = ::int64_t;\n"
+                "    using uint64_t = ::uint64_t;\n"
+                "    using uint_least64_t = ::uint64_t;\n"
+                "    using uint_fast64_t = ::uint64_t;\n\n"
+                "    using intmax_t = ::int64_t;\n"
+                "    using uintmax_t = ::uint64_t;\n"
+                "    using intptr_t = ::intptr_t;\n"
+                "    using uintptr_t = ::uintptr_t;\n"
+                "    using long_long_type = long long;\n"
+                "    using ulong_long_type = unsigned long long;\n"
+                "}\n"
             )
 
     po_hpp = os.path.join(boost_dir, 'program_options.hpp')
@@ -660,6 +727,90 @@ def _injetar_mocks_boost_e_headers_compatibilidade(temp_dir: str) -> str:
             with open(p_sub_h, 'w', encoding='utf-8') as f:
                 f.write("#pragma once\n#include <boost/program_options.hpp>\n")
 
+    fs_hpp = os.path.join(boost_dir, 'filesystem.hpp')
+    if not os.path.exists(fs_hpp):
+        with open(fs_hpp, 'w', encoding='utf-8') as f:
+            f.write(
+                "#pragma once\n"
+                "#include <string>\n"
+                "#include <iostream>\n"
+                "#include <exception>\n\n"
+                "namespace boost {\n"
+                "namespace filesystem {\n"
+                "    class filesystem_error : public std::exception {\n"
+                "    public:\n"
+                "        virtual const char* what() const noexcept override { return \"boost::filesystem::filesystem_error\"; }\n"
+                "    };\n\n"
+                "    class path {\n"
+                "        std::string path_;\n"
+                "    public:\n"
+                "        path() = default;\n"
+                "        path(const char* s) : path_(s ? s : \"\") {}\n"
+                "        path(const std::string& s) : path_(s) {}\n"
+                "        template<typename Iter>\n"
+                "        path(Iter first, Iter last) : path_(first, last) {}\n\n"
+                "        path& operator/=(const path& p) { if (!path_.empty() && path_.back() != '/') path_ += '/'; path_ += p.path_; return *this; }\n"
+                "        path& operator/=(const std::string& s) { if (!path_.empty() && path_.back() != '/') path_ += '/'; path_ += s; return *this; }\n"
+                "        path& operator/=(const char* s) { if (!path_.empty() && path_.back() != '/') path_ += '/'; if (s) path_ += s; return *this; }\n\n"
+                "        const std::string& string() const { return path_; }\n"
+                "        std::string generic_string() const { return path_; }\n"
+                "        const char* c_str() const { return path_.c_str(); }\n"
+                "        bool empty() const { return path_.empty(); }\n"
+                "        void clear() { path_ = \"\"; }\n\n"
+                "        path filename() const { return path_; }\n"
+                "        path parent_path() const { return path_; }\n"
+                "        path extension() const { return \"\"; }\n"
+                "        path stem() const { return path_; }\n\n"
+                "        bool operator==(const path& p) const { return path_ == p.path_; }\n"
+                "        bool operator!=(const path& p) const { return path_ != p.path_; }\n"
+                "        bool operator<(const path& p) const { return path_ < p.path_; }\n\n"
+                "        friend std::ostream& operator<<(std::ostream& os, const path& p) {\n"
+                "            return os << p.string();\n"
+                "        }\n"
+                "    };\n\n"
+                "    inline path operator/(path lhs, const path& rhs) { lhs /= rhs; return lhs; }\n"
+                "    inline path operator/(path lhs, const std::string& rhs) { lhs /= rhs; return lhs; }\n"
+                "    inline path operator/(path lhs, const char* rhs) { lhs /= rhs; return lhs; }\n\n"
+                "    inline bool exists(const path&) { return true; }\n"
+                "    inline bool is_directory(const path&) { return false; }\n"
+                "    inline bool is_regular_file(const path&) { return true; }\n"
+                "    inline bool create_directories(const path&) { return true; }\n"
+                "    inline bool remove(const path&) { return true; }\n"
+                "    inline unsigned long long remove_all(const path&) { return 0; }\n"
+                "    inline void copy_file(const path&, const path&) {}\n"
+                "    inline path current_path() { return path(\".\"); }\n"
+                "    inline path absolute(const path& p) { return p; }\n"
+                "    inline path canonical(const path& p) { return p; }\n\n"
+                "    class directory_entry {\n"
+                "        path p_;\n"
+                "    public:\n"
+                "        directory_entry() = default;\n"
+                "        directory_entry(const path& p) : p_(p) {}\n"
+                "        const path& path() const { return p_; }\n"
+                "        operator const boost::filesystem::path&() const { return p_; }\n"
+                "    };\n\n"
+                "    class directory_iterator {\n"
+                "    public:\n"
+                "        directory_iterator() = default;\n"
+                "        explicit directory_iterator(const path&) {}\n"
+                "        directory_iterator& operator++() { return *this; }\n"
+                "        const directory_entry& operator*() const { static directory_entry de; return de; }\n"
+                "        const directory_entry* operator->() const { static directory_entry de; return &de; }\n"
+                "        bool operator==(const directory_iterator&) const { return true; }\n"
+                "        bool operator!=(const directory_iterator&) const { return false; }\n"
+                "    };\n"
+                "}\n"
+                "}\n"
+            )
+
+    fs_sub = os.path.join(boost_dir, 'filesystem')
+    os.makedirs(fs_sub, exist_ok=True)
+    for sub_f in ['path.hpp', 'operations.hpp', 'convenience.hpp', 'fstream.hpp']:
+        p_sub_f = os.path.join(fs_sub, sub_f)
+        if not os.path.exists(p_sub_f):
+            with open(p_sub_f, 'w', encoding='utf-8') as f:
+                f.write("#pragma once\n#include <boost/filesystem.hpp>\n")
+
     # 3. Headers leves de formatação e logging (fmtlib) para compatibilidade esbmclibc
     fmt_dir = os.path.join(mock_dir, 'fmt')
     os.makedirs(fmt_dir, exist_ok=True)
@@ -668,19 +819,73 @@ def _injetar_mocks_boost_e_headers_compatibilidade(temp_dir: str) -> str:
         "#include <string>\n"
         "#include <iostream>\n"
         "#include <sstream>\n"
-        "#include <exception>\n\n"
+        "#include <exception>\n"
+        "#include <cstdint>\n\n"
         "namespace fmt {\n"
         "    template<typename Char = char>\n"
         "    class basic_string_view {\n"
         "        const Char* data_;\n"
         "        size_t size_;\n"
         "    public:\n"
-        "        basic_string_view(const Char* s = \"\") : data_(s), size_(0) {}\n"
+        "        constexpr basic_string_view() noexcept : data_(nullptr), size_(0) {}\n"
+        "        constexpr basic_string_view(const Char* s) noexcept : data_(s), size_(0) {}\n"
         "        basic_string_view(const std::string& s) : data_(s.c_str()), size_(s.size()) {}\n"
-        "        const Char* data() const { return data_; }\n"
-        "        size_t size() const { return size_; }\n"
+        "        constexpr const Char* data() const noexcept { return data_; }\n"
+        "        constexpr size_t size() const noexcept { return size_; }\n"
+        "        operator size_t() const noexcept { return size_; }\n"
         "    };\n"
         "    using string_view = basic_string_view<char>;\n\n"
+        "    class memory_buffer : public std::string {\n"
+        "    public:\n"
+        "        using value_type = char;\n"
+        "        using const_reference = const char&;\n"
+        "        using reference = char&;\n"
+        "        memory_buffer() = default;\n"
+        "        void push_back(char c) { *this += c; }\n"
+        "        const char* data() const noexcept { return c_str(); }\n"
+        "        char* data() noexcept { return const_cast<char*>(c_str()); }\n"
+        "        void append(const char* begin, const char* end) {\n"
+        "            if (begin && end && end >= begin)\n"
+        "                std::string::append(begin, static_cast<size_t>(end - begin));\n"
+        "        }\n"
+        "    };\n\n"
+        "    enum class color : uint32_t {\n"
+        "        alice_blue = 0xF0F8FF,\n"
+        "        antique_white = 0xFAEBD7,\n"
+        "        aqua = 0x00FFFF,\n"
+        "        aquamarine = 0x7FFFD4,\n"
+        "        azure = 0xF0FFFF,\n"
+        "        black = 0x000000,\n"
+        "        blue = 0x0000FF,\n"
+        "        cyan = 0x00FFFF,\n"
+        "        green = 0x008000,\n"
+        "        magenta = 0xFF00FF,\n"
+        "        orange = 0xFFA500,\n"
+        "        red = 0xFF0000,\n"
+        "        white = 0xFFFFFF,\n"
+        "        yellow = 0xFFFF00\n"
+        "    };\n\n"
+        "    enum class emphasis : uint8_t {\n"
+        "        bold = 1,\n"
+        "        faint = 2,\n"
+        "        italic = 4,\n"
+        "        underline = 8,\n"
+        "        blink = 16,\n"
+        "        reverse = 32,\n"
+        "        conceal = 64,\n"
+        "        strikethrough = 128\n"
+        "    };\n\n"
+        "    struct text_style {\n"
+        "        constexpr text_style() noexcept = default;\n"
+        "        constexpr text_style(color) noexcept {}\n"
+        "        constexpr text_style(emphasis) noexcept {}\n"
+        "    };\n\n"
+        "    inline text_style fg(color c) noexcept { return text_style(c); }\n"
+        "    inline text_style bg(color c) noexcept { return text_style(c); }\n"
+        "    inline text_style operator|(text_style lhs, text_style rhs) noexcept { return lhs; }\n"
+        "    inline text_style operator|(emphasis lhs, emphasis rhs) noexcept { return text_style(lhs); }\n"
+        "    inline text_style operator|(text_style lhs, emphasis rhs) noexcept { return lhs; }\n"
+        "    inline text_style operator|(emphasis lhs, text_style rhs) noexcept { return rhs; }\n\n"
         "    template<typename T>\n"
         "    struct type_identity { using type = T; };\n"
         "    template<typename T>\n"
@@ -721,6 +926,8 @@ def _injetar_mocks_boost_e_headers_compatibilidade(temp_dir: str) -> str:
         "    };\n\n"
         "    template<typename OutputIt, typename... Args>\n"
         "    inline OutputIt format_to(OutputIt out, Args&&...) { return out; }\n\n"
+        "    template<typename OutputIt, typename... Args>\n"
+        "    inline OutputIt vformat_to(OutputIt out, Args&&...) { return out; }\n\n"
         "    template<typename... Args>\n"
         "    inline std::string format(Args&&...) { return \"\"; }\n\n"
         "    template<typename... Args>\n"
@@ -766,8 +973,8 @@ def _injetar_mocks_boost_e_headers_compatibilidade(temp_dir: str) -> str:
                 "        memory_order_release, memory_order_acq_rel, memory_order_seq_cst\n"
                 "    };\n\n"
                 "    template<typename T>\n"
-                "    struct atomic {\n"
-                "        T val_{};\n"
+                "    struct alignas(alignof(T)) atomic {\n"
+                "        alignas(alignof(T)) T val_{};\n"
                 "        atomic() noexcept = default;\n"
                 "        constexpr atomic(T desired) noexcept : val_(desired) {}\n"
                 "        atomic(const atomic&) = delete;\n"
@@ -1069,6 +1276,18 @@ def _injetar_mocks_boost_e_headers_compatibilidade(temp_dir: str) -> str:
                 "        explicit operator bool() const noexcept { return val_ != 0; }\n"
                 "        void clear() noexcept { val_ = 0; }\n"
                 "    };\n\n"
+                "    class error_condition {\n"
+                "        int val_{0};\n"
+                "        const error_category* cat_{&generic_category()};\n"
+                "    public:\n"
+                "        error_condition() noexcept = default;\n"
+                "        error_condition(int val, const error_category& cat) noexcept : val_(val), cat_(&cat) {}\n"
+                "        int value() const noexcept { return val_; }\n"
+                "        const error_category& category() const noexcept { return *cat_; }\n"
+                "        std::string message() const { return cat_->message(val_); }\n"
+                "        explicit operator bool() const noexcept { return val_ != 0; }\n"
+                "        void clear() noexcept { val_ = 0; }\n"
+                "    };\n\n"
                 "    class system_error : public std::exception {\n"
                 "        error_code code_;\n"
                 "        std::string what_;\n"
@@ -1112,6 +1331,9 @@ def _injetar_mocks_boost_e_headers_compatibilidade(temp_dir: str) -> str:
                 "            value_type& operator*() const { return node_->data; }\n"
                 "            value_type* operator->() const { return &node_->data; }\n"
                 "            iterator& operator++() { return *this; }\n"
+                "            iterator operator++(int) { iterator tmp = *this; ++(*this); return tmp; }\n"
+                "            iterator& operator--() { return *this; }\n"
+                "            iterator operator--(int) { iterator tmp = *this; --(*this); return tmp; }\n"
                 "            bool operator==(const iterator& o) const { return node_ == o.node_; }\n"
                 "            bool operator!=(const iterator& o) const { return node_ != o.node_; }\n"
                 "        };\n"
@@ -1120,12 +1342,19 @@ def _injetar_mocks_boost_e_headers_compatibilidade(temp_dir: str) -> str:
                 "            const value_type& operator*() const { return node_->data; }\n"
                 "            const value_type* operator->() const { return &node_->data; }\n"
                 "            const_iterator& operator++() { return *this; }\n"
+                "            const_iterator operator++(int) { const_iterator tmp = *this; ++(*this); return tmp; }\n"
+                "            const_iterator& operator--() { return *this; }\n"
+                "            const_iterator operator--(int) { const_iterator tmp = *this; --(*this); return tmp; }\n"
                 "            bool operator==(const const_iterator& o) const { return node_ == o.node_; }\n"
                 "            bool operator!=(const const_iterator& o) const { return node_ != o.node_; }\n"
                 "        };\n"
                 "        map() noexcept : root_(nullptr), size_(0) {}\n"
                 "        map(const map& o) : root_(nullptr), size_(0) {}\n"
                 "        map(map&& o) noexcept : root_(o.root_), size_(o.size_) { o.root_ = nullptr; o.size_ = 0; }\n"
+                "        template<typename InitList>\n"
+                "        map(InitList) : root_(nullptr), size_(0) {}\n"
+                "        template<typename InputIt>\n"
+                "        map(InputIt, InputIt) : root_(nullptr), size_(0) {}\n"
                 "        ~map() {}\n"
                 "        map& operator=(const map& o) { return *this; }\n"
                 "        map& operator=(map&& o) noexcept { swap(o); return *this; }\n"
@@ -1144,6 +1373,10 @@ def _injetar_mocks_boost_e_headers_compatibilidade(temp_dir: str) -> str:
                 "        const_iterator cend() const noexcept { return const_iterator{nullptr}; }\n"
                 "        iterator find(const Key&) { return end(); }\n"
                 "        const_iterator find(const Key&) const { return end(); }\n"
+                "        iterator lower_bound(const Key&) { return begin(); }\n"
+                "        const_iterator lower_bound(const Key&) const { return begin(); }\n"
+                "        iterator upper_bound(const Key&) { return end(); }\n"
+                "        const_iterator upper_bound(const Key&) const { return end(); }\n"
                 "        size_type count(const Key&) const { return 0; }\n"
                 "        mapped_type& operator[](const Key& k) { static mapped_type dummy{}; return dummy; }\n"
                 "        mapped_type& operator[](Key&& k) { static mapped_type dummy{}; return dummy; }\n"
@@ -1151,11 +1384,19 @@ def _injetar_mocks_boost_e_headers_compatibilidade(temp_dir: str) -> str:
                 "        const mapped_type& at(const Key& k) const { static mapped_type dummy{}; return dummy; }\n"
                 "        template<typename... Args> std::pair<iterator, bool> emplace(Args&&...) { return {end(), true}; }\n"
                 "        std::pair<iterator, bool> insert(const value_type&) { return {end(), true}; }\n"
+                "        template<typename P> std::pair<iterator, bool> insert(P&&) { return {end(), true}; }\n"
                 "        size_type erase(const Key&) { return 0; }\n"
                 "        iterator erase(iterator it) { return end(); }\n"
+                "        bool operator==(const map& o) const { return size_ == o.size_; }\n"
+                "        bool operator!=(const map& o) const { return !(*this == o); }\n"
+                "        bool operator<(const map& o) const { return false; }\n"
                 "    };\n"
                 "    template<typename Key, typename T, typename Compare>\n"
                 "    inline void swap(map<Key, T, Compare>& a, map<Key, T, Compare>& b) noexcept { a.swap(b); }\n"
+                "    template<typename Key, typename T, typename Compare>\n"
+                "    inline bool operator==(const map<Key, T, Compare>& a, const map<Key, T, Compare>& b) { return a.operator==(b); }\n"
+                "    template<typename Key, typename T, typename Compare>\n"
+                "    inline bool operator!=(const map<Key, T, Compare>& a, const map<Key, T, Compare>& b) { return a.operator!=(b); }\n"
                 "}\n"
             )
 
@@ -1187,6 +1428,9 @@ def _injetar_mocks_boost_e_headers_compatibilidade(temp_dir: str) -> str:
                 "            value_type& operator*() const { return node_->data; }\n"
                 "            value_type* operator->() const { return &node_->data; }\n"
                 "            iterator& operator++() { return *this; }\n"
+                "            iterator operator++(int) { iterator tmp = *this; ++(*this); return tmp; }\n"
+                "            iterator& operator--() { return *this; }\n"
+                "            iterator operator--(int) { iterator tmp = *this; --(*this); return tmp; }\n"
                 "            bool operator==(const iterator& o) const { return node_ == o.node_; }\n"
                 "            bool operator!=(const iterator& o) const { return node_ != o.node_; }\n"
                 "        };\n"
@@ -1195,12 +1439,19 @@ def _injetar_mocks_boost_e_headers_compatibilidade(temp_dir: str) -> str:
                 "            const value_type& operator*() const { return node_->data; }\n"
                 "            const value_type* operator->() const { return &node_->data; }\n"
                 "            const_iterator& operator++() { return *this; }\n"
+                "            const_iterator operator++(int) { const_iterator tmp = *this; ++(*this); return tmp; }\n"
+                "            const_iterator& operator--() { return *this; }\n"
+                "            const_iterator operator--(int) { const_iterator tmp = *this; --(*this); return tmp; }\n"
                 "            bool operator==(const const_iterator& o) const { return node_ == o.node_; }\n"
                 "            bool operator!=(const const_iterator& o) const { return node_ != o.node_; }\n"
                 "        };\n"
                 "        unordered_map() noexcept : head_(nullptr), size_(0) {}\n"
                 "        unordered_map(const unordered_map& o) : head_(nullptr), size_(0) {}\n"
                 "        unordered_map(unordered_map&& o) noexcept : head_(o.head_), size_(o.size_) { o.head_ = nullptr; o.size_ = 0; }\n"
+                "        template<typename InitList>\n"
+                "        unordered_map(InitList) : head_(nullptr), size_(0) {}\n"
+                "        template<typename InputIt>\n"
+                "        unordered_map(InputIt, InputIt) : head_(nullptr), size_(0) {}\n"
                 "        ~unordered_map() {}\n"
                 "        unordered_map& operator=(const unordered_map& o) { return *this; }\n"
                 "        unordered_map& operator=(unordered_map&& o) noexcept { swap(o); return *this; }\n"
@@ -1226,11 +1477,69 @@ def _injetar_mocks_boost_e_headers_compatibilidade(temp_dir: str) -> str:
                 "        const mapped_type& at(const Key& k) const { static mapped_type dummy{}; return dummy; }\n"
                 "        template<typename... Args> std::pair<iterator, bool> emplace(Args&&...) { return {end(), true}; }\n"
                 "        std::pair<iterator, bool> insert(const value_type&) { return {end(), true}; }\n"
+                "        template<typename P> std::pair<iterator, bool> insert(P&&) { return {end(), true}; }\n"
                 "        size_type erase(const Key&) { return 0; }\n"
                 "        iterator erase(iterator it) { return end(); }\n"
+                "        bool operator==(const unordered_map& o) const { return size_ == o.size_; }\n"
+                "        bool operator!=(const unordered_map& o) const { return !(*this == o); }\n"
+                "        friend void swap(unordered_map& a, unordered_map& b) noexcept { a.swap(b); }\n"
+                "        friend bool operator==(const unordered_map& a, const unordered_map& b) { return a.operator==(b); }\n"
+                "        friend bool operator!=(const unordered_map& a, const unordered_map& b) { return a.operator!=(b); }\n"
                 "    };\n"
-                "    template<typename K, typename T, typename H, typename P>\n"
-                "    inline void swap(unordered_map<K, T, H, P>& a, unordered_map<K, T, H, P>& b) noexcept { a.swap(b); }\n"
+                "}\n"
+            )
+
+    sig_h = os.path.join(mock_dir, 'signal.h')
+    if not os.path.exists(sig_h):
+        with open(sig_h, 'w', encoding='utf-8') as f:
+            f.write(
+                "#pragma once\n"
+                "#if __has_include_next(<signal.h>)\n"
+                "#  include_next <signal.h>\n"
+                "#endif\n\n"
+                "#ifndef SIGTERM\n"
+                "#define SIGHUP    1\n"
+                "#define SIGINT    2\n"
+                "#define SIGQUIT   3\n"
+                "#define SIGILL    4\n"
+                "#define SIGTRAP   5\n"
+                "#define SIGABRT   6\n"
+                "#define SIGBUS    7\n"
+                "#define SIGFPE    8\n"
+                "#define SIGKILL   9\n"
+                "#define SIGUSR1   10\n"
+                "#define SIGSEGV   11\n"
+                "#define SIGUSR2   12\n"
+                "#define SIGPIPE   13\n"
+                "#define SIGALRM   14\n"
+                "#define SIGTERM   15\n"
+                "#define SIGCHLD   17\n"
+                "#define SIGCONT   18\n"
+                "#define SIGSTOP   19\n"
+                "#define SIGTSTP   20\n"
+                "#define SIGTTIN   21\n"
+                "#define SIGTTOU   22\n"
+                "#endif\n\n"
+                "#ifndef SA_RESTART\n"
+                "#define SA_NOCLDSTOP 1\n"
+                "#define SA_NOCLDWAIT 2\n"
+                "#define SA_SIGINFO   4\n"
+                "#define SA_RESTART   0x10000000\n"
+                "#define SA_NODEFER   0x40000000\n"
+                "#define SA_RESETHAND 0x80000000\n"
+                "#endif\n"
+            )
+
+    csig_p = os.path.join(mock_dir, 'csignal')
+    if not os.path.exists(csig_p):
+        with open(csig_p, 'w', encoding='utf-8') as f:
+            f.write(
+                "#pragma once\n"
+                "#include <signal.h>\n"
+                "namespace std {\n"
+                "    using ::sig_atomic_t;\n"
+                "    using ::signal;\n"
+                "    using ::raise;\n"
                 "}\n"
             )
 
@@ -1243,18 +1552,19 @@ def _injetar_mocks_boost_e_headers_compatibilidade(temp_dir: str) -> str:
                 "#include <cstddef>\n"
                 "#include <string>\n\n"
                 "namespace std {\n"
-                "    template<typename CharT>\n"
+                "    template<typename CharT, typename Traits = std::char_traits<CharT>>\n"
                 "    class basic_string_view {\n"
                 "    private:\n"
                 "        const CharT* data_;\n"
                 "        size_t size_;\n"
-                "        static size_t _len(const CharT* s) {\n"
+                "        static constexpr size_t _len(const CharT* s) noexcept {\n"
                 "            if (!s) return 0;\n"
                 "            size_t n = 0;\n"
                 "            while (s[n] != CharT(0) && n < 1024) ++n;\n"
                 "            return n;\n"
                 "        }\n"
                 "    public:\n"
+                "        using traits_type = Traits;\n"
                 "        using value_type = CharT;\n"
                 "        using pointer = const CharT*;\n"
                 "        using const_pointer = const CharT*;\n"
@@ -1268,10 +1578,10 @@ def _injetar_mocks_boost_e_headers_compatibilidade(temp_dir: str) -> str:
                 "        constexpr basic_string_view() noexcept : data_(nullptr), size_(0) {}\n"
                 "        constexpr basic_string_view(const basic_string_view&) noexcept = default;\n"
                 "        basic_string_view& operator=(const basic_string_view&) noexcept = default;\n\n"
-                "        constexpr basic_string_view(const CharT* s, size_type count) : data_(s), size_(count) {}\n"
-                "        basic_string_view(const CharT* s) : data_(s), size_(_len(s)) {}\n"
+                "        constexpr basic_string_view(const CharT* s, size_type count) noexcept : data_(s), size_(count) {}\n"
+                "        constexpr basic_string_view(const CharT* s) noexcept : data_(s), size_(_len(s)) {}\n"
                 "        template<typename Allocator>\n"
-                "        basic_string_view(const std::basic_string<CharT, std::char_traits<CharT>, Allocator>& str) noexcept\n"
+                "        basic_string_view(const std::basic_string<CharT, Traits, Allocator>& str) noexcept\n"
                 "            : data_(str.data()), size_(str.size()) {}\n\n"
                 "        constexpr const_iterator begin() const noexcept { return data_; }\n"
                 "        constexpr const_iterator end() const noexcept { return data_ + size_; }\n"
@@ -1323,24 +1633,28 @@ def _injetar_mocks_boost_e_headers_compatibilidade(temp_dir: str) -> str:
                 "        size_type find(CharT c, size_type pos = 0) const noexcept { return npos; }\n"
                 "        size_type rfind(basic_string_view s, size_type pos = npos) const noexcept { return npos; }\n"
                 "        size_type rfind(CharT c, size_type pos = npos) const noexcept { return npos; }\n\n"
-                "        explicit operator std::string() const { return data_ ? std::string(data_, size_) : std::string(); }\n"
+                "        operator size_t() const noexcept { return size_; }\n"
+                "        explicit operator std::string() const { return data_ ? std::string(data_, size_) : std::string(); }\n\n"
+                "        friend constexpr bool operator==(const basic_string_view& x, const basic_string_view& y) noexcept { return x.compare(y) == 0; }\n"
+                "        friend constexpr bool operator!=(const basic_string_view& x, const basic_string_view& y) noexcept { return !(x == y); }\n"
+                "        friend constexpr bool operator<(const basic_string_view& x, const basic_string_view& y) noexcept { return x.compare(y) < 0; }\n"
+                "        friend constexpr bool operator<=(const basic_string_view& x, const basic_string_view& y) noexcept { return x.compare(y) <= 0; }\n"
+                "        friend constexpr bool operator>(const basic_string_view& x, const basic_string_view& y) noexcept { return x.compare(y) > 0; }\n"
+                "        friend constexpr bool operator>=(const basic_string_view& x, const basic_string_view& y) noexcept { return x.compare(y) >= 0; }\n"
                 "    };\n\n"
                 "    using string_view = basic_string_view<char>;\n"
                 "    using u16string_view = basic_string_view<char16_t>;\n"
                 "    using u32string_view = basic_string_view<char32_t>;\n"
                 "    using wstring_view = basic_string_view<wchar_t>;\n\n"
-                "    template<typename CharT>\n"
-                "    inline bool operator==(basic_string_view<CharT> x, basic_string_view<CharT> y) noexcept { return x.compare(y) == 0; }\n"
-                "    template<typename CharT>\n"
-                "    inline bool operator!=(basic_string_view<CharT> x, basic_string_view<CharT> y) noexcept { return !(x == y); }\n"
-                "    template<typename CharT>\n"
-                "    inline bool operator<(basic_string_view<CharT> x, basic_string_view<CharT> y) noexcept { return x.compare(y) < 0; }\n"
-                "    template<typename CharT>\n"
-                "    inline bool operator<=(basic_string_view<CharT> x, basic_string_view<CharT> y) noexcept { return x.compare(y) <= 0; }\n"
-                "    template<typename CharT>\n"
-                "    inline bool operator>(basic_string_view<CharT> x, basic_string_view<CharT> y) noexcept { return x.compare(y) > 0; }\n"
-                "    template<typename CharT>\n"
-                "    inline bool operator>=(basic_string_view<CharT> x, basic_string_view<CharT> y) noexcept { return x.compare(y) >= 0; }\n"
+                "    template<typename T> struct hash;\n"
+                "    template<typename CharT, typename Traits>\n"
+                "    struct hash<basic_string_view<CharT, Traits>> {\n"
+                "        size_t operator()(const basic_string_view<CharT, Traits>& sv) const noexcept { return (size_t)sv.size(); }\n"
+                "    };\n"
+                "    template<>\n"
+                "    struct hash<string_view> {\n"
+                "        size_t operator()(const string_view& sv) const noexcept { return (size_t)sv.size(); }\n"
+                "    };\n"
                 "}\n"
             )
 
@@ -1350,15 +1664,49 @@ def _injetar_mocks_boost_e_headers_compatibilidade(temp_dir: str) -> str:
         with open(func_p, 'w', encoding='utf-8') as f:
             f.write(
                 "#pragma once\n"
+                "#ifndef STL_FUNCTIONAL\n"
+                "#define STL_FUNCTIONAL\n"
                 "#include <cstddef>\n"
                 "#include <utility>\n"
                 "#include <type_traits>\n"
+                "#include <tuple>\n"
                 "#include <string>\n"
                 "#include <exception>\n\n"
                 "namespace std {\n"
+                "    template<typename T> class reference_wrapper;\n"
+                "    template<typename C, typename... A>\n"
+                "    auto _invoke_callable(C& c, A&&... a) -> decltype(c(static_cast<A&&>(a)...)) {\n"
+                "        return c(static_cast<A&&>(a)...);\n"
+                "    }\n"
+                "    template<typename W, typename... A>\n"
+                "    auto _invoke_callable(reference_wrapper<W>& r, A&&... a) -> decltype(r.get()(static_cast<A&&>(a)...)) {\n"
+                "        return r.get()(static_cast<A&&>(a)...);\n"
+                "    }\n"
+                "    template<typename W, typename... A>\n"
+                "    auto _invoke_callable(const reference_wrapper<W>& r, A&&... a) -> decltype(r.get()(static_cast<A&&>(a)...)) {\n"
+                "        return r.get()(static_cast<A&&>(a)...);\n"
+                "    }\n\n"
                 "    class bad_function_call : public std::exception {\n"
                 "    public:\n"
                 "        virtual const char* what() const noexcept override { return \"bad_function_call\"; }\n"
+                "    };\n\n"
+                "    template<typename T>\n"
+                "    struct _fn_default {\n"
+                "        static T get() {\n"
+                "            alignas(T) static char buf[sizeof(T)];\n"
+                "            return *reinterpret_cast<T*>(buf);\n"
+                "        }\n"
+                "    };\n"
+                "    template<typename T>\n"
+                "    struct _fn_default<T&> {\n"
+                "        static T& get() {\n"
+                "            alignas(T) static char buf[sizeof(T)];\n"
+                "            return *reinterpret_cast<T*>(buf);\n"
+                "        }\n"
+                "    };\n"
+                "    template<>\n"
+                "    struct _fn_default<void> {\n"
+                "        static void get() {}\n"
                 "    };\n\n"
                 "    template<typename Signature>\n"
                 "    class function;\n\n"
@@ -1375,7 +1723,7 @@ def _injetar_mocks_boost_e_headers_compatibilidade(temp_dir: str) -> str:
                 "            Model(F&& f) : f_(std::forward<F>(f)) {}\n"
                 "            Model(const F& f) : f_(f) {}\n"
                 "            R invoke(Args... args) override {\n"
-                "                return f_(std::forward<Args>(args)...);\n"
+                "                return _invoke_callable(f_, std::forward<Args>(args)...);\n"
                 "            }\n"
                 "        };\n\n"
                 "        Concept* p_;\n\n"
@@ -1406,7 +1754,7 @@ def _injetar_mocks_boost_e_headers_compatibilidade(temp_dir: str) -> str:
                 "        explicit operator bool() const noexcept { return p_ != nullptr; }\n\n"
                 "        R operator()(Args... args) const {\n"
                 "            if (p_) return p_->invoke(std::forward<Args>(args)...);\n"
-                "            return R();\n"
+                "            return _fn_default<R>::get();\n"
                 "        }\n\n"
                 "        void swap(function& o) noexcept {\n"
                 "            Concept* tmp = p_;\n"
@@ -1435,15 +1783,6 @@ def _injetar_mocks_boost_e_headers_compatibilidade(temp_dir: str) -> str:
                 "        }\n"
                 "    };\n\n"
                 "    template<typename T>\n"
-                "    class reference_wrapper {\n"
-                "        T* ptr_;\n"
-                "    public:\n"
-                "        using type = T;\n"
-                "        reference_wrapper(T& ref) noexcept : ptr_(&ref) {}\n"
-                "        operator T& () const noexcept { return *ptr_; }\n"
-                "        T& get() const noexcept { return *ptr_; }\n"
-                "    };\n\n"
-                "    template<typename T>\n"
                 "    inline reference_wrapper<T> ref(T& t) noexcept { return reference_wrapper<T>(t); }\n"
                 "    template<typename T>\n"
                 "    inline reference_wrapper<const T> cref(const T& t) noexcept { return reference_wrapper<const T>(t); }\n\n"
@@ -1458,7 +1797,1384 @@ def _injetar_mocks_boost_e_headers_compatibilidade(temp_dir: str) -> str:
                 "    template<typename T = void>\n"
                 "    struct less_equal { bool operator()(const T& a, const T& b) const { return a <= b; } };\n"
                 "    template<typename T = void>\n"
-                "    struct greater_equal { bool operator()(const T& a, const T& b) const { return a >= b; } };\n"
+                "    struct greater_equal { bool operator()(const T& a, const T& b) const { return a >= b; } };\n\n"
+                "    namespace placeholders {\n"
+                "        extern const int _1;\n"
+                "        extern const int _2;\n"
+                "        extern const int _3;\n"
+                "        extern const int _4;\n"
+                "        extern const int _5;\n"
+                "        extern const int _6;\n"
+                "        extern const int _7;\n"
+                "        extern const int _8;\n"
+                "        extern const int _9;\n"
+                "    }\n"
+                "}\n"
+                "#endif\n"
+            )
+
+    iosfwd_p = os.path.join(mock_dir, 'iosfwd')
+    if not os.path.exists(iosfwd_p):
+        with open(iosfwd_p, 'w', encoding='utf-8') as f:
+            f.write(
+                "#pragma once\n"
+                "#include <ios>\n"
+                "namespace std {\n"
+                "    template<typename CharT> struct char_traits;\n"
+                "    template<typename CharT, typename Traits = char_traits<CharT>> class basic_ostream;\n"
+                "    template<typename CharT, typename Traits = char_traits<CharT>> class basic_istream;\n"
+                "    template<typename CharT, typename Traits = char_traits<CharT>> class basic_iostream;\n"
+                "    template<typename CharT, typename Traits = char_traits<CharT>, typename Alloc = allocator<CharT>> class basic_stringbuf;\n"
+                "    template<typename CharT, typename Traits = char_traits<CharT>, typename Alloc = allocator<CharT>> class basic_istringstream;\n"
+                "    template<typename CharT, typename Traits = char_traits<CharT>, typename Alloc = allocator<CharT>> class basic_ostringstream;\n"
+                "    template<typename CharT, typename Traits = char_traits<CharT>, typename Alloc = allocator<CharT>> class basic_stringstream;\n"
+                "}\n"
+            )
+
+    cstdio_p = os.path.join(mock_dir, 'cstdio')
+    if not os.path.exists(cstdio_p):
+        with open(cstdio_p, 'w', encoding='utf-8') as f:
+            f.write(
+                "#pragma once\n"
+                "#include <stdio.h>\n"
+                "namespace std {\n"
+                "    using ::snprintf;\n"
+                "    using ::sprintf;\n"
+                "    using ::printf;\n"
+                "    using ::fprintf;\n"
+                "    using ::FILE;\n"
+                "    using ::size_t;\n"
+                "}\n"
+            )
+
+    cstring_p = os.path.join(mock_dir, 'cstring')
+    if not os.path.exists(cstring_p):
+        with open(cstring_p, 'w', encoding='utf-8') as f:
+            f.write(
+                "#pragma once\n"
+                "#include <string.h>\n"
+                "namespace std {\n"
+                "    using ::strcmp;\n"
+                "    using ::strncmp;\n"
+                "    using ::strlen;\n"
+                "    using ::strcpy;\n"
+                "    using ::strncpy;\n"
+                "    using ::strcat;\n"
+                "    using ::strncat;\n"
+                "    using ::memcpy;\n"
+                "    using ::memmove;\n"
+                "    using ::memset;\n"
+                "    using ::memcmp;\n"
+                "    using ::size_t;\n"
+                "}\n"
+            )
+
+    ctime_p = os.path.join(mock_dir, 'ctime')
+    if not os.path.exists(ctime_p):
+        with open(ctime_p, 'w', encoding='utf-8') as f:
+            f.write(
+                "#pragma once\n"
+                "#include <time.h>\n"
+                "namespace std {\n"
+                "    using ::time_t;\n"
+                "    using ::time;\n"
+                "    using ::clock_t;\n"
+                "    using ::clock;\n"
+                "    using ::localtime;\n"
+                "    using ::gmtime;\n"
+                "    using ::strftime;\n"
+                "}\n"
+            )
+
+    chrono_p = os.path.join(mock_dir, 'chrono')
+    if not os.path.exists(chrono_p):
+        with open(chrono_p, 'w', encoding='utf-8') as f:
+            f.write(
+                "#pragma once\n"
+                "#if __has_include_next(<chrono>)\n"
+                "#  include_next <chrono>\n"
+                "#endif\n"
+                "#include <ctime>\n"
+                "namespace std {\n"
+                "    using time_t = ::time_t;\n"
+                "    namespace chrono {\n"
+                "        struct system_clock {\n"
+                "            template<typename T = int>\n"
+                "            static ::time_t to_time_t(const T& = T{}) noexcept { return 0; }\n"
+                "            template<typename T = int>\n"
+                "            static int now() noexcept { return 0; }\n"
+                "        };\n"
+                "    }\n"
+                "}\n"
+            )
+
+    iomanip_p = os.path.join(mock_dir, 'iomanip')
+    if not os.path.exists(iomanip_p):
+        with open(iomanip_p, 'w', encoding='utf-8') as f:
+            f.write(
+                "#pragma once\n"
+                "namespace std {\n"
+                "    template<typename T>\n"
+                "    inline const char* put_time(const T*, const char*) { return \"\"; }\n"
+                "}\n"
+            )
+
+    sstream_p = os.path.join(mock_dir, 'sstream')
+    if not os.path.exists(sstream_p):
+        with open(sstream_p, 'w', encoding='utf-8') as f:
+            f.write(
+                "#pragma once\n"
+                "#if __has_include_next(<sstream>)\n"
+                "#  include_next <sstream>\n"
+                "#endif\n"
+                "namespace std {\n"
+                "    template<typename T>\n"
+                "    inline ostream& operator<<(ostream& os, const T&) { return os; }\n"
+                "    template<typename T>\n"
+                "    inline ostringstream& operator<<(ostringstream&& os, const T&) { return os; }\n"
+                "    template<typename T>\n"
+                "    inline stringstream& operator<<(stringstream&& os, const T&) { return os; }\n"
+                "}\n"
+            )
+
+    vector_p = os.path.join(mock_dir, 'vector')
+    if not os.path.exists(vector_p):
+        with open(vector_p, 'w', encoding='utf-8') as f:
+            f.write(
+                "#pragma once\n"
+                "#if __has_include_next(<vector>)\n"
+                "#  include_next <vector>\n"
+                "#endif\n"
+                "namespace std {\n"
+                "    template<typename T, typename Alloc>\n"
+                "    inline bool operator==(const vector<T, Alloc>& a, const vector<T, Alloc>& b) {\n"
+                "        if (a.size() != b.size()) return false;\n"
+                "        for (size_t i = 0; i < a.size(); ++i) { if (!(a[i] == b[i])) return false; }\n"
+                "        return true;\n"
+                "    }\n"
+                "    template<typename T, typename Alloc>\n"
+                "    inline bool operator!=(const vector<T, Alloc>& a, const vector<T, Alloc>& b) {\n"
+                "        return !(a == b);\n"
+                "    }\n"
+                "}\n"
+            )
+
+    type_traits_p = os.path.join(mock_dir, 'type_traits')
+    if not os.path.exists(type_traits_p):
+        with open(type_traits_p, 'w', encoding='utf-8') as f:
+            f.write(
+                "#pragma once\n"
+                "#if __has_include_next(<type_traits>)\n"
+                "#  include_next <type_traits>\n"
+                "#endif\n"
+                "namespace std {\n"
+                "    template<typename Base, typename Derived>\n"
+                "    struct is_base_of {\n"
+                "        static constexpr bool value = __is_base_of(Base, Derived);\n"
+                "        constexpr operator bool() const noexcept { return value; }\n"
+                "        constexpr bool operator()() const noexcept { return value; }\n"
+                "    };\n\n"
+                "    template<typename T> struct _rm_const { using type = T; };\n"
+                "    template<typename T> struct _rm_const<const T> { using type = T; };\n"
+                "    template<typename T> struct _rm_volatile { using type = T; };\n"
+                "    template<typename T> struct _rm_volatile<volatile T> { using type = T; };\n"
+                "    template<typename T> struct _rm_cv { using type = typename _rm_const<typename _rm_volatile<T>::type>::type; };\n"
+                "    template<typename T> struct _rm_ref { using type = T; };\n"
+                "    template<typename T> struct _rm_ref<T&> { using type = T; };\n"
+                "    template<typename T> struct _rm_ref<T&&> { using type = T; };\n"
+                "    template<typename T> using remove_cvref_t = typename _rm_cv<typename _rm_ref<T>::type>::type;\n"
+                "    template<typename T> struct remove_cvref { using type = remove_cvref_t<T>; };\n\n"
+                "    template<typename T> struct tuple_size;\n"
+                "    template<typename T>\n"
+                "    constexpr size_t tuple_size_v = tuple_size<T>::value;\n"
+                "}\n"
+            )
+
+    utility_p = os.path.join(mock_dir, 'utility')
+    if not os.path.exists(utility_p):
+        with open(utility_p, 'w', encoding='utf-8') as f:
+            f.write(
+                "#pragma once\n"
+                "#if __has_include_next(<utility>)\n"
+                "#  include_next <utility>\n"
+                "#endif\n"
+                "namespace std {\n"
+                "    template<size_t N, size_t... Next>\n"
+                "    struct _make_idx_seq : _make_idx_seq<N - 1, N - 1, Next...> {};\n"
+                "    template<size_t... Next>\n"
+                "    struct _make_idx_seq<0, Next...> {\n"
+                "        using type = index_sequence<Next...>;\n"
+                "    };\n"
+                "    template<size_t N>\n"
+                "    using make_index_sequence = typename _make_idx_seq<N>::type;\n"
+                "}\n"
+            )
+
+    typeindex_p = os.path.join(mock_dir, 'typeindex')
+    if not os.path.exists(typeindex_p):
+        with open(typeindex_p, 'w', encoding='utf-8') as f:
+            f.write(
+                "#pragma once\n"
+                "#include <typeinfo>\n"
+                "#include <string>\n"
+                "namespace std {\n"
+                "    class type_index {\n"
+                "        const type_info* target_{nullptr};\n"
+                "    public:\n"
+                "        type_index() noexcept = default;\n"
+                "        type_index(const type_info& rhs) noexcept : target_(&rhs) {}\n"
+                "        bool operator==(const type_index& rhs) const noexcept { return target_ == rhs.target_; }\n"
+                "        bool operator!=(const type_index& rhs) const noexcept { return target_ != rhs.target_; }\n"
+                "        bool operator<(const type_index& rhs) const noexcept { return target_->before(*rhs.target_); }\n"
+                "        bool operator<=(const type_index& rhs) const noexcept { return !rhs.operator<(*this); }\n"
+                "        bool operator>(const type_index& rhs) const noexcept { return rhs.operator<(*this); }\n"
+                "        bool operator>=(const type_index& rhs) const noexcept { return !operator<(rhs); }\n"
+                "        size_t hash_code() const noexcept { return (size_t)target_; }\n"
+                "        const char* name() const noexcept { return target_ ? target_->name() : \"\"; }\n"
+                "    };\n"
+                "    template<typename T> struct hash;\n"
+                "    template<> struct hash<type_index> {\n"
+                "        size_t operator()(const type_index& ti) const noexcept { return ti.hash_code(); }\n"
+                "    };\n"
+                "}\n"
+            )
+
+    tuple_p = os.path.join(mock_dir, 'tuple')
+    if not os.path.exists(tuple_p):
+        with open(tuple_p, 'w', encoding='utf-8') as f:
+            f.write(
+                "#pragma once\n"
+                "#if __has_include_next(<tuple>)\n"
+                "#  include_next <tuple>\n"
+                "#endif\n"
+                "#include <utility>\n"
+                "#include <type_traits>\n\n"
+                "#ifndef _ESBMC_APPLY_DEFINED\n"
+                "#define _ESBMC_APPLY_DEFINED\n"
+                "namespace std {\n"
+                "    template<typename F, typename Tuple, size_t... I>\n"
+                "    constexpr auto _apply_impl(F&& f, Tuple&& t, index_sequence<I...>) -> decltype(f(std::get<I>(t)...)) {\n"
+                "        return f(std::get<I>(t)...);\n"
+                "    }\n"
+                "    template<typename F, typename Tuple>\n"
+                "    constexpr auto apply(F&& f, Tuple&& t) -> decltype(_apply_impl(f, t, make_index_sequence<tuple_size<typename remove_reference<Tuple>::type>::value>{})) {\n"
+                "        return _apply_impl(f, t, make_index_sequence<tuple_size<typename remove_reference<Tuple>::type>::value>{});\n"
+                "    }\n"
+                "}\n"
+                "#endif\n"
+            )
+
+    iterator_p = os.path.join(mock_dir, 'iterator')
+    if not os.path.exists(iterator_p):
+        with open(iterator_p, 'w', encoding='utf-8') as f:
+            f.write(
+                "#pragma once\n"
+                "#ifndef STL_ITERATOR\n"
+                "#define STL_ITERATOR\n"
+                "#include <cstddef>\n\n"
+                "namespace std {\n"
+                "    class input_iterator_tag {};\n"
+                "    class output_iterator_tag {};\n"
+                "    class forward_iterator_tag : public input_iterator_tag {};\n"
+                "    class bidirectional_iterator_tag : public forward_iterator_tag {};\n"
+                "    class random_access_iterator_tag : public bidirectional_iterator_tag {};\n\n"
+                "    template<typename Iterator>\n"
+                "    struct iterator_traits {\n"
+                "        typedef typename Iterator::difference_type difference_type;\n"
+                "        typedef typename Iterator::value_type value_type;\n"
+                "        typedef typename Iterator::pointer pointer;\n"
+                "        typedef typename Iterator::reference reference;\n"
+                "        typedef typename Iterator::iterator_category iterator_category;\n"
+                "    };\n\n"
+                "    template<typename T>\n"
+                "    struct iterator_traits<T*> {\n"
+                "        typedef ptrdiff_t difference_type;\n"
+                "        typedef T value_type;\n"
+                "        typedef T* pointer;\n"
+                "        typedef T& reference;\n"
+                "        typedef random_access_iterator_tag iterator_category;\n"
+                "    };\n\n"
+                "    template<typename T>\n"
+                "    struct iterator_traits<const T*> {\n"
+                "        typedef ptrdiff_t difference_type;\n"
+                "        typedef T value_type;\n"
+                "        typedef const T* pointer;\n"
+                "        typedef const T& reference;\n"
+                "        typedef random_access_iterator_tag iterator_category;\n"
+                "    };\n\n"
+                "    template<typename InputIt>\n"
+                "    inline typename iterator_traits<InputIt>::difference_type distance(InputIt first, InputIt last) {\n"
+                "        typename iterator_traits<InputIt>::difference_type n = 0;\n"
+                "        while (first != last) { ++first; ++n; }\n"
+                "        return n;\n"
+                "    }\n\n"
+                "    template<typename InputIt, typename Distance>\n"
+                "    inline void advance(InputIt& it, Distance n) {\n"
+                "        while (n > 0) { ++it; --n; }\n"
+                "    }\n\n"
+                "    template<typename ForwardIt>\n"
+                "    inline ForwardIt next(ForwardIt it, typename iterator_traits<ForwardIt>::difference_type n = 1) {\n"
+                "        advance(it, n);\n"
+                "        return it;\n"
+                "    }\n\n"
+                "    template<typename BidirIt>\n"
+                "    inline BidirIt prev(BidirIt it, typename iterator_traits<BidirIt>::difference_type n = 1) {\n"
+                "        while (n > 0) { --it; --n; }\n"
+                "        return it;\n"
+                "    }\n\n"
+                "    template<typename Container>\n"
+                "    class back_insert_iterator {\n"
+                "    protected:\n"
+                "        Container* container;\n"
+                "    public:\n"
+                "        using iterator_category = output_iterator_tag;\n"
+                "        using value_type = void;\n"
+                "        using difference_type = void;\n"
+                "        using pointer = void;\n"
+                "        using reference = void;\n"
+                "        using container_type = Container;\n"
+                "        explicit back_insert_iterator(Container& c) : container(&c) {}\n"
+                "        back_insert_iterator& operator=(const typename Container::value_type& val) {\n"
+                "            container->push_back(val);\n"
+                "            return *this;\n"
+                "        }\n"
+                "        back_insert_iterator& operator*() { return *this; }\n"
+                "        back_insert_iterator& operator++() { return *this; }\n"
+                "        back_insert_iterator operator++(int) { return *this; }\n"
+                "    };\n\n"
+                "    template<typename Container>\n"
+                "    inline back_insert_iterator<Container> back_inserter(Container& c) {\n"
+                "        return back_insert_iterator<Container>(c);\n"
+                "    }\n\n"
+                "    template<typename Iterator>\n"
+                "    class reverse_iterator {\n"
+                "    protected:\n"
+                "        Iterator current;\n"
+                "    public:\n"
+                "        using iterator_type = Iterator;\n"
+                "        using iterator_category = typename iterator_traits<Iterator>::iterator_category;\n"
+                "        using value_type = typename iterator_traits<Iterator>::value_type;\n"
+                "        using difference_type = typename iterator_traits<Iterator>::difference_type;\n"
+                "        using pointer = typename iterator_traits<Iterator>::pointer;\n"
+                "        using reference = typename iterator_traits<Iterator>::reference;\n\n"
+                "        reverse_iterator() : current() {}\n"
+                "        explicit reverse_iterator(Iterator it) : current(it) {}\n"
+                "        template<typename U>\n"
+                "        reverse_iterator(const reverse_iterator<U>& rev_it) : current(rev_it.base()) {}\n"
+                "        Iterator base() const { return current; }\n"
+                "        reference operator*() const { Iterator tmp = current; return *--tmp; }\n"
+                "        pointer operator->() const { return &(operator*()); }\n"
+                "        reverse_iterator& operator++() { --current; return *this; }\n"
+                "        reverse_iterator operator++(int) { reverse_iterator tmp = *this; --current; return tmp; }\n"
+                "        reverse_iterator& operator--() { ++current; return *this; }\n"
+                "        reverse_iterator operator--(int) { reverse_iterator tmp = *this; ++current; return tmp; }\n"
+                "        bool operator==(const reverse_iterator& o) const { return current == o.current; }\n"
+                "        bool operator!=(const reverse_iterator& o) const { return current != o.current; }\n"
+                "    };\n\n"
+                "    template<typename C>\n"
+                "    auto begin(C& c) -> decltype(c.begin()) { return c.begin(); }\n"
+                "    template<typename C>\n"
+                "    auto begin(const C& c) -> decltype(c.begin()) { return c.begin(); }\n"
+                "    template<typename C>\n"
+                "    auto end(C& c) -> decltype(c.end()) { return c.end(); }\n"
+                "    template<typename C>\n"
+                "    auto end(const C& c) -> decltype(c.end()) { return c.end(); }\n"
+                "}\n"
+                "#endif\n"
+            )
+
+    memory_p = os.path.join(mock_dir, 'memory')
+    if not os.path.exists(memory_p):
+        with open(memory_p, 'w', encoding='utf-8') as f:
+            f.write(
+                "#pragma once\n"
+                "#if __has_include_next(<memory>)\n"
+                "#  include_next <memory>\n"
+                "#endif\n"
+                "#ifndef _ESBMC_ALLOCATOR_TRAITS_DEFINED\n"
+                "#define _ESBMC_ALLOCATOR_TRAITS_DEFINED\n"
+                "namespace std {\n"
+                "    template<typename T>\n"
+                "    constexpr T* addressof(T& arg) noexcept {\n"
+                "        return &arg;\n"
+                "    }\n\n"
+                "    template<typename Alloc>\n"
+                "    struct allocator_traits {\n"
+                "        using allocator_type = Alloc;\n"
+                "        using value_type = typename Alloc::value_type;\n"
+                "        using pointer = value_type*;\n"
+                "        using const_pointer = const value_type*;\n"
+                "        using size_type = size_t;\n"
+                "        using difference_type = ptrdiff_t;\n"
+                "        using is_always_equal = std::true_type;\n"
+                "        template<typename U> using rebind_alloc = std::allocator<U>;\n"
+                "        template<typename U> using rebind_traits = allocator_traits<std::allocator<U>>;\n"
+                "        static pointer allocate(Alloc& a, size_type n) { return a.allocate(n); }\n"
+                "        static void deallocate(Alloc& a, pointer p, size_type n) { a.deallocate(p, n); }\n"
+                "        template<typename T, typename... Args>\n"
+                "        static void construct(Alloc&, T* p, Args&&... args) { ::new((void*)p) T(std::forward<Args>(args)...); }\n"
+                "        template<typename T>\n"
+                "        static void destroy(Alloc&, T* p) { p->~T(); }\n"
+                "        static size_type max_size(const Alloc& a) noexcept { return a.max_size(); }\n"
+                "    };\n\n"
+                "    template<typename T>\n"
+                "    class shared_ptr {\n"
+                "        T* ptr_{nullptr};\n"
+                "    public:\n"
+                "        using element_type = T;\n"
+                "        constexpr shared_ptr() noexcept : ptr_(nullptr) {}\n"
+                "        constexpr shared_ptr(std::nullptr_t) noexcept : ptr_(nullptr) {}\n"
+                "        explicit shared_ptr(T* p) noexcept : ptr_(p) {}\n"
+                "        shared_ptr(const shared_ptr& r) noexcept : ptr_(r.ptr_) {}\n"
+                "        shared_ptr(shared_ptr&& r) noexcept : ptr_(r.ptr_) { r.ptr_ = nullptr; }\n"
+                "        template<typename Y> shared_ptr(const shared_ptr<Y>& r) noexcept : ptr_(r.get()) {}\n"
+                "        template<typename Y> shared_ptr(shared_ptr<Y>&& r) noexcept : ptr_(r.get()) {}\n"
+                "        ~shared_ptr() {}\n"
+                "        shared_ptr& operator=(const shared_ptr& r) noexcept { ptr_ = r.ptr_; return *this; }\n"
+                "        shared_ptr& operator=(shared_ptr&& r) noexcept { ptr_ = r.ptr_; r.ptr_ = nullptr; return *this; }\n"
+                "        void reset() noexcept { ptr_ = nullptr; }\n"
+                "        void reset(T* p) noexcept { ptr_ = p; }\n"
+                "        T* get() const noexcept { return ptr_; }\n"
+                "        T& operator*() const noexcept { return *ptr_; }\n"
+                "        T* operator->() const noexcept { return ptr_; }\n"
+                "        long use_count() const noexcept { return ptr_ ? 1 : 0; }\n"
+                "        explicit operator bool() const noexcept { return ptr_ != nullptr; }\n"
+                "    };\n\n"
+                "    template<typename T>\n"
+                "    class weak_ptr {\n"
+                "        T* ptr_{nullptr};\n"
+                "    public:\n"
+                "        using element_type = T;\n"
+                "        constexpr weak_ptr() noexcept : ptr_(nullptr) {}\n"
+                "        weak_ptr(const shared_ptr<T>& r) noexcept : ptr_(r.get()) {}\n"
+                "        bool expired() const noexcept { return ptr_ == nullptr; }\n"
+                "        shared_ptr<T> lock() const noexcept { return shared_ptr<T>(ptr_); }\n"
+                "        void reset() noexcept { ptr_ = nullptr; }\n"
+                "    };\n\n"
+                "    template<typename T, typename... Args>\n"
+                "    inline shared_ptr<T> make_shared(Args&&... args) {\n"
+                "        return shared_ptr<T>(new T(std::forward<Args>(args)...));\n"
+                "    }\n"
+                "}\n"
+                "#endif\n"
+            )
+
+    # String com correções para limitações da libc interna do ESBMC
+    str_p = os.path.join(mock_dir, 'string')
+    if not os.path.exists(str_p):
+        import glob
+        matches = glob.glob('/tmp/esbmc-cpp-headers-*/string')
+        if not matches:
+            try:
+                subprocess.run(['esbmc', '--version'], capture_output=True, timeout=5)
+                matches = glob.glob('/tmp/esbmc-cpp-headers-*/string')
+            except Exception:
+                pass
+        if not matches:
+            try:
+                dummy_cpp = os.path.join(temp_dir, '__dummy_extract.cpp')
+                with open(dummy_cpp, 'w') as df:
+                    df.write('#include <string>\nint main(){}\n')
+                subprocess.run(['esbmc', dummy_cpp], capture_output=True, timeout=5)
+                matches = glob.glob('/tmp/esbmc-cpp-headers-*/string')
+            except Exception:
+                pass
+        if matches:
+            try:
+                matches.sort(key=os.path.getmtime, reverse=True)
+                with open(matches[0], 'r', encoding='utf-8', errors='replace') as sf:
+                    content_str = sf.read()
+
+                header_decl = (
+                    "#pragma once\n"
+                    "#ifdef __cplusplus\n"
+                    "extern \"C\" {\n"
+                    "#endif\n"
+                    "void __ESBMC_assume(bool);\n"
+                    "void __ESBMC_assert(bool, const char *);\n"
+                    "unsigned int nondet_uint();\n"
+                    "int nondet_int();\n"
+                    "bool nondet_bool();\n"
+                    "char nondet_char();\n"
+                    "#ifdef __cplusplus\n"
+                    "}\n"
+                    "#endif\n\n"
+                )
+                content_str = header_decl + content_str
+                content_str = content_str.replace(
+                    "basic_string<CharT, Traits, Alloc> substr(size_t pos, size_t n)",
+                    "basic_string<CharT, Traits, Alloc> substr(size_t pos, size_t n) const"
+                )
+                content_str = content_str.replace(
+                    "  char &operator[](size_t pos);",
+                    "  char &operator[](size_t pos);\n  const char &operator[](size_t pos) const;\n  void clear() { *this = \"\"; }\n  void push_back(CharT c) { *this += c; }"
+                )
+                content_str = content_str.replace(
+                    "template <class CharT, class Traits, class Alloc>\nchar &basic_string<CharT, Traits, Alloc>::operator[](size_t pos)",
+                    "template <class CharT, class Traits, class Alloc>\nconst char &basic_string<CharT, Traits, Alloc>::operator[](size_t pos) const\n{\n  return const_cast<basic_string*>(this)->operator[](pos);\n}\n\ntemplate <class CharT, class Traits, class Alloc>\nchar &basic_string<CharT, Traits, Alloc>::operator[](size_t pos)"
+                )
+                content_str = content_str.replace(
+                    "int compare(int pos1, size_t n1, basic_string<CharT, Traits, Alloc> &s) const;",
+                    "int compare(int pos1, size_t n1, const basic_string<CharT, Traits, Alloc> &s) const;"
+                )
+                content_str = content_str.replace(
+                    "basic_string<CharT, Traits, Alloc>::compare(\n  int pos1,\n  size_t n1,\n  basic_string<CharT, Traits, Alloc> &s) const",
+                    "basic_string<CharT, Traits, Alloc>::compare(\n  int pos1,\n  size_t n1,\n  const basic_string<CharT, Traits, Alloc> &s) const"
+                )
+                content_str = content_str.replace(
+                    "operator+(basic_string<CharT, Traits, Alloc> lhs, char *rhs)",
+                    "operator+(basic_string<CharT, Traits, Alloc> lhs, const char *rhs)"
+                )
+                content_str = content_str.replace(
+                    "operator+(char *lhs, basic_string<CharT, Traits, Alloc> rhs)",
+                    "operator+(const char *lhs, basic_string<CharT, Traits, Alloc> rhs)"
+                )
+
+                # Declarations of comparison operators in basic_string
+                decl_target = (
+                    "  bool operator>(basic_string<CharT, Traits, Alloc> &a);\n"
+                    "  bool operator>(const char *a);\n"
+                    "  friend bool\n"
+                    "  operator>(const char *lhs, basic_string<CharT, Traits, Alloc> &rhs);\n"
+                    "  friend bool\n"
+                    "  operator>(basic_string<CharT, Traits, Alloc> &lhs, const char *rhs);\n"
+                    "  bool operator<(basic_string<CharT, Traits, Alloc> &a);\n"
+                    "  bool operator<(const char *a);\n"
+                    "  friend bool\n"
+                    "  operator<(const char *lhs, basic_string<CharT, Traits, Alloc> &rhs);\n"
+                    "  friend bool\n"
+                    "  operator<(basic_string<CharT, Traits, Alloc> &lhs, const char *rhs);\n"
+                    "  bool operator>=(basic_string<CharT, Traits, Alloc> &a);\n"
+                    "  bool operator>=(const char *lhs);\n"
+                    "  bool operator<=(basic_string<CharT, Traits, Alloc> &a);\n"
+                    "  bool operator<=(const char *lhs);"
+                )
+                decl_replacement = (
+                    "  bool operator>(const basic_string<CharT, Traits, Alloc> &a) const;\n"
+                    "  bool operator>(const char *a) const;\n"
+                    "  friend bool\n"
+                    "  operator>(const char *lhs, const basic_string<CharT, Traits, Alloc> &rhs);\n"
+                    "  friend bool\n"
+                    "  operator>(const basic_string<CharT, Traits, Alloc> &lhs, const char *rhs);\n"
+                    "  bool operator<(const basic_string<CharT, Traits, Alloc> &a) const;\n"
+                    "  bool operator<(const char *a) const;\n"
+                    "  friend bool\n"
+                    "  operator<(const char *lhs, const basic_string<CharT, Traits, Alloc> &rhs);\n"
+                    "  friend bool\n"
+                    "  operator<(const basic_string<CharT, Traits, Alloc> &lhs, const char *rhs);\n"
+                    "  bool operator>=(const basic_string<CharT, Traits, Alloc> &a) const;\n"
+                    "  bool operator>=(const char *lhs) const;\n"
+                    "  bool operator<=(const basic_string<CharT, Traits, Alloc> &a) const;\n"
+                    "  bool operator<=(const char *lhs) const;\n"
+                    "  friend bool\n"
+                    "  operator<=(const char *lhs, const basic_string<CharT, Traits, Alloc> &rhs) { return rhs >= lhs; }\n"
+                    "  friend bool\n"
+                    "  operator>=(const char *lhs, const basic_string<CharT, Traits, Alloc> &rhs) { return rhs <= lhs; };"
+                )
+                if decl_target in content_str:
+                    content_str = content_str.replace(decl_target, decl_replacement)
+
+                # Member operator definitions
+                content_str = content_str.replace(
+                    "bool basic_string<CharT, Traits, Alloc>::operator>(\n  basic_string<CharT, Traits, Alloc> &a)",
+                    "bool basic_string<CharT, Traits, Alloc>::operator>(\n  const basic_string<CharT, Traits, Alloc> &a) const"
+                )
+                content_str = content_str.replace(
+                    "bool basic_string<CharT, Traits, Alloc>::operator>(const char *a)",
+                    "bool basic_string<CharT, Traits, Alloc>::operator>(const char *a) const"
+                )
+                content_str = content_str.replace(
+                    "bool basic_string<CharT, Traits, Alloc>::operator<(\n  basic_string<CharT, Traits, Alloc> &a)",
+                    "bool basic_string<CharT, Traits, Alloc>::operator<(\n  const basic_string<CharT, Traits, Alloc> &a) const"
+                )
+                content_str = content_str.replace(
+                    "bool basic_string<CharT, Traits, Alloc>::operator<(const char *a)",
+                    "bool basic_string<CharT, Traits, Alloc>::operator<(const char *a) const"
+                )
+                content_str = content_str.replace(
+                    "bool basic_string<CharT, Traits, Alloc>::operator>=(\n  basic_string<CharT, Traits, Alloc> &a)",
+                    "bool basic_string<CharT, Traits, Alloc>::operator>=(\n  const basic_string<CharT, Traits, Alloc> &a) const"
+                )
+                content_str = content_str.replace(
+                    "bool basic_string<CharT, Traits, Alloc>::operator>=(const char *lhs)",
+                    "bool basic_string<CharT, Traits, Alloc>::operator>=(const char *lhs) const"
+                )
+                content_str = content_str.replace(
+                    "bool basic_string<CharT, Traits, Alloc>::operator<=(\n  basic_string<CharT, Traits, Alloc> &a)",
+                    "bool basic_string<CharT, Traits, Alloc>::operator<=(\n  const basic_string<CharT, Traits, Alloc> &a) const"
+                )
+                content_str = content_str.replace(
+                    "bool basic_string<CharT, Traits, Alloc>::operator<=(const char *lhs)",
+                    "bool basic_string<CharT, Traits, Alloc>::operator<=(const char *lhs) const"
+                )
+
+                # Friend functions
+                content_str = content_str.replace(
+                    "bool operator>(const char *lhs, basic_string<CharT, Traits, Alloc> &rhs)",
+                    "bool operator>(const char *lhs, const basic_string<CharT, Traits, Alloc> &rhs)"
+                )
+                content_str = content_str.replace(
+                    "bool operator>(basic_string<CharT, Traits, Alloc> &lhs, const char *rhs)",
+                    "bool operator>(const basic_string<CharT, Traits, Alloc> &lhs, const char *rhs)"
+                )
+                content_str = content_str.replace(
+                    "bool operator<(const char *lhs, basic_string<CharT, Traits, Alloc> &rhs)",
+                    "bool operator<(const char *lhs, const basic_string<CharT, Traits, Alloc> &rhs)"
+                )
+                content_str = content_str.replace(
+                    "bool operator<(basic_string<CharT, Traits, Alloc> &lhs, const char *rhs)",
+                    "bool operator<(const basic_string<CharT, Traits, Alloc> &lhs, const char *rhs)"
+                )
+
+                with open(str_p, 'w', encoding='utf-8') as sf:
+                    sf.write(content_str)
+            except Exception:
+                pass
+
+    # Mock de <regex> para compatibilidade com esbmclibc
+    regex_mock_p = os.path.join(mock_dir, 'regex')
+    if not os.path.exists(regex_mock_p):
+        with open(regex_mock_p, 'w', encoding='utf-8') as f_reg:
+            f_reg.write(
+                "#pragma once\n"
+                "#include <string>\n"
+                "#include <cstddef>\n"
+                "namespace std {\n"
+                "    namespace regex_constants {\n"
+                "        constexpr int extended = 1;\n"
+                "        constexpr int ECMAScript = 2;\n"
+                "        constexpr int icase = 4;\n"
+                "        constexpr int nosubs = 8;\n"
+                "        constexpr int optimize = 16;\n"
+                "        constexpr int collate = 32;\n"
+                "    }\n"
+                "    class smatch {\n"
+                "    public:\n"
+                "        size_t length(size_t = 0) const { return 1; }\n"
+                "        size_t size() const { return 1; }\n"
+                "        bool empty() const { return false; }\n"
+                "        std::string str(size_t = 0) const { return \"\"; }\n"
+                "        const char* operator[](size_t) const { return \"\"; }\n"
+                "    };\n"
+                "    class regex {\n"
+                "    public:\n"
+                "        regex() = default;\n"
+                "        template<typename... Args> regex(Args&&...) {}\n"
+                "    };\n"
+                "    template<typename... Args> inline bool regex_match(const Args&...) { return true; }\n"
+                "    template<typename... Args> inline bool regex_search(const Args&...) { return true; }\n"
+                "    template<typename... Args> inline std::string regex_replace(const Args&...) { return \"\"; }\n"
+                "}\n"
+            )
+
+    # Mock de <algorithm> com std::all_of, std::any_of, std::none_of para compatibilidade com esbmclibc
+    algo_p = os.path.join(mock_dir, 'algorithm')
+    if not os.path.exists(algo_p):
+        with open(algo_p, 'w', encoding='utf-8') as f_alg:
+            f_alg.write(
+                "#pragma once\n"
+                "#if __has_include_next(<algorithm>)\n"
+                "#  include_next <algorithm>\n"
+                "#endif\n"
+                "#ifndef _ESBMC_ALGO_PREDICATES_DEFINED\n"
+                "#define _ESBMC_ALGO_PREDICATES_DEFINED\n"
+                "namespace std {\n"
+                "    template <class InputIterator, class UnaryPredicate>\n"
+                "    inline bool all_of(InputIterator first, InputIterator last, UnaryPredicate pred) {\n"
+                "        while (first != last) { if (!pred(*first)) return false; ++first; }\n"
+                "        return true;\n"
+                "    }\n"
+                "    template <class InputIterator, class UnaryPredicate>\n"
+                "    inline bool any_of(InputIterator first, InputIterator last, UnaryPredicate pred) {\n"
+                "        while (first != last) { if (pred(*first)) return true; ++first; }\n"
+                "        return false;\n"
+                "    }\n"
+                "    template <class InputIterator, class UnaryPredicate>\n"
+                "    inline bool none_of(InputIterator first, InputIterator last, UnaryPredicate pred) {\n"
+                "        while (first != last) { if (!pred(*first)) return false; ++first; }\n"
+                "        return true;\n"
+                "    }\n"
+                "}\n"
+                "#endif\n"
+            )
+
+    # Mock de <definitions.h> para compatibilidade com esbmclibc e evitar símbolos indefinidos
+    def_mock_p = os.path.join(mock_dir, 'definitions.h')
+    if not os.path.exists(def_mock_p):
+        with open(def_mock_p, 'w', encoding='utf-8') as f_def:
+            f_def.write(
+                "#pragma once\n"
+                "#ifndef STL_DEFINITIONS\n"
+                "#define STL_DEFINITIONS\n"
+                "#include <cstddef>\n"
+                "#ifdef __cplusplus\n"
+                "extern \"C\" {\n"
+                "#endif\n"
+                "void __ESBMC_assume(bool);\n"
+                "void __ESBMC_assert(bool, const char *);\n"
+                "unsigned int nondet_uint();\n"
+                "int nondet_int();\n"
+                "bool nondet_bool();\n"
+                "char nondet_char();\n"
+                "#ifdef __cplusplus\n"
+                "}\n"
+                "#endif\n"
+                "#define SIGINT 2\n"
+                "#define SEEK_SET 0\n"
+                "#define SEEK_CUR 1\n"
+                "#define SEEK_END 2\n"
+                "#ifndef __TIMESTAMP__\n"
+                "#  define __TIMESTAMP__ (0)\n"
+                "#endif\n"
+                "typedef ptrdiff_t streamsize;\n\n"
+                "class smanip {\n"
+                "public:\n"
+                "    enum kind { _setiosflags, _resetiosflags, _setbase, _setfill, _setprecision, _setw };\n"
+                "    int _kind;\n"
+                "    long _arg;\n"
+                "    smanip(kind k = _setw, long a = 0) : _kind(k), _arg(a) {}\n"
+                "};\n\n"
+                "#define _SIZE_T_DEFINED\n"
+                "#endif\n"
+            )
+
+    # esbmc_force_compat.h para ser pré-incluído com --include-file
+    force_compat_p = os.path.join(mock_dir, 'esbmc_force_compat.h')
+    if not os.path.exists(force_compat_p):
+        with open(force_compat_p, 'w', encoding='utf-8') as f:
+            f.write(
+                "#pragma once\n"
+                "#ifndef override\n"
+                "#define override\n"
+                "#endif\n"
+                "#ifndef final\n"
+                "#define final\n"
+                "#endif\n\n"
+                "#ifdef __cplusplus\n"
+                "extern \"C\" {\n"
+                "#endif\n"
+                "void __ESBMC_assume(bool);\n"
+                "void __ESBMC_assert(bool, const char *);\n"
+                "unsigned int nondet_uint();\n"
+                "int nondet_int();\n"
+                "bool nondet_bool();\n"
+                "char nondet_char();\n"
+                "#ifdef __cplusplus\n"
+                "}\n"
+                "#endif\n\n"
+                "#include <string>\n"
+                "#include <cstddef>\n"
+                "#include <utility>\n\n"
+                "template<typename C>\n"
+                "inline auto begin(C& c) -> decltype(c.begin()) { return c.begin(); }\n"
+                "template<typename C>\n"
+                "inline auto begin(const C& c) -> decltype(c.begin()) { return c.begin(); }\n"
+                "template<typename C>\n"
+                "inline auto end(C& c) -> decltype(c.end()) { return c.end(); }\n"
+                "template<typename C>\n"
+                "inline auto end(const C& c) -> decltype(c.end()) { return c.end(); }\n\n"
+                "namespace std {\n"
+                "    namespace regex_constants {\n"
+                "        constexpr int extended = 1;\n"
+                "        constexpr int ECMAScript = 2;\n"
+                "        constexpr int icase = 4;\n"
+                "        constexpr int nosubs = 8;\n"
+                "        constexpr int optimize = 16;\n"
+                "        constexpr int collate = 32;\n"
+                "    }\n"
+                "    class smatch {\n"
+                "    public:\n"
+                "        size_t length(size_t = 0) const { return 1; }\n"
+                "        size_t size() const { return 1; }\n"
+                "        bool empty() const { return false; }\n"
+                "        std::string str(size_t = 0) const { return \"\"; }\n"
+                "        const char* operator[](size_t) const { return \"\"; }\n"
+                "    };\n"
+                "    class regex {\n"
+                "    public:\n"
+                "        regex() = default;\n"
+                "        template<typename... Args> regex(Args&&...) {}\n"
+                "    };\n"
+                "    template<typename... Args> inline bool regex_match(const Args&...) { return true; }\n"
+                "    template<typename... Args> inline bool regex_search(const Args&...) { return true; }\n"
+                "    template<typename... Args> inline std::string regex_replace(const Args&...) { return \"\"; }\n"
+                "#ifndef _ESBMC_ALGO_PREDICATES_DEFINED\n"
+                "#define _ESBMC_ALGO_PREDICATES_DEFINED\n"
+                "    template <class InputIterator, class UnaryPredicate>\n"
+                "    inline bool all_of(InputIterator first, InputIterator last, UnaryPredicate pred) {\n"
+                "        while (first != last) { if (!pred(*first)) return false; ++first; }\n"
+                "        return true;\n"
+                "    }\n"
+                "    template <class InputIterator, class UnaryPredicate>\n"
+                "    inline bool any_of(InputIterator first, InputIterator last, UnaryPredicate pred) {\n"
+                "        while (first != last) { if (pred(*first)) return true; ++first; }\n"
+                "        return false;\n"
+                "    }\n"
+                "    template <class InputIterator, class UnaryPredicate>\n"
+                "    inline bool none_of(InputIterator first, InputIterator last, UnaryPredicate pred) {\n"
+                "        while (first != last) { if (!pred(*first)) return false; ++first; }\n"
+                "        return true;\n"
+                "    }\n"
+                "#endif\n"
+                "}\n\n"
+                "#ifndef STL_ITERATOR\n"
+                "#define STL_ITERATOR\n\n"
+                "namespace std {\n"
+                "    struct input_iterator_tag {};\n"
+                "    struct output_iterator_tag {};\n"
+                "    struct forward_iterator_tag : public input_iterator_tag {};\n"
+                "    struct bidirectional_iterator_tag : public forward_iterator_tag {};\n"
+                "    struct random_access_iterator_tag : public bidirectional_iterator_tag {};\n\n"
+                "    template<class Category, class T, class Distance = ptrdiff_t, class Pointer = T*, class Reference = T&>\n"
+                "    struct iterator {\n"
+                "        typedef T value_type;\n"
+                "        typedef Distance difference_type;\n"
+                "        typedef Pointer pointer;\n"
+                "        typedef Reference reference;\n"
+                "        typedef Category iterator_category;\n"
+                "    };\n\n"
+                "    template<typename Iterator>\n"
+                "    struct iterator_traits {\n"
+                "        typedef typename Iterator::difference_type difference_type;\n"
+                "        typedef typename Iterator::value_type value_type;\n"
+                "        typedef typename Iterator::pointer pointer;\n"
+                "        typedef typename Iterator::reference reference;\n"
+                "        typedef typename Iterator::iterator_category iterator_category;\n"
+                "    };\n\n"
+                "    template<typename T>\n"
+                "    struct iterator_traits<T*> {\n"
+                "        typedef ptrdiff_t difference_type;\n"
+                "        typedef T value_type;\n"
+                "        typedef T* pointer;\n"
+                "        typedef T& reference;\n"
+                "        typedef random_access_iterator_tag iterator_category;\n"
+                "    };\n\n"
+                "    template<typename T>\n"
+                "    struct iterator_traits<const T*> {\n"
+                "        typedef ptrdiff_t difference_type;\n"
+                "        typedef T value_type;\n"
+                "        typedef const T* pointer;\n"
+                "        typedef const T& reference;\n"
+                "        typedef random_access_iterator_tag iterator_category;\n"
+                "    };\n\n"
+                "    template <class Iterator>\n"
+                "    class reverse_iterator {\n"
+                "    protected:\n"
+                "        Iterator current;\n"
+                "    public:\n"
+                "        typedef Iterator iterator_type;\n"
+                "        typedef typename iterator_traits<Iterator>::difference_type difference_type;\n"
+                "        typedef typename iterator_traits<Iterator>::reference reference;\n"
+                "        typedef typename iterator_traits<Iterator>::pointer pointer;\n"
+                "        typedef typename iterator_traits<Iterator>::value_type value_type;\n"
+                "        typedef typename iterator_traits<Iterator>::iterator_category iterator_category;\n\n"
+                "        reverse_iterator() : current() {}\n"
+                "        explicit reverse_iterator(Iterator it) : current(it) {}\n"
+                "        template<class Iter> reverse_iterator(const reverse_iterator<Iter>& rev_it) : current(rev_it.base()) {}\n"
+                "        Iterator base() const { return current; }\n"
+                "        reference operator*() const { Iterator tmp = current; return *--tmp; }\n"
+                "        pointer operator->() const { return &(operator*()); }\n"
+                "        reverse_iterator& operator++() { --current; return *this; }\n"
+                "        reverse_iterator operator++(int) { reverse_iterator tmp = *this; --current; return tmp; }\n"
+                "        reverse_iterator& operator--() { ++current; return *this; }\n"
+                "        reverse_iterator operator--(int) { reverse_iterator tmp = *this; ++current; return tmp; }\n"
+                "        reverse_iterator operator+(difference_type n) const { return reverse_iterator(current - n); }\n"
+                "        reverse_iterator& operator+=(difference_type n) { current -= n; return *this; }\n"
+                "        reverse_iterator operator-(difference_type n) const { return reverse_iterator(current + n); }\n"
+                "        reverse_iterator& operator-=(difference_type n) { current += n; return *this; }\n"
+                "        reference operator[](difference_type n) const { return *(*this + n); }\n"
+                "        bool operator==(const reverse_iterator& other) const { return current == other.current; }\n"
+                "        bool operator!=(const reverse_iterator& other) const { return current != other.current; }\n"
+                "    };\n\n"
+                "    template <class Container>\n"
+                "    class back_insert_iterator : public iterator<output_iterator_tag, void, void, void, void> {\n"
+                "    protected:\n"
+                "        Container *container;\n"
+                "    public:\n"
+                "        typedef Container container_type;\n"
+                "        explicit back_insert_iterator(Container &x) : container(&x) {}\n"
+                "        template<typename T>\n"
+                "        back_insert_iterator<Container> &operator=(T&& value) {\n"
+                "            container->push_back(std::forward<T>(value));\n"
+                "            return *this;\n"
+                "        }\n"
+                "        back_insert_iterator<Container> &operator*() { return *this; }\n"
+                "        back_insert_iterator<Container> &operator++() { return *this; }\n"
+                "        back_insert_iterator<Container> operator++(int) { return *this; }\n"
+                "    };\n\n"
+                "    template <class Container>\n"
+                "    inline back_insert_iterator<Container> back_inserter(Container &x) {\n"
+                "        return back_insert_iterator<Container>(x);\n"
+                "    }\n"
+                "    template <class InputIterator, class UnaryPredicate>\n"
+                "    inline bool all_of(InputIterator first, InputIterator last, UnaryPredicate pred) {\n"
+                "        while (first != last) { if (!pred(*first)) return false; ++first; }\n"
+                "        return true;\n"
+                "    }\n"
+                "    template <class InputIterator, class UnaryPredicate>\n"
+                "    inline bool any_of(InputIterator first, InputIterator last, UnaryPredicate pred) {\n"
+                "        while (first != last) { if (pred(*first)) return true; ++first; }\n"
+                "        return false;\n"
+                "    }\n"
+                "    template <class InputIterator, class UnaryPredicate>\n"
+                "    inline bool none_of(InputIterator first, InputIterator last, UnaryPredicate pred) {\n"
+                "        while (first != last) { if (pred(*first)) return false; ++first; }\n"
+                "        return true;\n"
+                "    }\n"
+                "}\n"
+                "#endif\n\n"
+                "#include <cstdio>\n"
+                "#include <ctype.h>\n"
+                "#ifndef _IOLBF\n"
+                "#define _IOFBF 0\n"
+                "#define _IOLBF 1\n"
+                "#define _IONBF 2\n"
+                "#endif\n\n"
+                "#ifdef __cplusplus\n"
+                "extern \"C\" {\n"
+                "#endif\n"
+                "inline int setvbuf(FILE*, char*, int, size_t) { return 0; }\n"
+                "#ifdef __cplusplus\n"
+                "}\n"
+                "#endif\n\n"
+                "#ifndef SIGTERM\n"
+                "#define SIGHUP    1\n"
+                "#define SIGINT    2\n"
+                "#define SIGQUIT   3\n"
+                "#define SIGILL    4\n"
+                "#define SIGTRAP   5\n"
+                "#define SIGABRT   6\n"
+                "#define SIGBUS    7\n"
+                "#define SIGFPE    8\n"
+                "#define SIGKILL   9\n"
+                "#define SIGUSR1   10\n"
+                "#define SIGSEGV   11\n"
+                "#define SIGUSR2   12\n"
+                "#define SIGPIPE   13\n"
+                "#define SIGALRM   14\n"
+                "#define SIGTERM   15\n"
+                "#define SIGCHLD   17\n"
+                "#define SIGCONT   18\n"
+                "#define SIGSTOP   19\n"
+                "#define SIGTSTP   20\n"
+                "#define SIGTTIN   21\n"
+                "#define SIGTTOU   22\n"
+                "#endif\n\n"
+                "#ifndef SA_RESTART\n"
+                "#define SA_RESTART 0x10000000\n"
+                "#endif\n\n"
+                + suffix_content
+            )
+
+    # Mocks para dependências do ESBMC e bibliotecas modernas C++
+    ac_cfg_p = os.path.join(mock_dir, 'ac_config.h')
+    if not os.path.exists(ac_cfg_p):
+        with open(ac_cfg_p, 'w', encoding='utf-8') as f:
+            f.write(
+                "#pragma once\n"
+                "#define ESBMC_AVAILABLE_SOLVERS \"z3\"\n"
+                "#define ESBMC_VERSION \"8.4.0\"\n"
+                "#define ESBMC_VERSION_MAJOR 8\n"
+                "#define ESBMC_VERSION_MINOR 4\n"
+                "#define ESBMC_VERSION_PATCH 0\n"
+                "#define ESBMC_VERSION_CONST (8 << 16 | 4 << 8 | 0)\n"
+                "#define ESBMC_C2GOTO_SYSROOT \"\"\n"
+                "#define HAVE_UNISTD 1\n"
+            )
+
+    yaml_dir = os.path.join(mock_dir, 'yaml-cpp')
+    os.makedirs(yaml_dir, exist_ok=True)
+    yaml_h = os.path.join(yaml_dir, 'yaml.h')
+    if not os.path.exists(yaml_h):
+        with open(yaml_h, 'w', encoding='utf-8') as f:
+            f.write(
+                "#pragma once\n"
+                "#include <string>\n"
+                "#include <vector>\n"
+                "#include <map>\n"
+                "#include <iostream>\n\n"
+                "namespace YAML {\n"
+                "    class Node {\n"
+                "    public:\n"
+                "        Node() = default;\n"
+                "        template<typename T> T as() const { return T(); }\n"
+                "        bool IsDefined() const { return true; }\n"
+                "        bool IsNull() const { return false; }\n"
+                "        bool IsScalar() const { return true; }\n"
+                "        bool IsSequence() const { return false; }\n"
+                "        bool IsMap() const { return false; }\n"
+                "        size_t size() const { return 0; }\n"
+                "        Node operator[](const std::string&) const { return Node(); }\n"
+                "        Node operator[](size_t) const { return Node(); }\n"
+                "        template<typename T> void push_back(const T&) {}\n"
+                "    };\n"
+                "    inline Node Load(const std::string&) { return Node(); }\n"
+                "    inline Node LoadFile(const std::string&) { return Node(); }\n"
+                "    class Emitter {\n"
+                "    public:\n"
+                "        Emitter() = default;\n"
+                "        const char* c_str() const { return \"\"; }\n"
+                "        template<typename T> Emitter& operator<<(const T&) { return *this; }\n"
+                "    };\n"
+                "}\n"
+            )
+
+    nlohmann_dir = os.path.join(mock_dir, 'nlohmann')
+    os.makedirs(nlohmann_dir, exist_ok=True)
+    nlohmann_h = os.path.join(nlohmann_dir, 'json.hpp')
+    if not os.path.exists(nlohmann_h):
+        with open(nlohmann_h, 'w', encoding='utf-8') as f:
+            f.write(
+                "#pragma once\n"
+                "#include <string>\n"
+                "#include <vector>\n"
+                "#include <map>\n\n"
+                "namespace nlohmann {\n"
+                "    class json {\n"
+                "    public:\n"
+                "        json() = default;\n"
+                "        template<typename T> json(const T&) {}\n"
+                "        template<typename T> T get() const { return T(); }\n"
+                "        std::string dump(int = -1) const { return \"{}\"; }\n"
+                "        static json parse(const std::string&) { return json(); }\n"
+                "        json& operator[](const std::string&) { return *this; }\n"
+                "        const json& operator[](const std::string&) const { return *this; }\n"
+                "        json& operator[](size_t) { return *this; }\n"
+                "        const json& operator[](size_t) const { return *this; }\n"
+                "        bool contains(const std::string&) const { return false; }\n"
+                "        bool is_null() const { return false; }\n"
+                "        bool is_boolean() const { return false; }\n"
+                "        bool is_number() const { return false; }\n"
+                "        bool is_string() const { return false; }\n"
+                "        bool is_array() const { return false; }\n"
+                "        bool is_object() const { return false; }\n"
+                "        size_t size() const { return 0; }\n"
+                "        bool empty() const { return true; }\n"
+                "        template<typename T> void push_back(const T&) {}\n"
+                "    };\n"
+                "}\n"
+            )
+
+    pugi_h = os.path.join(mock_dir, 'pugixml.hpp')
+    if not os.path.exists(pugi_h):
+        with open(pugi_h, 'w', encoding='utf-8') as f:
+            f.write(
+                "#pragma once\n"
+                "#include <string>\n\n"
+                "namespace pugi {\n"
+                "    class xml_node;\n"
+                "    class xml_attribute {\n"
+                "    public:\n"
+                "        const char* name() const { return \"\"; }\n"
+                "        const char* value() const { return \"\"; }\n"
+                "        int as_int() const { return 0; }\n"
+                "        bool as_bool() const { return false; }\n"
+                "    };\n"
+                "    class xml_node {\n"
+                "    public:\n"
+                "        xml_node child(const char*) const { return xml_node(); }\n"
+                "        xml_attribute attribute(const char*) const { return xml_attribute(); }\n"
+                "        const char* text() const { return \"\"; }\n"
+                "        const char* child_value(const char*) const { return \"\"; }\n"
+                "    };\n"
+                "    class xml_document : public xml_node {\n"
+                "    public:\n"
+                "        bool load_file(const char*) { return true; }\n"
+                "        bool load_string(const char*) { return true; }\n"
+                "    };\n"
+                "}\n"
+            )
+
+    immer_dir = os.path.join(mock_dir, 'immer')
+    os.makedirs(immer_dir, exist_ok=True)
+    immer_vec_h = os.path.join(immer_dir, 'vector.hpp')
+    if not os.path.exists(immer_vec_h):
+        with open(immer_vec_h, 'w', encoding='utf-8') as f:
+            f.write(
+                "#pragma once\n"
+                "#include <vector>\n"
+                "#include <cstddef>\n\n"
+                "namespace immer {\n"
+                "    template<typename T, typename... Args>\n"
+                "    class vector {\n"
+                "        std::vector<T> vec_;\n"
+                "    public:\n"
+                "        using size_type = size_t;\n"
+                "        using value_type = T;\n"
+                "        vector() = default;\n"
+                "        size_t size() const { return vec_.size(); }\n"
+                "        bool empty() const { return vec_.empty(); }\n"
+                "        const T& operator[](size_t i) const { return vec_[i]; }\n"
+                "        vector push_back(const T& val) const {\n"
+                "            vector copy = *this;\n"
+                "            copy.vec_.push_back(val);\n"
+                "            return copy;\n"
+                "        }\n"
+                "        auto begin() const { return vec_.begin(); }\n"
+                "        auto end() const { return vec_.end(); }\n"
+                "    };\n"
+                "}\n"
+            )
+    immer_map_h = os.path.join(immer_dir, 'map.hpp')
+    if not os.path.exists(immer_map_h):
+        with open(immer_map_h, 'w', encoding='utf-8') as f:
+            f.write(
+                "#pragma once\n"
+                "#include <map>\n"
+                "#include <cstddef>\n\n"
+                "namespace immer {\n"
+                "    template<typename K, typename V, typename... Args>\n"
+                "    class map {\n"
+                "        std::map<K, V> map_;\n"
+                "    public:\n"
+                "        map() = default;\n"
+                "        size_t size() const { return map_.size(); }\n"
+                "        bool empty() const { return map_.empty(); }\n"
+                "        const V* find(const K& k) const {\n"
+                "            auto it = map_.find(k);\n"
+                "            return it != map_.end() ? &it->second : nullptr;\n"
+                "        }\n"
+                "        map set(const K& k, const V& v) const {\n"
+                "            map copy = *this;\n"
+                "            copy.map_[k] = v;\n"
+                "            return copy;\n"
+                "        }\n"
+                "        auto begin() const { return map_.begin(); }\n"
+                "        auto end() const { return map_.end(); }\n"
+                "    };\n"
+                "}\n"
+            )
+    immer_mapt_h = os.path.join(immer_dir, 'map_transient.hpp')
+    if not os.path.exists(immer_mapt_h):
+        with open(immer_mapt_h, 'w', encoding='utf-8') as f:
+            f.write(
+                "#pragma once\n"
+                "#include <immer/map.hpp>\n\n"
+                "namespace immer {\n"
+                "    template<typename K, typename V, typename... Args>\n"
+                "    class map_transient {\n"
+                "        std::map<K, V> map_;\n"
+                "    public:\n"
+                "        void set(const K& k, const V& v) { map_[k] = v; }\n"
+                "        map<K, V> persistent() { return map<K, V>(); }\n"
+                "    };\n"
+                "}\n"
+            )
+    immer_set_h = os.path.join(immer_dir, 'set.hpp')
+    if not os.path.exists(immer_set_h):
+        with open(immer_set_h, 'w', encoding='utf-8') as f:
+            f.write(
+                "#pragma once\n"
+                "#include <set>\n"
+                "#include <cstddef>\n\n"
+                "namespace immer {\n"
+                "    template<typename T, typename... Args>\n"
+                "    class set {\n"
+                "        std::set<T> set_;\n"
+                "    public:\n"
+                "        set() = default;\n"
+                "        size_t size() const { return set_.size(); }\n"
+                "        bool empty() const { return set_.empty(); }\n"
+                "        set insert(const T& v) const {\n"
+                "            set copy = *this;\n"
+                "            copy.set_.insert(v);\n"
+                "            return copy;\n"
+                "        }\n"
+                "        auto begin() const { return set_.begin(); }\n"
+                "        auto end() const { return set_.end(); }\n"
+                "    };\n"
+                "}\n"
+            )
+    immer_algo_h = os.path.join(immer_dir, 'algorithm.hpp')
+    if not os.path.exists(immer_algo_h):
+        with open(immer_algo_h, 'w', encoding='utf-8') as f:
+            f.write(
+                "#pragma once\n\n"
+                "namespace immer {\n"
+                "    template<typename Container, typename Fn>\n"
+                "    void for_each(const Container& c, Fn&& fn) {\n"
+                "        for (const auto& item : c) fn(item);\n"
+                "    }\n"
+                "}\n"
+            )
+    immer_mem_h = os.path.join(immer_dir, 'memory_policy.hpp')
+    if not os.path.exists(immer_mem_h):
+        with open(immer_mem_h, 'w', encoding='utf-8') as f:
+            f.write(
+                "#pragma once\n\n"
+                "namespace immer {\n"
+                "    struct default_memory_policy {};\n"
+                "}\n"
+            )
+
+    mi_h = os.path.join(boost_dir, 'multi_index_container.hpp')
+    if not os.path.exists(mi_h):
+        with open(mi_h, 'w', encoding='utf-8') as f:
+            f.write(
+                "#pragma once\n"
+                "#include <vector>\n"
+                "#include <cstddef>\n\n"
+                "namespace boost {\n"
+                "    template<typename Value, typename... Args>\n"
+                "    class multi_index_container {\n"
+                "    public:\n"
+                "        std::vector<Value> data_;\n"
+                "        multi_index_container() = default;\n"
+                "        size_t size() const { return data_.size(); }\n"
+                "        bool empty() const { return data_.empty(); }\n"
+                "        auto begin() { return data_.begin(); }\n"
+                "        auto end() { return data_.end(); }\n"
+                "        auto begin() const { return data_.begin(); }\n"
+                "        auto end() const { return data_.end(); }\n"
+                "        template<int N> auto& get() { return *this; }\n"
+                "        template<int N> const auto& get() const { return *this; }\n"
+                "        template<typename Tag> auto& get() { return *this; }\n"
+                "        template<typename Tag> const auto& get() const { return *this; }\n"
+                "    };\n"
+                "    namespace multi_index {\n"
+                "        template<typename... Args> struct indexed_by {};\n"
+                "        template<typename... Args> struct sequenced {};\n"
+                "        template<typename... Args> struct ordered_unique {};\n"
+                "        template<typename... Args> struct ordered_non_unique {};\n"
+                "        template<typename... Args> struct hashed_unique {};\n"
+                "        template<typename... Args> struct hashed_non_unique {};\n"
+                "        template<typename Class, typename Type, Type Class::*PtrToMember> struct member {};\n"
+                "        template<typename... Args> struct tag {};\n"
+                "    }\n"
+                "}\n"
+            )
+    mi_dir = os.path.join(boost_dir, 'multi_index')
+    os.makedirs(mi_dir, exist_ok=True)
+    for mi_sub in ['hashed_index.hpp', 'member.hpp', 'ordered_index.hpp', 'sequenced_index.hpp']:
+        p_mi = os.path.join(mi_dir, mi_sub)
+        if not os.path.exists(p_mi):
+            with open(p_mi, 'w', encoding='utf-8') as f:
+                f.write("#pragma once\n#include <boost/multi_index_container.hpp>\n")
+
+    pt_dir = os.path.join(boost_dir, 'property_tree')
+    os.makedirs(pt_dir, exist_ok=True)
+    pt_h = os.path.join(pt_dir, 'ptree.hpp')
+    if not os.path.exists(pt_h):
+        with open(pt_h, 'w', encoding='utf-8') as f:
+            f.write(
+                "#pragma once\n"
+                "#include <string>\n\n"
+                "namespace boost {\n"
+                "namespace property_tree {\n"
+                "    class ptree {\n"
+                "    public:\n"
+                "        ptree() = default;\n"
+                "        template<typename T> T get(const std::string&, const T& def = T()) const { return def; }\n"
+                "        template<typename T> void put(const std::string&, const T&) {}\n"
+                "        ptree& get_child(const std::string&) { return *this; }\n"
+                "        const ptree& get_child(const std::string&) const { return *this; }\n"
+                "    };\n"
+                "    namespace xml_parser {\n"
+                "        inline void read_xml(const std::string&, ptree&) {}\n"
+                "        inline void write_xml(const std::string&, const ptree&) {}\n"
+                "    }\n"
+                "}\n"
+                "}\n"
+            )
+    pt_xml_h = os.path.join(pt_dir, 'xml_parser.hpp')
+    if not os.path.exists(pt_xml_h):
+        with open(pt_xml_h, 'w', encoding='utf-8') as f:
+            f.write("#pragma once\n#include <boost/property_tree/ptree.hpp>\n")
+
+    uuid_dir = os.path.join(boost_dir, 'uuid')
+    os.makedirs(uuid_dir, exist_ok=True)
+    uuid_h = os.path.join(uuid_dir, 'uuid.hpp')
+    if not os.path.exists(uuid_h):
+        with open(uuid_h, 'w', encoding='utf-8') as f:
+            f.write(
+                "#pragma once\n"
+                "#include <cstdint>\n"
+                "#include <string>\n\n"
+                "namespace boost {\n"
+                "namespace uuids {\n"
+                "    struct uuid {\n"
+                "        uint8_t data[16]{};\n"
+                "        bool is_nil() const { return true; }\n"
+                "    };\n"
+                "    struct random_generator {\n"
+                "        uuid operator()() { return uuid(); }\n"
+                "    };\n"
+                "    inline std::string to_string(const uuid&) { return \"00000000-0000-0000-0000-000000000000\"; }\n"
+                "}\n"
+                "}\n"
+            )
+    for uu_sub in ['uuid_generators.hpp', 'uuid_io.hpp']:
+        p_uu = os.path.join(uuid_dir, uu_sub)
+        if not os.path.exists(p_uu):
+            with open(p_uu, 'w', encoding='utf-8') as f:
+                f.write("#pragma once\n#include <boost/uuid/uuid.hpp>\n")
+
+    ra_dir = os.path.join(boost_dir, 'range', 'adaptor')
+    os.makedirs(ra_dir, exist_ok=True)
+    rev_h = os.path.join(ra_dir, 'reversed.hpp')
+    if not os.path.exists(rev_h):
+        with open(rev_h, 'w', encoding='utf-8') as f:
+            f.write(
+                "#pragma once\n"
+                "#include <utility>\n\n"
+                "namespace boost {\n"
+                "namespace adaptors {\n"
+                "    template<typename T> auto reverse(T&& c) { return std::forward<T>(c); }\n"
+                "}\n"
+                "}\n"
+            )
+
+    asio_dir = os.path.join(boost_dir, 'asio', 'ip')
+    os.makedirs(asio_dir, exist_ok=True)
+    tcp_h = os.path.join(asio_dir, 'tcp.hpp')
+    if not os.path.exists(tcp_h):
+        with open(tcp_h, 'w', encoding='utf-8') as f:
+            f.write(
+                "#pragma once\n\n"
+                "namespace boost {\n"
+                "namespace asio {\n"
+                "    namespace ip {\n"
+                "        struct tcp {\n"
+                "            struct endpoint {};\n"
+                "            struct socket {};\n"
+                "            struct acceptor {};\n"
+                "        };\n"
+                "    }\n"
+                "}\n"
+                "}\n"
+            )
+
+    dll_dir = os.path.join(boost_dir, 'dll')
+    os.makedirs(dll_dir, exist_ok=True)
+    dll_h = os.path.join(dll_dir, 'runtime_symbol_info.hpp')
+    if not os.path.exists(dll_h):
+        with open(dll_h, 'w', encoding='utf-8') as f:
+            f.write(
+                "#pragma once\n"
+                "#include <string>\n\n"
+                "namespace boost {\n"
+                "namespace dll {\n"
+                "    inline std::string program_location() { return \"/usr/bin/esbmc\"; }\n"
+                "}\n"
+                "}\n"
+            )
+
+    mp_dir = os.path.join(boost_dir, 'multiprecision')
+    os.makedirs(mp_dir, exist_ok=True)
+    mp_h = os.path.join(mp_dir, 'cpp_bin_float.hpp')
+    if not os.path.exists(mp_h):
+        with open(mp_h, 'w', encoding='utf-8') as f:
+            f.write(
+                "#pragma once\n\n"
+                "namespace boost {\n"
+                "namespace multiprecision {\n"
+                "    template<unsigned Digits>\n"
+                "    class cpp_bin_float {\n"
+                "    public:\n"
+                "        cpp_bin_float() = default;\n"
+                "        template<typename T> cpp_bin_float(T) {}\n"
+                "    };\n"
+                "}\n"
                 "}\n"
             )
 
@@ -1489,26 +3205,40 @@ def sanitizar_cpp(caminho_arquivo: str, temp_dir: str, tem_flag_function: bool =
 
     _sanitizar_headers_cpp20_recursivo(temp_dir)
     include_dirs, headers_existentes, _ = descubrir_headers_e_includes_no_diretorio(temp_dir)
-    if sub_dir_repo and os.path.isdir(sub_dir_repo) and sub_dir_repo not in include_dirs:
-        include_dirs.insert(0, sub_dir_repo)
+    if sub_dir_repo and os.path.isdir(sub_dir_repo):
+        repo_inc, repo_headers, _ = descubrir_headers_e_includes_no_diretorio(sub_dir_repo)
+        headers_existentes.update(repo_headers)
+        for r_inc in repo_inc:
+            if r_inc not in include_dirs:
+                include_dirs.append(r_inc)
+        src_sub = os.path.join(sub_dir_repo, 'src')
+        if os.path.isdir(src_sub) and src_sub not in include_dirs:
+            include_dirs.insert(0, src_sub)
+        if sub_dir_repo not in include_dirs:
+            include_dirs.insert(0, sub_dir_repo)
     if mock_boost_dir and os.path.isdir(mock_boost_dir) and mock_boost_dir not in include_dirs:
         include_dirs.insert(0, mock_boost_dir)
 
-    # Lê e também sanitiza `typeid(...).name()` nos headers reais do repositório (ex: dyad.h ou max.h)
+    # Lê e também sanitiza `typeid(...).name()` e constructos nos headers reais do repositório (ex: dyad.h ou string_pool.h)
     codigo_headers_locais = ""
+    arquivos_headers_processados = set()
     for inc_dir in include_dirs:
         try:
-            for fname in os.listdir(inc_dir):
-                if fname.endswith(('.h', '.hpp', '.hxx', '.hh')):
-                    h_path = os.path.join(inc_dir, fname)
-                    with open(h_path, 'r', encoding='utf-8', errors='replace') as fh:
-                        h_content = fh.read()
-                    h_clean = _sanitizar_constructos_rtti_e_headers_padrao(h_content)
-                    if h_clean != h_content:
-                        with open(h_path, 'w', encoding='utf-8') as fhw:
-                            fhw.write(h_clean)
-                        h_content = h_clean
-                    codigo_headers_locais += "\n" + h_content
+            for root, _, files in os.walk(inc_dir):
+                for fname in files:
+                    if fname.endswith(('.h', '.hpp', '.hxx', '.hh')):
+                        h_path = os.path.abspath(os.path.join(root, fname))
+                        if h_path in arquivos_headers_processados:
+                            continue
+                        arquivos_headers_processados.add(h_path)
+                        with open(h_path, 'r', encoding='utf-8', errors='replace') as fh:
+                            h_content = fh.read()
+                        h_clean = _sanitizar_constructos_rtti_e_headers_padrao(h_content, eh_header=True)
+                        if h_clean != h_content:
+                            with open(h_path, 'w', encoding='utf-8') as fhw:
+                                fhw.write(h_clean)
+                            h_content = h_clean
+                        codigo_headers_locais += "\n" + h_content
         except Exception:
             pass
 
@@ -1537,7 +3267,7 @@ def sanitizar_cpp(caminho_arquivo: str, temp_dir: str, tem_flag_function: bool =
         with open(caminho_mock, 'w', encoding='utf-8') as f:
             f.write(f"// MOCK AUTOMÁTICO GERADO PELO ESBMC C++ HOMOGENIZER PARA: {inc}\n")
             f.write("#pragma once\n")
-            f.write("#include <cstdint>\n#include <cstddef>\n#include <iostream>\n\n")
+            f.write("#include <cstdint>\n#include <cstddef>\n\n")
             if stubs_classes_e_templates:
                 f.write(stubs_classes_e_templates + "\n")
                 stubs_classes_e_templates = ""  # Injeta apenas no primeiro mock header

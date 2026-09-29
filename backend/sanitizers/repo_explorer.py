@@ -204,7 +204,8 @@ def resolver_fontes_dependentes_cpp(caminho_alvo: str, repo_dir: str) -> Tuple[L
         'as_string', 'to_string', 'type', 'id', 'value', 'data', 'c_str', 'begin', 'end',
         'empty', 'size', 'front', 'back', 'push_back', 'pop_back', 'insert', 'erase',
         'find', 'count', 'contains', 'format', 'print', 'println', 'name', 'at', 'hash',
-        'make_true', 'make_false', 'make_nil',
+        'make_true', 'make_false', 'make_nil', 'is_nil_expr', 'is_nil_type',
+        'is_true', 'is_false', 'is_zero', 'is_one', 'is_valid', 'is_empty', 'is_null',
         'diff', 'compare', 'equal', 'check', 'test', 'match', 'clone', 'copy', 'swap',
         'dump', 'show', 'display', 'validate', 'verify'
     }
@@ -278,7 +279,10 @@ def resolver_fontes_dependentes_cpp(caminho_alvo: str, repo_dir: str) -> Tuple[L
                 includes_aux = {os.path.basename(i).lower() for i in re.findall(r'#include\s+["<]([^">]+)[">]', conteudo_aux)} - HEADERS_PADRAO_IGNORADOS
                 headers_em_comum = nomes_headers & includes_aux
                 if headers_em_comum:
-                    defs_aux = set(re.findall(r'(?<!::)\b([A-Za-z_][A-Za-z0-9_]*)\s*\([^;{}]*\)\s*\{', sem_coment))
+                    defs_aux = set(re.findall(
+                        r'(?:^|[;\s])(?<!::)(?:(?:inline|static|virtual|explicit|constexpr|friend)\s+)*(?:void|bool|int|char|size_t|[A-Za-z_][A-Za-z0-9_]*[*&]?)\s+([A-Za-z_][A-Za-z0-9_]*)\s*\([^;{}]*\)\s*(?:const\s*)?(?:noexcept\s*)?\{',
+                        sem_coment
+                    ))
                     simbolos_resolvidos = (defs_aux & chamadas_alvo) - NOMES_GENERICOS_IGNORADOS
                     if simbolos_resolvidos:
                         fontes_vinculadas.append(full_p)
@@ -292,44 +296,122 @@ def resolver_fontes_dependentes_cpp(caminho_alvo: str, repo_dir: str) -> Tuple[L
 # FASE 2: DESCOBERTA E PRIORIZAÇÃO HEURÍSTICA DE MÓDULOS DO REPOSITÓRIO
 # ==============================================================================
 
-def calcular_score_criticidade_modulo(rel_path: str, conteudo: str, linguagem: str) -> Tuple[int, str]:
-    """Calcula a pontuação de criticidade formal de um arquivo para priorizar a exploração."""
-    score = 10
-    motivos = []
+def classificar_grau_prioridade_modulo(rel_path: str, conteudo: str, linguagem: str) -> Tuple[int, str, int, str]:
+    """Classifica o arquivo de acordo com a Matriz Canônica de Graus do ESBMC-web (Graus 5 a 0),
+    generalizando formalmente a metodologia do LSVerifier (arXiv:2311.05281) para C, C++ e Python.
+
+    Escala de Graus de Prioridade do ESBMC-web:
+      - Grau 5: Risco Crítico de Memória / Ponteiros / Anulabilidade (CWE-476, CWE-416, CWE-824)
+      - Grau 4: Limites de Buffers, Vetores e Indexação (CWE-119, CWE-120, CWE-787, CWE-125)
+      - Grau 3: Ciclo de Vida de Recursos, Alocação e Exceções (CWE-415, CWE-401, CWE-755, CWE-20)
+      - Grau 2: Concorrência, Sincronização e Condições de Corrida (CWE-362, CWE-667, CWE-820)
+      - Grau 1: Integridade Numérica e Aritmética (CWE-369, CWE-190, CWE-191)
+      - Grau 0: Lógica Pura, Estruturas e Funções Auxiliares
+
+    Retorna: (grau, nome_grau, score_numerico, resumo_motivos)
+    """
     norm = rel_path.lower()
+    motivos: List[str] = []
+    grau = 0
+    score = 10
 
     if linguagem == 'python':
-        if 'api/' in norm or 'handlers/' in norm or 'views/' in norm or 'routes/' in norm or 'controllers/' in norm:
-            score += 40
-            motivos.append("API/Handler")
-        if 'get_int_arg' in conteudo or 'abort(' in conteudo:
-            score += 30
-            motivos.append("Input Validation")
-        if 'get_by_id' in conteudo or 'get_attachment' in conteudo or 'is None' in conteudo:
-            score += 20
-            motivos.append("Nullable Entity")
-        if 'raise ' in conteudo or 'try:' in conteudo:
-            score += 15
-            motivos.append("Exception Flow")
-        if '//' in conteudo or '%' in conteudo or '+' in conteudo:
-            score += 10
-            motivos.append("Arithmetic")
-    else:
-        if 'main(' in conteudo:
-            score += 35
-            motivos.append("Main Entrypoint")
-        if 'malloc(' in conteudo or 'free(' in conteudo or 'new ' in conteudo or 'delete ' in conteudo:
-            score += 30
-            motivos.append("Dynamic Memory")
-        if '[' in conteudo and ']' in conteudo:
-            score += 20
-            motivos.append("Array/Bounds")
-        if '*' in conteudo or '->' in conteudo:
-            score += 15
-            motivos.append("Pointers")
+        eh_grau5 = ('get_by_id' in conteudo or 'get_attachment' in conteudo or 'is None' in conteudo or 'Optional[' in conteudo)
+        eh_grau4 = bool(re.search(r'\[[A-Za-z0-9_]+\]', conteudo) or re.search(r'\[\s*\d+\s*:\s*\d*\s*\]', conteudo))
+        eh_grau3 = ('api/' in norm or 'handlers/' in norm or 'views/' in norm or 'routes/' in norm or 'controllers/' in norm or 'get_int_arg' in conteudo or 'abort(' in conteudo or 'raise ' in conteudo or 'try:' in conteudo)
+        eh_grau2 = ('async def' in conteudo or 'asyncio' in conteudo or 'Thread(' in conteudo or 'await ' in conteudo)
+        eh_grau1 = ('//' in conteudo or '%' in conteudo or 'int(' in conteudo or 'float(' in conteudo)
 
-    resumo = ", ".join(motivos[:3]) if motivos else "Core Module"
-    return score, resumo
+        if eh_grau5:
+            grau = 5
+            score = 55
+            motivos.append("Nullable/None Dereference")
+        elif eh_grau4:
+            grau = 4
+            score = 45
+            motivos.append("Collection Indexing/Bounds")
+        elif eh_grau3:
+            grau = 3
+            score = 35
+            motivos.append("API/Input Validation/Exception")
+        elif eh_grau2:
+            grau = 2
+            score = 25
+            motivos.append("Async/Concurrency")
+        elif eh_grau1:
+            grau = 1
+            score = 15
+            motivos.append("Arithmetic/Casting")
+        else:
+            grau = 0
+            score = 10
+            motivos.append("Core Logic")
+
+        if eh_grau3 and "API" not in motivos[0]:
+            motivos.append("API/Validation")
+        if eh_grau1 and "Arithmetic" not in motivos[0]:
+            motivos.append("Arithmetic")
+
+    else:
+        eh_grau5 = ('*' in conteudo or '->' in conteudo or 'unique_ptr' in conteudo or 'shared_ptr' in conteudo or 'release()' in conteudo)
+        eh_grau4 = ('[' in conteudo and ']' in conteudo) or 'vector<' in conteudo or 'memcpy' in conteudo or 'strcpy' in conteudo or 'sprintf' in conteudo
+        eh_grau3 = ('malloc(' in conteudo or 'free(' in conteudo or 'realloc(' in conteudo or 'calloc(' in conteudo or 'new ' in conteudo or 'delete ' in conteudo)
+        eh_grau2 = ('pthread_' in conteudo or 'std::thread' in conteudo or 'atomic' in conteudo or 'mutex' in conteudo)
+        eh_grau1 = bool(re.search(r'[\/%]', conteudo) or '<<' in conteudo or '>>' in conteudo or 'BigInt' in conteudo)
+
+        if eh_grau5:
+            grau = 5
+            score = 55
+            motivos.append("Raw/Smart Pointers")
+        elif eh_grau4:
+            grau = 4
+            score = 45
+            motivos.append("Array/Buffer Bounds")
+        elif eh_grau3:
+            grau = 3
+            score = 35
+            motivos.append("Dynamic Memory/RAII")
+        elif eh_grau2:
+            grau = 2
+            score = 25
+            motivos.append("Concurrency/Threads")
+        elif eh_grau1:
+            grau = 1
+            score = 15
+            motivos.append("Arithmetic/Shift")
+        else:
+            grau = 0
+            score = 10
+            motivos.append("Base Logic")
+
+        if 'main(' in conteudo:
+            score += 5
+            motivos.append("Main Entrypoint")
+        if eh_grau4 and "Array" not in motivos[0]:
+            motivos.append("Array/Bounds")
+        if eh_grau3 and "Dynamic" not in motivos[0]:
+            motivos.append("Dynamic Memory")
+        if eh_grau1 and "Arithmetic" not in motivos[0]:
+            motivos.append("Arithmetic")
+
+    NOMES_GRAUS = {
+        5: "Risco Crítico de Memória / Anulabilidade (CWE-476, CWE-416)",
+        4: "Limites de Buffers e Indexação (CWE-119, CWE-787)",
+        3: "Ciclo de Vida de Recursos e Exceções (CWE-415, CWE-755)",
+        2: "Concorrência e Sincronização (CWE-362, CWE-667)",
+        1: "Integridade Numérica e Aritmética (CWE-369, CWE-190)",
+        0: "Lógica Pura e Funções Auxiliares"
+    }
+    nome_grau = NOMES_GRAUS.get(grau, "Lógica Geral")
+    resumo_motivos = ", ".join(motivos[:3]) if motivos else "Módulo Geral"
+
+    return grau, nome_grau, score, resumo_motivos
+
+
+def calcular_score_criticidade_modulo(rel_path: str, conteudo: str, linguagem: str) -> Tuple[int, str]:
+    """Calcula a pontuação de criticidade formal de um arquivo para priorizar a exploração."""
+    grau, nome_grau, score, resumo = classificar_grau_prioridade_modulo(rel_path, conteudo, linguagem)
+    return score, f"Grau {grau} ({nome_grau}) | {resumo}"
 
 
 def descobrir_alvos_verificaveis_repositorio(
@@ -398,17 +480,19 @@ def descobrir_alvos_verificaveis_repositorio(
                 continue
 
             lang_counts[lang_arq] = lang_counts.get(lang_arq, 0) + 1
-            score, categoria = calcular_score_criticidade_modulo(rel_p, conteudo, lang_arq)
+            grau, nome_grau, score, resumo_m = classificar_grau_prioridade_modulo(rel_p, conteudo, lang_arq)
             dir_rel = os.path.dirname(rel_p) or "(root)"
-            motivos_lista = [m.strip() for m in categoria.split(',') if m.strip()] or ["Core Module"]
+            motivos_lista = [m.strip() for m in resumo_m.split(',') if m.strip()] or ["Core Module"]
             candidatos.append({
                 'rel_path': rel_p,
                 'dir': dir_rel,
                 'lang': lang_arq,
                 'abs_path': full_p,
                 'full_path': full_p,
+                'grau': grau,
+                'nome_grau': nome_grau,
                 'score': score,
-                'categoria': categoria,
+                'categoria': f"Grau {grau}: {nome_grau}",
                 'motivos': motivos_lista,
                 'conteudo': conteudo
             })

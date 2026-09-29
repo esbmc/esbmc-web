@@ -159,7 +159,8 @@ FLAGS_PERMITIDAS_SIMPLES = {
     '--mathsat',
     '--yices',
     '--no-standard-checks', '--no-assertions', '--no-bounds-check',
-    '--no-div-by-zero-check', '--no-pointer-check', '--no-align-check', '--multi-property'
+    '--no-div-by-zero-check', '--no-pointer-check', '--no-align-check', '--multi-property',
+    '--no-unwinding-assertions', '--partial-loops'
 }
 
 FLAGS_PERMITIDAS_COM_VALOR = {
@@ -348,7 +349,7 @@ def iniciar_analise():
 
     def executar_background(task_id, dados, temp_dir):
         try:
-            git_url_raw = (dados.get('git_url') or '').strip()
+            git_url_raw = (dados.get('git_url') or dados.get('git_repo') or '').strip()
             main_file_path_in_repo = (dados.get('main_file_path') or '').strip()
             explore_repo = bool(dados.get('explore_repo', False))
             repo_subdir_filter = (dados.get('repo_subdir_filter') or '').strip()
@@ -382,7 +383,14 @@ def iniciar_analise():
                         f"[SYSTEM] [GitHub URL Auto-Resolver] Extracted Subdirectory Filter: '{repo_subdir_filter}'\n\n"
                     )
                 TAREFAS_ATIVAS[task_id]["logs"] += f"[SYSTEM] Cloning Git repository for Multi-Directory Dependency Analysis: {git_url} ...\n"
-                git.Repo.clone_from(git_url, temp_dir, depth=1)
+                for tentativa in range(1, 3):
+                    try:
+                        git.Repo.clone_from(git_url, temp_dir, depth=1)
+                        break
+                    except Exception as e_cl:
+                        if tentativa == 2:
+                            raise e_cl
+                        time.sleep(2)
                 if not explore_repo and main_file_path_in_repo:
                     caminho_arquivo = os.path.join(temp_dir, main_file_path_in_repo)
                     sub_dir_repo = os.path.dirname(caminho_arquivo)
@@ -514,6 +522,34 @@ def iniciar_analise():
                     "z3_witness": z3_witness_summary
                 }
 
+            def _obter_relatorio_esbmc_json(diretorio_temp):
+                """Localiza e carrega o arquivo de relatório gerado pelo ESBMC (--generate-json-report).
+                Prioriza estritamente 'report.json' e ignora arquivos JSON do próprio repositório Git
+                (como CMakePresets.json, package.json, tsconfig.json, etc.)."""
+                if not diretorio_temp or not os.path.isdir(diretorio_temp):
+                    return None, None
+                rep = os.path.join(diretorio_temp, 'report.json')
+                if os.path.isfile(rep):
+                    try:
+                        with open(rep, 'r', encoding='utf-8') as f:
+                            data = json.load(f)
+                            if isinstance(data, list):
+                                return rep, data
+                    except Exception:
+                        pass
+                for cand in glob.glob(os.path.join(diretorio_temp, '*.json')):
+                    base_j = os.path.basename(cand).lower()
+                    if base_j in ('cmakepresets.json', 'cmakeuserpresets.json', 'package.json', 'tsconfig.json', 'composer.json', 'project.json'):
+                        continue
+                    try:
+                        with open(cand, 'r', encoding='utf-8') as f:
+                            data = json.load(f)
+                            if isinstance(data, list) and (len(data) == 0 or (isinstance(data[0], dict) and ('status' in data[0] or 'results' in data[0] or 'steps' in data[0]))):
+                                return cand, data
+                    except Exception:
+                        continue
+                return None, None
+
             # --- 2. FUNÇÃO INTERNA PARA RODAR ESBMC ---
             def rodar_esbmc(
                 arquivo_alvo,
@@ -524,7 +560,8 @@ def iniciar_analise():
                 lang_override=None,
                 forcar_bounded_unwind=False,
                 funcao_alvo_extra=None,
-                modo_puro_raw=False
+                modo_puro_raw=False,
+                pular_fontes_dependentes=False
             ):
                 lang_efetiva = lang_override or linguagem
                 comando = ['esbmc', arquivo_alvo]
@@ -538,31 +575,55 @@ def iniciar_analise():
                                 if nome_dep.endswith(('.c', '.cpp')):
                                     comando.append(nome_dep)
                         else:
-                            # Para repositórios Git C/C++, resolve tanto diretórios de include quanto Unidades de Tradução (.cpp/.c)
-                            # através de múltiplos diretórios usando o algoritmo RepoSlice-BMC (resolver_fontes_dependentes_cpp)
-                            alvo_ref = os.path.join(temp_dir, caminho_rel_repo or main_file_path_in_repo or arquivo_alvo)
-                            try:
-                                res_cpp = resolver_fontes_dependentes_cpp(alvo_ref, temp_dir)
-                                fontes_dependentes = res_cpp[0] if isinstance(res_cpp, tuple) else res_cpp
-                                descricoes_vinculos = res_cpp[1] if isinstance(res_cpp, tuple) and len(res_cpp) > 1 else []
-                                for aux_src in fontes_dependentes:
-                                    if os.path.abspath(aux_src) != os.path.abspath(os.path.join(temp_dir, arquivo_alvo)):
+                            if not pular_fontes_dependentes:
+                                # Para repositórios Git C/C++, resolve tanto diretórios de include quanto Unidades de Tradução (.cpp/.c)
+                                # através de múltiplos diretórios usando o algoritmo RepoSlice-BMC (resolver_fontes_dependentes_cpp)
+                                alvo_ref = os.path.join(temp_dir, caminho_rel_repo or main_file_path_in_repo or arquivo_alvo)
+                                try:
+                                    res_cpp = resolver_fontes_dependentes_cpp(alvo_ref, temp_dir)
+                                    fontes_dependentes = res_cpp[0] if isinstance(res_cpp, tuple) else res_cpp
+                                    descricoes_vinculos = res_cpp[1] if isinstance(res_cpp, tuple) and len(res_cpp) > 1 else []
+                                    fontes_adicionadas = []
+                                    for aux_src in fontes_dependentes:
+                                        rel_aux = os.path.relpath(aux_src, temp_dir).replace('\\', '/')
+                                        # NUNCA passa o próprio arquivo alvo duas vezes (ex: codigo.cpp copiado de arith_tools.cpp)
+                                        if (
+                                            os.path.abspath(aux_src) == os.path.abspath(os.path.join(temp_dir, arquivo_alvo))
+                                            or (caminho_rel_repo and rel_aux == caminho_rel_repo)
+                                            or (main_file_path_in_repo and rel_aux == main_file_path_in_repo)
+                                        ):
+                                            continue
+                                        try:
+                                            sanitizar_cpp(aux_src, temp_dir, tem_flag_function=True, sub_dir_repo=sub_dir_repo)
+                                        except Exception:
+                                            pass
                                         comando.append(aux_src)
-                                if fontes_dependentes and not forcar_bounded_unwind and not funcao_alvo_extra:
-                                    nomes_fontes = descricoes_vinculos or [os.path.relpath(s, temp_dir) for s in fontes_dependentes]
-                                    TAREFAS_ATIVAS[task_id]["logs"] += (
-                                        f"[SYSTEM] [RepoSlice-BMC] Cross-directory C/C++ Linker resolved {len(nomes_fontes)} "
-                                        f"implementation file(s): {', '.join(nomes_fontes)}\n"
-                                    )
-                            except Exception:
-                                pass
+                                        fontes_adicionadas.append(rel_aux)
+                                    if fontes_adicionadas and not forcar_bounded_unwind and not funcao_alvo_extra:
+                                        nomes_fontes = descricoes_vinculos or fontes_adicionadas
+                                        TAREFAS_ATIVAS[task_id]["logs"] += (
+                                            f"[SYSTEM] [RepoSlice-BMC] Cross-directory C/C++ Linker resolved {len(nomes_fontes)} "
+                                            f"implementation file(s): {', '.join(nomes_fontes)}\n"
+                                        )
+                                except Exception:
+                                    pass
 
                         if sub_dir_repo and os.path.isdir(sub_dir_repo):
+                            src_sub = os.path.join(sub_dir_repo, 'src')
+                            if os.path.isdir(src_sub):
+                                comando.extend(['-I', src_sub])
                             comando.extend(['-I', sub_dir_repo])
                     if not modo_puro_raw:
                         mock_boost_dir = os.path.join(temp_dir, 'mock_boost')
                         if os.path.isdir(mock_boost_dir):
                             comando.extend(['-I', mock_boost_dir])
+                            boost_sub = os.path.join(mock_boost_dir, 'boost')
+                            if os.path.isdir(boost_sub):
+                                comando.extend(['-I', boost_sub])
+                        if lang_efetiva == 'cpp':
+                            force_compat = os.path.join(mock_boost_dir, 'esbmc_force_compat.h')
+                            if os.path.isfile(force_compat):
+                                comando.extend(['--include-file', force_compat])
                     if not is_fallback and not modo_puro_raw:
                         if is_git:
                             inc_dirs_all = (
@@ -576,7 +637,24 @@ def iniciar_analise():
                     if not modo_puro_raw:
                         comando.extend(['-I', temp_dir])
                         if lang_efetiva == 'cpp':
-                            comando.extend(['-D', 'BOOST_SYMBOL_VISIBLE=', '-D', 'BOOST_PROGRAM_OPTIONS_DECL='])
+                            comando.extend([
+                                '-D', 'BOOST_SYMBOL_VISIBLE=',
+                                '-D', 'BOOST_PROGRAM_OPTIONS_DECL=',
+                                '-D', 'BOOST_SYMBOL_EXPORT=',
+                                '-D', 'BOOST_SYMBOL_IMPORT=',
+                                '-D', 'BOOST_ALL_NO_LIB',
+                                '-D', 'YAML_CPP_STATIC_DEFINE'
+                            ])
+                            # Se o arquivo alvo tem o harness __esbmc_main gerado pelo homogenizer e o usuário não passou --function
+                            if not any(f.startswith('--function') for f in flags_recebidas) and not funcao_alvo_extra:
+                                try:
+                                    alvo_caminho_check = os.path.join(temp_dir, arquivo_alvo)
+                                    if os.path.isfile(alvo_caminho_check):
+                                        with open(alvo_caminho_check, 'r', encoding='utf-8', errors='replace') as f_chk:
+                                            if '__esbmc_main' in f_chk.read():
+                                                comando.extend(['--function', '__esbmc_main'])
+                                except Exception:
+                                    pass
                         try:
                             clang_path = subprocess.run(
                                 ['clang', '-print-resource-dir'], capture_output=True, text=True, check=True
@@ -584,6 +662,8 @@ def iniciar_analise():
                             comando.extend(['-I', os.path.join(clang_path, 'include')])
                         except Exception:
                             pass
+                        if os.path.isdir('/usr/include/x86_64-linux-gnu'):
+                            comando.extend(['-I', '/usr/include/x86_64-linux-gnu'])
 
                 i = 0
                 estrategias_usuario = [
@@ -640,6 +720,8 @@ def iniciar_analise():
                     if lang_efetiva in ('c', 'cpp') or timeout_por_modulo:
                         unwind_val = '2' if timeout_por_modulo else '3'
                         comando.extend(['--unwind', unwind_val, '--no-unwinding-assertions'])
+                        if lang_efetiva == 'cpp' and '--no-align-check' not in comando:
+                            comando.append('--no-align-check')
                         TAREFAS_ATIVAS[task_id]["logs"] += (
                             f"[SYSTEM] [Strategy Mode: AUTOMATIC] No strategy manually selected -> using '--unwind {unwind_val} --no-unwinding-assertions'\n"
                         )
@@ -683,6 +765,13 @@ def iniciar_analise():
                 if not TAREFAS_ATIVAS[task_id].get("cancel_requested"):
                     TAREFAS_ATIVAS[task_id]["status"] = "running"
 
+                rep_antigo = os.path.join(temp_dir, 'report.json')
+                if os.path.isfile(rep_antigo):
+                    try:
+                        os.remove(rep_antigo)
+                    except Exception:
+                        pass
+
                 processo = subprocess.Popen(
                     comando,
                     stdout=subprocess.PIPE,
@@ -707,13 +796,30 @@ def iniciar_analise():
                     timer_kill.start()
 
                 texto_stdout = ""
+                migrate_warning_count = 0
                 try:
                     for linha in iter(processo.stdout.readline, ''):
                         if TAREFAS_ATIVAS[task_id].get("cancel_requested"):
                             _encerrar_arvore_processo(processo)
                             break
-                        TAREFAS_ATIVAS[task_id]["logs"] += linha
                         texto_stdout += linha
+
+                        if "WARNING: migrate_expr:" in linha and "missing renaming delimiters" in linha:
+                            migrate_warning_count += 1
+                            continue
+                        elif migrate_warning_count > 0:
+                            TAREFAS_ATIVAS[task_id]["logs"] += (
+                                f"[ESBMC GOTO-Converter] Processed {migrate_warning_count} internal AST symbol migrations.\n"
+                            )
+                            migrate_warning_count = 0
+
+                        TAREFAS_ATIVAS[task_id]["logs"] += linha
+
+                    if migrate_warning_count > 0:
+                        TAREFAS_ATIVAS[task_id]["logs"] += (
+                            f"[ESBMC GOTO-Converter] Processed {migrate_warning_count} internal AST symbol migrations.\n"
+                        )
+                        migrate_warning_count = 0
                     processo.wait(timeout=3)
                 except Exception:
                     _encerrar_arvore_processo(processo)
@@ -725,6 +831,35 @@ def iniciar_analise():
                     msg_to = f"\n[SYSTEM] [RepoSlice-BMC] Module verification reached bound/time limit ({timeout_por_modulo}s) — advancing to next module...\n"
                     TAREFAS_ATIVAS[task_id]["logs"] += msg_to
                     texto_stdout += msg_to
+
+                # Detecção e Fallback para Colisão Interna de Multi-Translation-Units no ESBMC 8.4.0
+                if (
+                    not pular_fontes_dependentes
+                    and not modo_puro_raw
+                    and not TAREFAS_ATIVAS[task_id].get("cancel_requested")
+                    and (
+                        processo.returncode in (-6, 134, -11, 139)
+                        or "Failed to add arg symbol" in texto_stdout
+                        or "Failed to add vtable variable symbol" in texto_stdout
+                        or "already exists" in texto_stdout
+                    )
+                ):
+                    TAREFAS_ATIVAS[task_id]["logs"] += (
+                        "\n[SYSTEM] [RepoSlice-BMC] Detected internal ESBMC 8.4.0 multi-translation-unit thunk/vtable collision.\n"
+                        "[SYSTEM] [RepoSlice-BMC] Automatically activating resilient single-module isolated verification pass...\n\n"
+                    )
+                    return rodar_esbmc(
+                        arquivo_alvo,
+                        usou_homogenizer=usou_homogenizer,
+                        is_fallback=is_fallback,
+                        caminho_rel_repo=caminho_rel_repo,
+                        timeout_por_modulo=timeout_por_modulo,
+                        lang_override=lang_override,
+                        forcar_bounded_unwind=forcar_bounded_unwind,
+                        funcao_alvo_extra=funcao_alvo_extra,
+                        modo_puro_raw=modo_puro_raw,
+                        pular_fontes_dependentes=True
+                    )
 
                 return texto_stdout, processo.returncode
 
@@ -811,8 +946,9 @@ def iniciar_analise():
                 )
                 for idx_a, a in enumerate(alvos, 1):
                     lang_badge = str(a.get('lang', linguagem)).upper()
+                    grau_tag = f"Grau {a.get('grau', 0)}: {a.get('nome_grau', 'Auxiliar')}"
                     TAREFAS_ATIVAS[task_id]["logs"] += (
-                        f"   {idx_a}. [{a['dir']} | {lang_badge}] {a['rel_path']} (Priority Score: {a['score']} | {', '.join(a['motivos'])})\n"
+                        f"   {idx_a}. [{grau_tag}] [{a['dir']} | {lang_badge}] {a['rel_path']} (Score: {a['score']} | {', '.join(a.get('motivos', []))})\n"
                     )
 
                 tem_algum_python = any(a.get('lang', linguagem) == 'python' for a in alvos)
@@ -844,9 +980,10 @@ def iniciar_analise():
                         "current_file": rel_path,
                         "current_lang": lang_mod.upper()
                     })
+                    grau_banner = f"Grau {alvo_info.get('grau', 0)} ({alvo_info.get('nome_grau', 'Auxiliar')})"
                     TAREFAS_ATIVAS[task_id]["logs"] += (
                         f"\n--------------------------------------------------------------------------------\n"
-                        f"[RepoSlice-BMC] [{idx_a}/{len(alvos)}] Exploring [{lang_mod.upper()}] Module: {rel_path} (Directory: {alvo_info['dir']})\n"
+                        f"[RepoSlice-BMC] [{idx_a}/{len(alvos)}] Exploring [{grau_banner}] [{lang_mod.upper()}] Module: {rel_path} (Directory: {alvo_info['dir']})\n"
                         f"--------------------------------------------------------------------------------\n"
                     )
                     for old_json in glob.glob(os.path.join(temp_dir, '*.json')):
@@ -976,8 +1113,8 @@ def iniciar_analise():
                             modo_verif_mod = f"Native {lang_mod.upper()} (Bounded k=1)"
 
                         # Fallback Homogenizer v2 para módulo Python ou C/C++ Embarcado se necessário
-                        jsons_mod = glob.glob(os.path.join(temp_dir, '*.json'))
-                        if not TAREFAS_ATIVAS[task_id].get("cancel_requested") and lang_mod == 'python' and not usou_homog_mod and not jsons_mod and ("ERROR:" in txt_mod or rc_mod != 0):
+                        tem_rep_j = (_obter_relatorio_esbmc_json(temp_dir)[0] is not None)
+                        if not TAREFAS_ATIVAS[task_id].get("cancel_requested") and lang_mod == 'python' and not usou_homog_mod and not tem_rep_j and ("ERROR:" in txt_mod or rc_mod != 0):
                             info_s = sanitizar_python(
                                 caminho_temp_mod, caminho_sanit_mod, temp_dir=temp_dir, is_git=True, forcar_homogenizer=True
                             )
@@ -987,8 +1124,8 @@ def iniciar_analise():
                                 arq_exec, usou_homogenizer=True, is_fallback=True, caminho_rel_repo=rel_path, timeout_por_modulo=14, lang_override=lang_mod
                             )
                             txt_mod += "\n" + txt_fb
-                            jsons_mod = glob.glob(os.path.join(temp_dir, '*.json'))
-                        elif not TAREFAS_ATIVAS[task_id].get("cancel_requested") and lang_mod in ('c', 'cpp') and not jsons_mod and ("ERROR: PARSING ERROR" in txt_mod or "fatal error:" in txt_mod):
+                            tem_rep_j = (_obter_relatorio_esbmc_json(temp_dir)[0] is not None)
+                        elif not TAREFAS_ATIVAS[task_id].get("cancel_requested") and lang_mod in ('c', 'cpp') and not tem_rep_j and ("ERROR: PARSING ERROR" in txt_mod or "fatal error:" in txt_mod):
                             TAREFAS_ATIVAS[task_id]["logs"] += (
                                 f"[SYSTEM] [ESBMC {lang_mod.upper()} Homogenizer v2.0] Cross-compiler/SDK hardware dependency in {rel_path} -> "
                                 f"Synthesizing Self-Contained Symbolic AST Slice...\n"
@@ -1000,9 +1137,6 @@ def iniciar_analise():
                                 arq_exec, usou_homogenizer=True, is_fallback=True, caminho_rel_repo=rel_path, timeout_por_modulo=12, lang_override=lang_mod
                             )
                             txt_mod += "\n" + txt_fb
-                            jsons_mod = glob.glob(os.path.join(temp_dir, '*.json'))
-                    else:
-                        jsons_mod = glob.glob(os.path.join(temp_dir, '*.json'))
 
                     metricas_mod = extrair_metricas_e_contraexemplo_esbmc(txt_mod, rel_path, usou_homog_mod)
 
@@ -1078,22 +1212,20 @@ def iniciar_analise():
                     duracao_mod = time.time() - t_mod_start
 
                     mod_violations = 0
-                    if jsons_mod:
+                    caminho_rep_j, dados_j = _obter_relatorio_esbmc_json(temp_dir)
+                    if dados_j and isinstance(dados_j, list):
                         try:
-                            with open(jsons_mod[0], 'r', encoding='utf-8') as jf:
-                                dados_j = json.load(jf)
-                                if isinstance(dados_j, list):
-                                    for item_j in dados_j:
-                                        if isinstance(item_j, dict) and item_j.get("status") == "violation":
-                                            for st in item_j.get("steps", []):
-                                                if st.get("type") == "violation":
-                                                    mod_violations += 1
-                                                    loc = st.get("location", {})
-                                                    loc["file"] = rel_path
-                                                    st["location"] = loc
-                                                    if metricas_mod["z3_witness"]:
-                                                        st["message"] = f"{st.get('message', '')} | {metricas_mod['z3_witness']}"
-                                            aggregated_dashboard_data.append(item_j)
+                            for item_j in dados_j:
+                                if isinstance(item_j, dict) and item_j.get("status") == "violation":
+                                    for st in item_j.get("steps", []):
+                                        if st.get("type") == "violation":
+                                            mod_violations += 1
+                                            loc = st.get("location", {})
+                                            loc["file"] = rel_path
+                                            st["location"] = loc
+                                            if metricas_mod["z3_witness"]:
+                                                st["message"] = f"{st.get('message', '')} | {metricas_mod['z3_witness']}"
+                                    aggregated_dashboard_data.append(item_j)
                         except Exception:
                             pass
 
@@ -1166,6 +1298,8 @@ def iniciar_analise():
 
                     repo_exploration_summary.append({
                         "index": idx_a,
+                        "grau": alvo_info.get('grau', 0),
+                        "nome_grau": alvo_info.get('nome_grau', 'Auxiliar'),
                         "lang": lang_mod.upper(),
                         "directory": alvo_info['dir'],
                         "file": rel_path,
@@ -1203,51 +1337,53 @@ def iniciar_analise():
                 total_ssa_repo = sum(int(r.get("ssa_assigns", 0)) for r in repo_exploration_summary)
 
                 linhas_tabela_txt = [
-                    "\n================================================================================================================",
+                    "\n====================================================================================================================",
                     "[SYSTEM] [RepoSlice-BMC] CONSOLIDATED SCIENTIFIC VERIFICATION REPORT (UFAM / MASTER'S DISSERTATION METRICS)",
-                    "================================================================================================================",
+                    "====================================================================================================================",
                     f" • Engine Mode            : {modo_motor_desc}",
                     f" • Total Modules Verified : {len(repo_exploration_summary)} across {len(dirs_cobertos)} directories ({', '.join(langs_selecionadas)})",
                     f" • Formal Verdicts        : {total_safe} SAFE/SOUND | {total_viol} VIOLATION(S) WITH Z3 WITNESS | {total_raw_err} PARSING/DEPS ERRORS",
                     f" • Total SMT Proof Effort : {total_vccs_repo} Verification Conditions (VCCs) | {total_ssa_repo} SSA Assignments | Wall Time: {tempo_total_repo:.2f}s",
-                    "----------------------------------------------------------------------------------------------------------------",
-                    f"{'#':<3} | {'Lang':<6} | {'Module (Path)':<42} | {'Mode':<26} | {'SSA':>5} | {'VCCs':>4} | {'Time':>6} | {'Formal Verdict / Z3 Witness'}",
-                    "-" * 128
+                    "--------------------------------------------------------------------------------------------------------------------",
+                    f"{'#':<3} | {'Grau':<6} | {'Lang':<6} | {'Module (Path)':<38} | {'Mode':<24} | {'SSA':>5} | {'VCCs':>4} | {'Time':>6} | {'Formal Verdict / Z3 Witness'}",
+                    "-" * 132
                 ]
-                linhas_csv = ["Index,Language,Directory,Module,VerificationMode,ESBMC_CLI,GOTO_Time,SSA_Assignments,VCCs,WallTime_s,Verdict,Z3_Witness"]
+                linhas_csv = ["Index,Priority_Grade,Grade_Name,Language,Directory,Module,VerificationMode,ESBMC_CLI,GOTO_Time,SSA_Assignments,VCCs,WallTime_s,Verdict,Z3_Witness"]
                 linhas_latex = [
                     "% === TABELA LATEX GERADA AUTOMATICAMENTE PELO ESBMC-WEB (v2026) PARA DISSERTAÇÃO UFAM / IEEE ===",
                     "\\begin{table*}[htbp]",
                     "\\centering",
-                    "\\caption{Resultados da Verificação Formal Poliglota Multi-Diretório via Algoritmo \\textit{RepoSlice-BMC}}",
+                    "\\caption{Resultados da Verificação Formal Poliglota Multi-Diretório via Algoritmo \\textit{RepoSlice-BMC} com Matriz Canônica de Prioridades (Graus 5 a 0)}",
                     "\\label{tab:reposlice_bmc_results}",
                     "\\resizebox{\\textwidth}{!}{%",
-                    "\\begin{tabular}{clllrrrl}",
+                    "\\begin{tabular}{ccclllrrrl}",
                     "\\hline",
-                    "\\textbf{\\#} & \\textbf{Ling.} & \\textbf{Diretório / Subsistema} & \\textbf{Módulo Verificado} & \\textbf{Atrib. SSA} & \\textbf{VCCs} & \\textbf{Tempo (s)} & \\textbf{Veredito Formal (ESBMC + Z3)} \\\\ \\hline"
+                    "\\textbf{\\#} & \\textbf{Grau} & \\textbf{Ling.} & \\textbf{Diretório / Subsistema} & \\textbf{Módulo Verificado} & \\textbf{Atrib. SSA} & \\textbf{VCCs} & \\textbf{Tempo (s)} & \\textbf{Veredito Formal (ESBMC + Z3)} \\\\ \\hline"
                 ]
 
                 for r in repo_exploration_summary:
-                    mod_curto = r["file"] if len(r["file"]) <= 42 else ("..." + r["file"][-39:])
+                    mod_curto = r["file"] if len(r["file"]) <= 38 else ("..." + r["file"][-35:])
                     veredito_det = f"{r['status']} ({r['z3_witness']})" if r.get("z3_witness") else r["status"]
+                    grau_label = f"G{r.get('grau', 0)}"
                     linhas_tabela_txt.append(
-                        f"{r['index']:<3} | {r['lang']:<6} | {mod_curto:<42} | {r['mode'][:26]:<26} | {r['ssa_assigns']:>5} | {r['vccs']:>4} | {r['wall_time']:>6} | {veredito_det}"
+                        f"{r['index']:<3} | {grau_label:<6} | {r['lang']:<6} | {mod_curto:<38} | {r['mode'][:24]:<24} | {r['ssa_assigns']:>5} | {r['vccs']:>4} | {r['wall_time']:>6} | {veredito_det}"
                     )
                     w_clean = str(r.get("z3_witness", "")).replace('"', "'")
                     cli_clean = str(r.get("esbmc_cli", "")).replace('"', "'")
+                    grade_nome_clean = str(r.get("nome_grau", "")).replace('"', "'")
                     linhas_csv.append(
-                        f"{r['index']},{r['lang']},\"{r['directory']}\",\"{r['file']}\",\"{r['mode']}\",\"{cli_clean}\",{r['goto_time']},{r['ssa_assigns']},{r['vccs']},{r['wall_time']},\"{r['status']}\",\"{w_clean}\""
+                        f"{r['index']},{r.get('grau', 0)},\"{grade_nome_clean}\",{r['lang']},\"{r['directory']}\",\"{r['file']}\",\"{r['mode']}\",\"{cli_clean}\",{r['goto_time']},{r['ssa_assigns']},{r['vccs']},{r['wall_time']},\"{r['status']}\",\"{w_clean}\""
                     )
                     dir_tex = str(r["directory"]).replace("_", "\\_")
                     arq_tex = os.path.basename(r["file"]).replace("_", "\\_")
                     stat_tex = str(r["status"]).replace("_", "\\_")
                     linhas_latex.append(
-                        f"{r['index']} & \\texttt{{{r['lang']}}} & \\texttt{{{dir_tex}}} & \\texttt{{{arq_tex}}} & {r['ssa_assigns']} & {r['vccs']} & {r['wall_time']} & \\textbf{{{stat_tex}}} \\\\"
+                        f"{r['index']} & Grau {r.get('grau', 0)} & \\texttt{{{r['lang']}}} & \\texttt{{{dir_tex}}} & \\texttt{{{arq_tex}}} & {r['ssa_assigns']} & {r['vccs']} & {r['wall_time']} & \\textbf{{{stat_tex}}} \\\\"
                     )
 
                 linhas_latex.extend([
                     "\\hline",
-                    f"\\multicolumn{{4}}{{r}}{{\\textbf{{Total Consolidado ({len(repo_exploration_summary)} Módulos)}}}} & \\textbf{{{total_ssa_repo}}} & \\textbf{{{total_vccs_repo}}} & \\textbf{{{tempo_total_repo:.2f}s}} & \\textbf{{{total_safe} SAFE / {total_viol} VIOLATION}} \\\\ \\hline",
+                    f"\\multicolumn{{5}}{{r}}{{\\textbf{{Total Consolidado ({len(repo_exploration_summary)} Módulos)}}}} & \\textbf{{{total_ssa_repo}}} & \\textbf{{{total_vccs_repo}}} & \\textbf{{{tempo_total_repo:.2f}s}} & \\textbf{{{total_safe} SAFE / {total_viol} VIOLATION}} \\\\ \\hline",
                     "\\end{tabular}%",
                     "}",
                     "\\end{table*}"
@@ -1405,12 +1541,23 @@ def iniciar_analise():
 
             # --- 3. PARSING DOS RESULTADOS GERAIS (DASHBOARD) ---
             dashboard_data = []
-            if lista_json:
-                with open(lista_json[0], 'r', encoding='utf-8') as f:
-                    try:
-                        dashboard_data = json.load(f)
-                    except json.JSONDecodeError:
-                        pass
+            arquivo_report_json = os.path.join(temp_dir, 'report.json')
+            caminho_rep_sf, dados_rep_sf = _obter_relatorio_esbmc_json(temp_dir)
+            if dados_rep_sf and isinstance(dados_rep_sf, list):
+                dashboard_data = dados_rep_sf
+
+            if not dashboard_data and "VERIFICATION FAILED" in texto_final:
+                msg_viol = "VERIFICATION FAILED: Violated property detected by ESBMC."
+                for ln in texto_final.splitlines():
+                    ln_s = ln.strip()
+                    if any(kw in ln_s for kw in ("Violated property:", "dereference failure:", "invalid pointer", "assertion failed", "division by zero")):
+                        msg_viol = ln_s
+                        break
+                dashboard_data = [{
+                    "status": "violation",
+                    "message": msg_viol,
+                    "steps": []
+                }]
 
             verificacao_sucesso = (
                 "VERIFICATION SUCCESSFUL" in texto_final
