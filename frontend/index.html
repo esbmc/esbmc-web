@@ -279,6 +279,21 @@
                         <option value="raw_esbmc">🔬 Strict Pure ESBMC (Baseline SV-COMP)</option>
                     </select>
                 </div>
+                <div class="git-flex-col" style="flex: 1.2; min-width: 200px;">
+                    <label for="verificationPhasesSelect" title="Multi-Phase Verification: Separate functional contracts from safety/overflow checks">Execution Phases</label>
+                    <select id="verificationPhasesSelect" style="height: 42px; font-weight: 600;">
+                        <option value="both" selected>⚡ Ambas as Fases (Contratos + Safety)</option>
+                        <option value="1">🎯 Fase 1: Apenas Contratos Funcionais</option>
+                        <option value="2">🛡️ Fase 2: Apenas Safety & Aritmética</option>
+                    </select>
+                </div>
+                <div class="git-flex-col" style="flex: 1.1; min-width: 190px; justify-content: center;">
+                    <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; margin-bottom: 0; font-weight: 600; font-size: 13px;" title="Preserva harnesses/stubs locais, oráculos de teste e diretivas de verificação formal">
+                        <input type="checkbox" id="testSuiteModeCheck" style="width: 18px; height: 18px; accent-color: #4f46e5;">
+                        <span>🧪 Suíte Profissional (Testbed)</span>
+                    </label>
+                    <small style="color: var(--text-muted, #94a3b8); font-size: 11px;">Preserva stubs & avalia oráculos</small>
+                </div>
                 <div class="git-flex-col" style="flex: 1; min-width: 240px; display:flex; align-items:flex-end;">
                     <button id="exploreRepoBtn" class="btn-editor" style="background: linear-gradient(135deg, #4f46e5, #2563eb); padding: 10px 16px; height: 42px; width:100%; font-weight: 700;">
                         🔍 Explore & Verify Multi-Directory Repo
@@ -472,12 +487,23 @@
                         </button>
                     </div>
                 </div>
+
+                <!-- Filtros Rápidos de Oráculo & Status -->
+                <div style="display: flex; gap: 8px; margin-bottom: 14px; flex-wrap: wrap; align-items: center; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 8px 12px;">
+                    <span style="font-size: 12px; font-weight: 700; color: #475569; margin-right: 4px;">Filtros do Oráculo:</span>
+                    <button class="btn-filter-status active" data-filter="all" style="padding: 5px 12px; border-radius: 6px; font-size: 12px; font-weight: 700; cursor: pointer; border: 1px solid #475569; background: #334155; color: #f8fafc; transition: all 0.2s;">Todos</button>
+                    <button class="btn-filter-status" data-filter="pass_bug" style="padding: 5px 12px; border-radius: 6px; font-size: 12px; font-weight: 700; cursor: pointer; border: 1px solid #16a34a; background: #fff; color: #16a34a; transition: all 0.2s;">🟢 Bugs Encontrados (Pass)</button>
+                    <button class="btn-filter-status" data-filter="pass_safe" style="padding: 5px 12px; border-radius: 6px; font-size: 12px; font-weight: 700; cursor: pointer; border: 1px solid #0284c7; background: #fff; color: #0284c7; transition: all 0.2s;">🛡️ Provados Seguros (Pass)</button>
+                    <button class="btn-filter-status" data-filter="regression" style="padding: 5px 12px; border-radius: 6px; font-size: 12px; font-weight: 700; cursor: pointer; border: 1px solid #dc2626; background: #fff; color: #dc2626; transition: all 0.2s;">🔴 Regressões / Falhas</button>
+                </div>
+
                 <div style="overflow-x: auto;">
                     <table>
                         <thead>
                             <tr>
                                 <th>#</th>
                                 <th>Lang</th>
+                                <th>Fase</th>
                                 <th>Directory</th>
                                 <th>Module / File</th>
                                 <th>Verification Mode / Z3 Witness</th>
@@ -485,6 +511,7 @@
                                 <th>SSA / VCCs</th>
                                 <th>Time</th>
                                 <th>Formal Verdict</th>
+                                <th>Oráculo / Status</th>
                                 <th>Source / Slice</th>
                             </tr>
                         </thead>

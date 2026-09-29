@@ -22,18 +22,130 @@ import re
 from typing import Dict, List, Set, Tuple, Optional
 
 
-PASTAS_IGNORADAS = {
+PASTAS_SISTEMA = {
     '.git', '.github', '.vscode', '__pycache__', 'node_modules', 'venv', '.venv',
     'env', 'build', 'dist', 'docs', 'doc', 'migrations', 'static', 'templates',
-    'assets', 'vendor', 'third_party', 'extern', 'external', 'cmake',
-    'regression', 'unit', 'disabled', 'benchmarks', 'benchmark'
+    'assets', 'vendor', 'third_party', 'extern', 'external', 'cmake', 'disabled'
 }
+PASTAS_IGNORADAS = PASTAS_SISTEMA
+
+PASTAS_HARNESS_PROFISSIONAIS = {
+    'harness', 'harnesses', 'verification', 'verify', 'labs', 'lab',
+    'proofs', 'proof', 'tests', 'test', 'testing'
+}
+
+
+def _extrair_diretivas_do_arquivo(conteudo: str) -> Tuple[Optional[str], List[str]]:
+    """Extrai diretivas de oráculo esperado e flags ESBMC comentadas no código fonte.
+    Exemplos aceitos:
+      // esbmc-expected: FAILED (ou SUCCESSFUL)
+      // esbmc-flags: --unwind 6 --memory-leak-check
+      # esbmc-expected: VERIFICATION FAILED
+      # esbmc-flags: --overflow-check
+    """
+    expected = None
+    flags: List[str] = []
+    if not conteudo:
+        return expected, flags
+
+    for line in conteudo.splitlines()[:30]:
+        line_clean = line.strip()
+        m_exp = re.search(r'(?://|#)\s*(?:esbmc-)?expected(?:\s*verdict)?\s*:\s*([A-Za-z0-9_\-\s]+)', line_clean, re.IGNORECASE)
+        if m_exp:
+            raw_v = m_exp.group(1).strip().upper()
+            if "FAIL" in raw_v:
+                expected = "VERIFICATION FAILED"
+            elif "SUCCESS" in raw_v or "PASS" in raw_v:
+                expected = "VERIFICATION SUCCESSFUL"
+            else:
+                expected = raw_v
+
+        m_flags = re.search(r'(?://|#)\s*(?:esbmc-)?flags\s*:\s*(.+)', line_clean, re.IGNORECASE)
+        if m_flags:
+            partes = m_flags.group(1).strip().split()
+            for p in partes:
+                if p.startswith('-') or (flags and flags[-1].startswith('-') and not flags[-1].startswith('--no-')):
+                    flags.append(p)
+
+    return expected, flags
+
+
+def _extrair_manifesto_orquestrador(repo_dir: str) -> Dict[str, Dict[str, object]]:
+    """Analisa scripts orquestradores conhecidos do repositório (ex: verify.py do vLLM/AWS-Neuron
+    ou run_checks.sh dos labs da UNIFEI) e extrai o mapeamento de arquivos para seus vereditos e flags esperadas."""
+    mapa_manifesto: Dict[str, Dict[str, object]] = {}
+    if not repo_dir or not os.path.isdir(repo_dir):
+        return mapa_manifesto
+
+    # 1. Procura scripts de checagem shell (ex: run_checks.sh, check.sh, run_tests.sh)
+    for root, _, files in os.walk(repo_dir):
+        for f in files:
+            if f.endswith('.sh') or f in ('run_checks', 'verify'):
+                caminho_sh = os.path.join(root, f)
+                try:
+                    with open(caminho_sh, 'r', encoding='utf-8', errors='replace') as f_sh:
+                        linhas = f_sh.readlines()
+                    for linha in linhas:
+                        ln = linha.strip()
+                        if ln.startswith('#') or not ln:
+                            continue
+                        # Padrão: check labs/lab2/overflow.c "VERIFICATION FAILED"
+                        m_check = re.search(r'(?:check|verify|run_test)\s+["\']?([^"\'\s]+\.(?:c|cpp|cc|py))["\']?\s+["\']?([^"\'\n]+)["\']?', ln, re.IGNORECASE)
+                        if m_check:
+                            arq_rel = m_check.group(1).replace('\\', '/').lower().lstrip('./')
+                            raw_ver = m_check.group(2).strip().upper()
+                            ver_norm = "VERIFICATION FAILED" if "FAIL" in raw_ver else ("VERIFICATION SUCCESSFUL" if ("SUCCESS" in raw_ver or "PASS" in raw_ver) else raw_ver)
+                            mapa_manifesto[arq_rel] = {
+                                'expected_verdict': ver_norm,
+                                'custom_flags': [],
+                                'source': f
+                            }
+                            mapa_manifesto[os.path.basename(arq_rel)] = mapa_manifesto[arq_rel]
+
+                        # Padrão: esbmc labs/lab2/overflow.c --unwind 1 ...
+                        if 'esbmc ' in ln:
+                            partes = ln.split()
+                            arq_cand = None
+                            flags_cand = []
+                            for idx_p, p in enumerate(partes):
+                                if p.endswith(('.c', '.cpp', '.py')) and not p.startswith('-'):
+                                    arq_cand = p.replace('\\', '/').lower().lstrip('./')
+                                elif p.startswith('-') and idx_p > 0 and partes[idx_p - 1] != 'check':
+                                    flags_cand.append(p)
+                            if arq_cand:
+                                entry = mapa_manifesto.setdefault(arq_cand, {'expected_verdict': None, 'custom_flags': [], 'source': f})
+                                if flags_cand:
+                                    entry['custom_flags'] = flags_cand
+                                mapa_manifesto[os.path.basename(arq_cand)] = entry
+                except Exception:
+                    pass
+
+    # 2. Procura orquestrador verify.py (estilo vLLM / AWS-Neuron)
+    verify_py_path = os.path.join(repo_dir, "verify.py")
+    if os.path.isfile(verify_py_path):
+        try:
+            with open(verify_py_path, 'r', encoding='utf-8', errors='replace') as f_vpy:
+                conteudo_vpy = f_vpy.read()
+            # Encontra strings de arquivos .py ou .c referenciados
+            for m_arq in re.finditer(r'["\']([^"\']+\.(?:py|c|cpp))["\']', conteudo_vpy):
+                c_rel = m_arq.group(1).replace('\\', '/').lower().lstrip('./')
+                if c_rel not in mapa_manifesto:
+                    mapa_manifesto[c_rel] = {
+                        'expected_verdict': None,
+                        'custom_flags': [],
+                        'source': 'verify.py'
+                    }
+                    mapa_manifesto[os.path.basename(c_rel)] = mapa_manifesto[c_rel]
+        except Exception:
+            pass
+
+    return mapa_manifesto
 
 
 def _eh_arquivo_teste_ou_ignorado(rel_path: str, incluir_testes: bool = False) -> bool:
     norm = rel_path.replace('\\', '/').lower()
     partes = norm.split('/')
-    if any(p in PASTAS_IGNORADAS or p.startswith('.') for p in partes[:-1]):
+    if any(p in PASTAS_SISTEMA or (p.startswith('.') and p not in ('.', '..')) for p in partes[:-1]):
         return True
     fname = partes[-1]
     if fname in ('__init__.py', 'setup.py', 'conftest.py', 'manage.py', 'wsgi.py', 'asgi.py'):
@@ -41,6 +153,9 @@ def _eh_arquivo_teste_ou_ignorado(rel_path: str, incluir_testes: bool = False) -
     if fname.startswith(('esbmc_', 'sanitized_', 'codigo_esbmc', 'modulo_')):
         return True
     if not incluir_testes:
+        # Se estiver em pastas de testes clássicos sem ser modo de testes profissional
+        if any(p in ('regression', 'unit', 'disabled', 'benchmarks', 'benchmark') for p in partes[:-1]):
+            return True
         if fname.endswith(('_test.py', '_tests.py', '_test.cpp', '_test.c', 'test.cpp', 'test.c')):
             return True
         if fname.startswith(('test_', 'tests_')):
@@ -418,11 +533,13 @@ def descobrir_alvos_verificaveis_repositorio(
     repo_dir: str,
     linguagem: str,
     filtro_subpasta: str = "",
-    max_arquivos: int = 8
+    max_arquivos: int = 8,
+    modo_suite_profissional: bool = False
 ) -> List[Dict[str, object]]:
     """Varre todos os diretórios do repositório, filtra os módulos verificáveis da linguagem
     selecionada (ou todas as linguagens C, C++ e Python simultaneamente quando linguagem='all'),
-    calcula o score heurístico de criticidade e retorna os alvos de forma estratificada."""
+    suporta orquestradores de suítes de teste (verify.py, run_checks.sh), extrai diretivas de
+    oráculo (expected verdict) e retorna os alvos de forma estratificada e priorizada."""
     if linguagem in ('all', 'polyglot', 'auto'):
         extensoes = ('.py', '.c', '.cpp', '.cc', '.cxx')
     elif linguagem == 'python':
@@ -435,6 +552,9 @@ def descobrir_alvos_verificaveis_repositorio(
     candidatos = []
     lang_counts: Dict[str, int] = {'c': 0, 'cpp': 0, 'python': 0}
 
+    # 1. Analisa orquestradores e manifestos presentes no repositório (estilo vLLM, AWS-Neuron, UNIFEI)
+    manifesto_orquestrador = _extrair_manifesto_orquestrador(repo_dir)
+
     filtro_norm = filtro_subpasta.strip().strip('/\\').replace('\\', '/').lower()
     # Se o filtro apontar para um arquivo exato (ex: api/channels_api.py), usa o diretório pai dele como filtro de pasta
     if filtro_norm.endswith(('.py', '.c', '.cpp', '.h', '.hpp')) and '/' in filtro_norm:
@@ -442,9 +562,12 @@ def descobrir_alvos_verificaveis_repositorio(
     elif filtro_norm.endswith(('.py', '.c', '.cpp', '.h', '.hpp')):
         filtro_norm = ""
 
-    incluir_testes = (max_arquivos == -1)
+    partes_filtro = [p for p in filtro_norm.split('/') if p]
+    eh_pasta_harness = any(p in PASTAS_HARNESS_PROFISSIONAIS for p in partes_filtro)
+    incluir_testes = (max_arquivos == -1) or modo_suite_profissional or eh_pasta_harness
+
     for dirpath, dirnames, filenames in os.walk(repo_dir):
-        dirnames[:] = [d for d in dirnames if d not in PASTAS_IGNORADAS and not d.startswith('.')]
+        dirnames[:] = [d for d in dirnames if d not in PASTAS_SISTEMA and not d.startswith('.')]
         for fname in filenames:
             if not fname.endswith(extensoes):
                 continue
@@ -472,7 +595,7 @@ def descobrir_alvos_verificaveis_repositorio(
             try:
                 with open(full_p, 'r', encoding='utf-8', errors='replace') as f:
                     conteudo = f.read()
-                if len(conteudo.strip()) < 30:
+                if len(conteudo.strip()) < 20:
                     continue
                 if lang_arq == 'python':
                     ast.parse(conteudo)
@@ -483,6 +606,36 @@ def descobrir_alvos_verificaveis_repositorio(
             grau, nome_grau, score, resumo_m = classificar_grau_prioridade_modulo(rel_p, conteudo, lang_arq)
             dir_rel = os.path.dirname(rel_p) or "(root)"
             motivos_lista = [m.strip() for m in resumo_m.split(',') if m.strip()] or ["Core Module"]
+
+            # Extração de diretivas embutidas no cabeçalho do código
+            exp_dir, flags_dir = _extrair_diretivas_do_arquivo(conteudo)
+
+            # Consulta no manifesto do orquestrador
+            info_orq = manifesto_orquestrador.get(rel_p.lower()) or manifesto_orquestrador.get(os.path.basename(rel_p).lower())
+            exp_orq = info_orq.get('expected_verdict') if info_orq else None
+            flags_orq = info_orq.get('custom_flags') if info_orq else []
+
+            expected_verdict = exp_dir or exp_orq
+            custom_flags = flags_dir or flags_orq
+            partes_rel_p = rel_p.lower().split('/')
+            eh_harness = (
+                any(p in PASTAS_HARNESS_PROFISSIONAIS for p in partes_rel_p)
+                or ('test' in partes_rel_p[-1])
+                or ('harness' in partes_rel_p[-1])
+                or ('assert' in conteudo)
+                or ('__ESBMC_assert' in conteudo)
+            )
+
+            oraculo_origem = "Directives" if exp_dir else (info_orq.get('source') if (info_orq and exp_orq) else None)
+
+            if expected_verdict:
+                score += 25
+                motivos_lista.append(f"Oracle: {expected_verdict.replace('VERIFICATION ', '')}")
+            if eh_harness:
+                score += 10
+                if "Formal Testbed" not in motivos_lista:
+                    motivos_lista.append("Formal Testbed/Harness")
+
             candidatos.append({
                 'rel_path': rel_p,
                 'dir': dir_rel,
@@ -494,7 +647,11 @@ def descobrir_alvos_verificaveis_repositorio(
                 'score': score,
                 'categoria': f"Grau {grau}: {nome_grau}",
                 'motivos': motivos_lista,
-                'conteudo': conteudo
+                'conteudo': conteudo,
+                'is_harness': eh_harness,
+                'expected_verdict': expected_verdict,
+                'custom_flags': custom_flags,
+                'oraculo_origem': oraculo_origem
             })
 
     # Round-Robin Estratificado em Dois Níveis:

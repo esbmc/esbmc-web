@@ -16,6 +16,7 @@ import re
 import time
 import signal
 import ast
+from typing import Optional, Tuple, List, Dict, Any
 
 
 def _encerrar_arvore_processo(proc):
@@ -131,6 +132,29 @@ def descobrir_funcao_alvo_principal(codigo: str, linguagem: str):
         candidatas_c.sort(key=lambda x: x[0], reverse=True)
         return candidatas_c[0][1], candidatas_c[0][2]
     return None, 0
+
+
+def avaliar_status_teste(veredicto_obtido: str, veredicto_esperado: Optional[str]) -> Tuple[str, str]:
+    """Avalia o status de um teste comparando o veredito obtido pelo ESBMC contra o oráculo esperado.
+    Retorna (codigo_status, rotulo_formatado)."""
+    if not veredicto_esperado or veredicto_esperado == "-":
+        if "FAILED" in veredicto_obtido:
+            return "VIOLATION", "❌ VIOLATION"
+        elif "SUCCESS" in veredicto_obtido or "SOUND" in veredicto_obtido or "SAFE" in veredicto_obtido:
+            return "SAFE", "✅ SAFE"
+        return "COMPLETED", "COMPLETED"
+
+    obtido_norm = "FAILED" if "FAIL" in veredicto_obtido.upper() else ("SUCCESSFUL" if ("SUCCESS" in veredicto_obtido.upper() or "SOUND" in veredicto_obtido.upper() or "SAFE" in veredicto_obtido.upper()) else "UNKNOWN")
+    esperado_norm = "FAILED" if "FAIL" in veredicto_esperado.upper() else ("SUCCESSFUL" if ("SUCCESS" in veredicto_esperado.upper() or "PASS" in veredicto_esperado.upper()) else "UNKNOWN")
+
+    if obtido_norm == esperado_norm:
+        if obtido_norm == "FAILED":
+            return "PASS_BUG_FOUND", "🟢 PASS (Bug Encontrado)"
+        else:
+            return "PASS_SOUND", "🟢 PASS (Provado Seguro)"
+    else:
+        return "REGRESSION_FAILED", "🔴 REGRESSÃO (Divergiu do Oráculo)"
+
 
 from sanitizers.python_sanitizer import sanitizar_python
 from sanitizers.cpp_sanitizer import sanitizar_cpp, descubrir_headers_e_includes_no_diretorio, gerar_modelo_simbolico_fallback_c_cpp
@@ -561,8 +585,10 @@ def iniciar_analise():
                 forcar_bounded_unwind=False,
                 funcao_alvo_extra=None,
                 modo_puro_raw=False,
-                pular_fontes_dependentes=False
+                pular_fontes_dependentes=False,
+                flags_custom_override=None
             ):
+                flags_ativas = list(flags_custom_override) if flags_custom_override is not None else list(flags_recebidas)
                 lang_efetiva = lang_override or linguagem
                 comando = ['esbmc', arquivo_alvo]
                 if lang_efetiva == 'python':
@@ -646,7 +672,7 @@ def iniciar_analise():
                                 '-D', 'YAML_CPP_STATIC_DEFINE'
                             ])
                             # Se o arquivo alvo tem o harness __esbmc_main gerado pelo homogenizer e o usuário não passou --function
-                            if not any(f.startswith('--function') for f in flags_recebidas) and not funcao_alvo_extra:
+                            if not any(f.startswith('--function') for f in flags_ativas) and not funcao_alvo_extra:
                                 try:
                                     alvo_caminho_check = os.path.join(temp_dir, arquivo_alvo)
                                     if os.path.isfile(alvo_caminho_check):
@@ -667,28 +693,28 @@ def iniciar_analise():
 
                 i = 0
                 estrategias_usuario = [
-                    f for f in flags_recebidas
+                    f for f in flags_ativas
                     if f in ('--incremental-bmc', '--k-induction', '--falsification', '--termination', '--unwind')
                 ]
                 usuario_escolheu_estrategia = len(estrategias_usuario) > 0
 
                 # Se o usuário definiu um --timeout manual nos parâmetros, respeita esse valor no watchdog também
                 timeout_efetivo = timeout_por_modulo
-                if '--timeout' in flags_recebidas and not forcar_bounded_unwind:
-                    idx_t = flags_recebidas.index('--timeout')
-                    if idx_t + 1 < len(flags_recebidas):
+                if '--timeout' in flags_ativas and not forcar_bounded_unwind:
+                    idx_t = flags_ativas.index('--timeout')
+                    if idx_t + 1 < len(flags_ativas):
                         try:
-                            val_t = str(flags_recebidas[idx_t + 1]).rstrip('sS')
+                            val_t = str(flags_ativas[idx_t + 1]).rstrip('sS')
                             timeout_efetivo = float(val_t)
                         except ValueError:
                             pass
-                elif timeout_efetivo is None and ('--incremental-bmc' in flags_recebidas or '--k-induction' in flags_recebidas):
+                elif timeout_efetivo is None and ('--incremental-bmc' in flags_ativas or '--k-induction' in flags_ativas):
                     # Salvaguarda: se o usuário escolheu incremental-bmc/k-induction sem passar --timeout,
                     # aplica um timeout seguro de 30s para evitar desenrolamento infinito sem fim
                     timeout_efetivo = 30.0
 
-                while i < len(flags_recebidas):
-                    flag = flags_recebidas[i]
+                while i < len(flags_ativas):
+                    flag = flags_ativas[i]
                     if forcar_bounded_unwind and flag in ('--incremental-bmc', '--k-induction', '--falsification', '--termination', '--unwind'):
                         if flag == '--unwind':
                             i += 2
@@ -698,8 +724,8 @@ def iniciar_analise():
                     if flag in FLAGS_PERMITIDAS_SIMPLES:
                         comando.append(flag)
                         i += 1
-                    elif flag in FLAGS_PERMITIDAS_COM_VALOR and (i + 1) < len(flags_recebidas):
-                        val_param = str(flags_recebidas[i + 1])
+                    elif flag in FLAGS_PERMITIDAS_COM_VALOR and (i + 1) < len(flags_ativas):
+                        val_param = str(flags_ativas[i + 1])
                         if flag == '--timeout' and not val_param.endswith('s'):
                             val_param = f"{val_param}s"
                         comando.extend([flag, val_param])
@@ -746,7 +772,11 @@ def iniciar_analise():
                 TAREFAS_ATIVAS[task_id]["last_cli"] = ' '.join(cli_limpo)
 
                 env = os.environ.copy()
-                env['PYTHONPATH'] = temp_dir
+                dir_modulo = os.path.dirname(os.path.join(temp_dir, caminho_rel_repo)) if caminho_rel_repo else temp_dir
+                if sub_dir_repo and os.path.isdir(sub_dir_repo) and sub_dir_repo != dir_modulo:
+                    env['PYTHONPATH'] = f"{dir_modulo}:{sub_dir_repo}:{temp_dir}:" + env.get("PYTHONPATH", "")
+                else:
+                    env['PYTHONPATH'] = f"{dir_modulo}:{temp_dir}:" + env.get("PYTHONPATH", "")
 
                 if TAREFAS_ATIVAS[task_id].get("cancel_requested"):
                     return "", -1
@@ -876,6 +906,8 @@ def iniciar_analise():
                 repo_lang_filter = str(dados.get('repo_lang_filter', 'auto')).strip().lower()
                 verification_engine_mode = str(dados.get('verification_engine_mode', 'assisted')).strip().lower()
                 is_raw_esbmc = (verification_engine_mode == 'raw_esbmc')
+                modo_suite_profissional = bool(dados.get('test_suite_mode', False))
+                modo_fases = str(dados.get('verification_phases', 'both')).strip().lower()
 
                 if max_repo_files == -1:
                     escopo_desc = "FULL REPOSITORY + UNIT TESTS (All Verifiable & Test Modules)"
@@ -890,16 +922,24 @@ def iniciar_analise():
                     else "REPOSLICE-BMC ASSISTED (Cross-Directory Slicing + Homogenizer v2.0 + Anti-Vacuity Engine)"
                 )
 
+                fases_desc = "TWO-PHASE (Phase 1: Contracts + Phase 2: Safety & Overflow)" if modo_fases == 'both' else (
+                    "PHASE 1 ONLY (Functional Contracts)" if modo_fases == '1' else "PHASE 2 ONLY (Safety & Arithmetic)"
+                )
+
                 TAREFAS_ATIVAS[task_id]["logs"] += (
                     "\n================================================================================\n"
                     "[SYSTEM] [RepoSlice-BMC] Starting Multi-Directory Repository Exploration Algorithm\n"
                     f"[SYSTEM] [RepoSlice-BMC] Engine Mode      : {modo_motor_desc}\n"
                     f"[SYSTEM] [RepoSlice-BMC] Exploration Scope: {escopo_desc}\n"
-                    "================================================================================\n"
+                    f"[SYSTEM] [RepoSlice-BMC] Execution Phases : {fases_desc}\n"
                 )
-                # Descobre os alvos verificáveis do repositório:
+                if modo_suite_profissional:
+                    TAREFAS_ATIVAS[task_id]["logs"] += "[SYSTEM] [Professional Suite Engine] Professional Test Suite Mode Active (Testbeds & Verification Oracles enabled)!\n"
+                TAREFAS_ATIVAS[task_id]["logs"] += "================================================================================\n"
+
+                # Descobre os alvos verificáveis do repositório com suporte a orquestradores profissionais:
                 alvos_all = descobrir_alvos_verificaveis_repositorio(
-                    temp_dir, 'all', filtro_subpasta=repo_subdir_filter, max_arquivos=max_repo_files
+                    temp_dir, 'all', filtro_subpasta=repo_subdir_filter, max_arquivos=max_repo_files, modo_suite_profissional=modo_suite_profissional
                 )
                 if not alvos_all:
                     raise Exception("No verifiable C, C++, or Python files found in repository.")
@@ -914,7 +954,7 @@ def iniciar_analise():
                         f"({lang_counts[repo_lang_filter]} module(s) available in repository).\n"
                     )
                     alvos = descobrir_alvos_verificaveis_repositorio(
-                        temp_dir, repo_lang_filter, filtro_subpasta=repo_subdir_filter, max_arquivos=max_repo_files
+                        temp_dir, repo_lang_filter, filtro_subpasta=repo_subdir_filter, max_arquivos=max_repo_files, modo_suite_profissional=modo_suite_profissional
                     )
                 elif linguagem in ('all', 'polyglot') or repo_lang_filter == 'auto' or len(langs_presentes) > 1 or lang_counts.get(linguagem, 0) == 0:
                     alvos = alvos_all
@@ -932,7 +972,7 @@ def iniciar_analise():
                         linguagem = langs_presentes[0]
                 else:
                     alvos = descobrir_alvos_verificaveis_repositorio(
-                        temp_dir, linguagem, filtro_subpasta=repo_subdir_filter, max_arquivos=max_repo_files
+                        temp_dir, linguagem, filtro_subpasta=repo_subdir_filter, max_arquivos=max_repo_files, modo_suite_profissional=modo_suite_profissional
                     )
 
                 total_repo_files = alvos[0].get('total_repo_files', len(alvos))
@@ -947,8 +987,10 @@ def iniciar_analise():
                 for idx_a, a in enumerate(alvos, 1):
                     lang_badge = str(a.get('lang', linguagem)).upper()
                     grau_tag = f"Grau {a.get('grau', 0)}: {a.get('nome_grau', 'Auxiliar')}"
+                    oracle_badge = f" | Expected: {a['expected_verdict'].replace('VERIFICATION ', '')}" if a.get('expected_verdict') else ""
+                    harness_badge = " [HARNESS]" if a.get('is_harness') else ""
                     TAREFAS_ATIVAS[task_id]["logs"] += (
-                        f"   {idx_a}. [{grau_tag}] [{a['dir']} | {lang_badge}] {a['rel_path']} (Score: {a['score']} | {', '.join(a.get('motivos', []))})\n"
+                        f"   {idx_a}. [{grau_tag}]{harness_badge} [{a['dir']} | {lang_badge}] {a['rel_path']} (Score: {a['score']}{oracle_badge} | {', '.join(a.get('motivos', []))})\n"
                     )
 
                 tem_algum_python = any(a.get('lang', linguagem) == 'python' for a in alvos)
@@ -1020,11 +1062,11 @@ def iniciar_analise():
                         with open(caminho_temp_mod, 'w', encoding='utf-8') as f:
                             f.write(cod_modulo)
                         info_s = sanitizar_python(
-                            caminho_temp_mod, caminho_sanit_mod, temp_dir=temp_dir, is_git=True, forcar_homogenizer=False
+                            caminho_temp_mod, caminho_sanit_mod, temp_dir=temp_dir, is_git=True, is_harness=alvo_info.get('is_harness', False), forcar_homogenizer=False
                         )
                         arq_exec = nome_sanit_mod
                         usou_homog_mod = info_s['usou_homogenizer_v2']
-                        modo_verif_mod = "Python AST Slice (v2.0)" if usou_homog_mod else "Native Python"
+                        modo_verif_mod = "Python AST Slice (v2.0)" if usou_homog_mod else ("Harness Native Python" if alvo_info.get('is_harness') else "Native Python")
                         cod_exibido = info_s['codigo_final']
                     elif lang_mod == 'cpp':
                         with open(caminho_temp_mod, 'w', encoding='utf-8') as f:
@@ -1045,7 +1087,23 @@ def iniciar_analise():
 
                     combined_code_preview.append(f"// ==================== MODULE [{idx_a}/{len(alvos)}] ({lang_mod.upper()}): {rel_path} ====================\n{cod_exibido}")
 
-                    timeout_primario = 10 if (lang_mod in ('c', 'cpp') and '--incremental-bmc' in flags_recebidas) else 16
+                    # Inferência e união de flags de orquestrador / diretivas comentadas
+                    flags_modulo_base = list(flags_recebidas)
+                    for cf in alvo_info.get('custom_flags', []):
+                        if cf not in flags_modulo_base:
+                            flags_modulo_base.append(cf)
+
+                    # Inferência inteligente de concorrência por análise estática rápida
+                    if lang_mod in ('c', 'cpp') and re.search(r'\bpthread_|\bstd::thread|\bstd::atomic\b', cod_modulo):
+                        if '--context-bound' not in flags_modulo_base:
+                            flags_modulo_base.extend(['--context-bound', '2'])
+                        if '--data-races-check' not in flags_modulo_base:
+                            flags_modulo_base.append('--data-races-check')
+
+                    timeout_primario = 10 if (lang_mod in ('c', 'cpp') and '--incremental-bmc' in flags_modulo_base) else 16
+
+                    # FASE 1: Contratos Funcionais (Asserções e Invariantes)
+                    fase_rotulo = "Fase 1 (Contratos)" if modo_fases in ('1', 'both') else "Fase 2 (Safety)"
                     txt_mod, rc_mod = rodar_esbmc(
                         arq_exec,
                         usou_homogenizer=usou_homog_mod,
@@ -1053,8 +1111,47 @@ def iniciar_analise():
                         caminho_rel_repo=rel_path,
                         timeout_por_modulo=timeout_primario,
                         lang_override=lang_mod,
-                        modo_puro_raw=is_raw_esbmc
+                        modo_puro_raw=is_raw_esbmc,
+                        flags_custom_override=flags_modulo_base
                     )
+
+                    p1_failed = ("VERIFICATION FAILED" in txt_mod)
+                    p1_success = ("VERIFICATION SUCCESSFUL" in txt_mod)
+
+                    # FASE 2: Safety & Aritmética (--overflow-check, --memory-leak-check)
+                    if modo_fases in ('2', 'both') and not is_raw_esbmc and not TAREFAS_ATIVAS[task_id].get("cancel_requested"):
+                        if modo_fases == 'both' and p1_failed:
+                            # A Fase 1 já descobriu bug funcional com contraexemplo Z3!
+                            fase_rotulo = "Fase 1 (Contrato Violado)"
+                        else:
+                            flags_p2 = list(flags_modulo_base)
+                            if '--overflow-check' not in flags_p2:
+                                flags_p2.append('--overflow-check')
+                            if lang_mod in ('c', 'cpp') and re.search(r'\bmalloc\(|\bfree\(|\bnew\s+|\bdelete\s+', cod_modulo) and '--memory-leak-check' not in flags_p2:
+                                flags_p2.append('--memory-leak-check')
+
+                            safety_desc = ", ".join([f for f in flags_p2 if f in ('--overflow-check', '--memory-leak-check')])
+                            TAREFAS_ATIVAS[task_id]["logs"] += f"[SYSTEM] [Phase 2: Safety Check] Verifying safety conditions ({safety_desc})...\n"
+                            txt_p2, rc_p2 = rodar_esbmc(
+                                arq_exec,
+                                usou_homogenizer=usou_homog_mod,
+                                is_fallback=False,
+                                caminho_rel_repo=rel_path,
+                                timeout_por_modulo=timeout_primario,
+                                lang_override=lang_mod,
+                                modo_puro_raw=is_raw_esbmc,
+                                flags_custom_override=flags_p2
+                            )
+                            if "VERIFICATION FAILED" in txt_p2:
+                                txt_mod = txt_p2
+                                rc_mod = rc_p2
+                                fase_rotulo = "Fase 2 (Safety Violado)"
+                            elif modo_fases == 'both' and p1_success and "VERIFICATION SUCCESSFUL" in txt_p2:
+                                fase_rotulo = "Fases 1 + 2 (Sound)"
+                            elif modo_fases == '2':
+                                txt_mod = txt_p2
+                                rc_mod = rc_p2
+                                fase_rotulo = "Fase 2 (Safety & Overflow)"
                     if TAREFAS_ATIVAS[task_id].get("cancel_requested") and ("VERIFICATION SUCCESSFUL" not in txt_mod and "VERIFICATION FAILED" not in txt_mod):
                         if not repo_exploration_summary:
                             dur_parcial = time.time() - t_mod_start
@@ -1288,6 +1385,14 @@ def iniciar_analise():
                         else f"{modo_verif_mod} | {metricas_mod['vccs_total']} VCCs ({metricas_mod['ssa_assigns']} SSA)"
                     )
 
+                    expected_verdict = alvo_info.get('expected_verdict')
+                    test_status_code, test_status_desc = avaliar_status_teste(status_mod, expected_verdict)
+                    if expected_verdict:
+                        TAREFAS_ATIVAS[task_id]["logs"] += (
+                            f"   🎯 [Oracle Result] Expected: {expected_verdict.replace('VERIFICATION ', '')} | "
+                            f"Obtained: {status_mod} -> {test_status_desc}\n"
+                        )
+
                     caminho_final_exec = os.path.join(temp_dir, arq_exec)
                     if os.path.isfile(caminho_final_exec):
                         try:
@@ -1312,17 +1417,26 @@ def iniciar_analise():
                         "vccs": metricas_mod["vccs_total"],
                         "wall_time": f"{duracao_mod:.2f}s",
                         "mode": modo_verif_mod,
+                        "phase": fase_rotulo,
                         "esbmc_cli": ultimo_cli_mod,
                         "z3_witness": metricas_mod["z3_witness"],
                         "violations": mod_violations,
                         "status": status_mod,
+                        "expected_verdict": expected_verdict or "-",
+                        "test_status": test_status_desc,
+                        "test_status_code": test_status_code,
+                        "is_harness": alvo_info.get('is_harness', False),
                         "homogenized_code": cod_exibido
                     })
 
                     # Atualiza o placar ao vivo para a barra de progresso e prévia em tempo real no HTML
+                    total_pass_live = sum(1 for r in repo_exploration_summary if "PASS" in r.get("test_status", ""))
+                    total_regr_live = sum(1 for r in repo_exploration_summary if "REGRESS" in r.get("test_status", ""))
                     TAREFAS_ATIVAS[task_id]["progresso"].update({
                         "safe_count": sum(1 for r in repo_exploration_summary if "SAFE" in r["status"] or "SOUND" in r["status"]),
                         "violation_count": sum(1 for r in repo_exploration_summary if r["violations"] > 0),
+                        "passed_tests": total_pass_live,
+                        "regression_tests": total_regr_live,
                         "total_vccs": sum(int(r.get("vccs", 0)) for r in repo_exploration_summary),
                         "total_ssa": sum(int(r.get("ssa_assigns", 0)) for r in repo_exploration_summary),
                         "partial_summary": list(repo_exploration_summary)
@@ -1335,55 +1449,69 @@ def iniciar_analise():
                 total_raw_err = sum(1 for r in repo_exploration_summary if "RAW ERROR" in r["status"])
                 total_vccs_repo = sum(int(r.get("vccs", 0)) for r in repo_exploration_summary)
                 total_ssa_repo = sum(int(r.get("ssa_assigns", 0)) for r in repo_exploration_summary)
+                total_pass = sum(1 for r in repo_exploration_summary if "PASS" in r.get("test_status", ""))
+                total_regr = sum(1 for r in repo_exploration_summary if "REGRESS" in r.get("test_status", ""))
+                total_bugs = sum(1 for r in repo_exploration_summary if r.get("test_status_code") == "PASS_BUG_FOUND")
+                total_sound = sum(1 for r in repo_exploration_summary if r.get("test_status_code") == "PASS_SOUND")
 
                 linhas_tabela_txt = [
-                    "\n====================================================================================================================",
-                    "[SYSTEM] [RepoSlice-BMC] CONSOLIDATED SCIENTIFIC VERIFICATION REPORT (UFAM / MASTER'S DISSERTATION METRICS)",
-                    "====================================================================================================================",
+                    "\n================================================================================================================================================",
+                    "[SYSTEM] [RepoSlice-BMC] CONSOLIDATED SCIENTIFIC VERIFICATION REPORT (UFAM / INDUSTRIAL BENCHMARK SUITE)",
+                    "================================================================================================================================================",
                     f" • Engine Mode            : {modo_motor_desc}",
+                    f" • Execution Phases       : {fases_desc}",
                     f" • Total Modules Verified : {len(repo_exploration_summary)} across {len(dirs_cobertos)} directories ({', '.join(langs_selecionadas)})",
                     f" • Formal Verdicts        : {total_safe} SAFE/SOUND | {total_viol} VIOLATION(S) WITH Z3 WITNESS | {total_raw_err} PARSING/DEPS ERRORS",
+                    f" • Test Oracle Compliance : {total_pass} PASSED ({total_bugs} Bugs Found, {total_sound} Proved Safe) | {total_regr} REGRESSIONS",
                     f" • Total SMT Proof Effort : {total_vccs_repo} Verification Conditions (VCCs) | {total_ssa_repo} SSA Assignments | Wall Time: {tempo_total_repo:.2f}s",
-                    "--------------------------------------------------------------------------------------------------------------------",
-                    f"{'#':<3} | {'Grau':<6} | {'Lang':<6} | {'Module (Path)':<38} | {'Mode':<24} | {'SSA':>5} | {'VCCs':>4} | {'Time':>6} | {'Formal Verdict / Z3 Witness'}",
-                    "-" * 132
+                    "------------------------------------------------------------------------------------------------------------------------------------------------",
+                    f"{'#':<3} | {'Grau':<5} | {'Lang':<5} | {'Fase':<12} | {'Module (Path)':<34} | {'Expected':<12} | {'Test Status':<16} | {'Formal Verdict / Z3 Witness'}",
+                    "-" * 144
                 ]
-                linhas_csv = ["Index,Priority_Grade,Grade_Name,Language,Directory,Module,VerificationMode,ESBMC_CLI,GOTO_Time,SSA_Assignments,VCCs,WallTime_s,Verdict,Z3_Witness"]
+                linhas_csv = ["Index,Priority_Grade,Grade_Name,Language,Directory,Module,Phase,ExpectedVerdict,TestStatus,VerificationMode,ESBMC_CLI,GOTO_Time,SSA_Assignments,VCCs,WallTime_s,Verdict,Z3_Witness"]
                 linhas_latex = [
                     "% === TABELA LATEX GERADA AUTOMATICAMENTE PELO ESBMC-WEB (v2026) PARA DISSERTAÇÃO UFAM / IEEE ===",
                     "\\begin{table*}[htbp]",
                     "\\centering",
-                    "\\caption{Resultados da Verificação Formal Poliglota Multi-Diretório via Algoritmo \\textit{RepoSlice-BMC} com Matriz Canônica de Prioridades (Graus 5 a 0)}",
+                    "\\caption{Resultados da Verificação Formal Poliglota Multi-Diretório via Algoritmo \\textit{RepoSlice-BMC} com Suítes de Teste e Oráculos}",
                     "\\label{tab:reposlice_bmc_results}",
                     "\\resizebox{\\textwidth}{!}{%",
-                    "\\begin{tabular}{ccclllrrrl}",
+                    "\\begin{tabular}{ccclllllrrrl}",
                     "\\hline",
-                    "\\textbf{\\#} & \\textbf{Grau} & \\textbf{Ling.} & \\textbf{Diretório / Subsistema} & \\textbf{Módulo Verificado} & \\textbf{Atrib. SSA} & \\textbf{VCCs} & \\textbf{Tempo (s)} & \\textbf{Veredito Formal (ESBMC + Z3)} \\\\ \\hline"
+                    "\\textbf{\\#} & \\textbf{Grau} & \\textbf{Ling.} & \\textbf{Módulo Verificado} & \\textbf{Fase} & \\textbf{Oráculo} & \\textbf{Status do Teste} & \\textbf{Atrib. SSA} & \\textbf{VCCs} & \\textbf{Tempo (s)} & \\textbf{Veredito Formal (ESBMC + Z3)} \\\\ \\hline"
                 ]
 
                 for r in repo_exploration_summary:
-                    mod_curto = r["file"] if len(r["file"]) <= 38 else ("..." + r["file"][-35:])
+                    mod_curto = r["file"] if len(r["file"]) <= 34 else ("..." + r["file"][-31:])
                     veredito_det = f"{r['status']} ({r['z3_witness']})" if r.get("z3_witness") else r["status"]
                     grau_label = f"G{r.get('grau', 0)}"
+                    exp_txt = str(r.get("expected_verdict", "-")).replace("VERIFICATION ", "")
+                    status_test_txt = str(r.get("test_status", "-"))
                     linhas_tabela_txt.append(
-                        f"{r['index']:<3} | {grau_label:<6} | {r['lang']:<6} | {mod_curto:<38} | {r['mode'][:24]:<24} | {r['ssa_assigns']:>5} | {r['vccs']:>4} | {r['wall_time']:>6} | {veredito_det}"
+                        f"{r['index']:<3} | {grau_label:<5} | {r['lang']:<5} | {r.get('phase', '-'):<12} | {mod_curto:<34} | {exp_txt:<12} | {status_test_txt:<16} | {veredito_det}"
                     )
                     w_clean = str(r.get("z3_witness", "")).replace('"', "'")
                     cli_clean = str(r.get("esbmc_cli", "")).replace('"', "'")
                     grade_nome_clean = str(r.get("nome_grau", "")).replace('"', "'")
+                    fase_clean = str(r.get("phase", "-")).replace('"', "'")
+                    exp_clean = str(r.get("expected_verdict", "-")).replace('"', "'")
+                    stat_test_clean = str(r.get("test_status", "-")).replace('"', "'")
                     linhas_csv.append(
-                        f"{r['index']},{r.get('grau', 0)},\"{grade_nome_clean}\",{r['lang']},\"{r['directory']}\",\"{r['file']}\",\"{r['mode']}\",\"{cli_clean}\",{r['goto_time']},{r['ssa_assigns']},{r['vccs']},{r['wall_time']},\"{r['status']}\",\"{w_clean}\""
+                        f"{r['index']},{r.get('grau', 0)},\"{grade_nome_clean}\",{r['lang']},\"{r['directory']}\",\"{r['file']}\",\"{fase_clean}\",\"{exp_clean}\",\"{stat_test_clean}\",\"{r['mode']}\",\"{cli_clean}\",{r['goto_time']},{r['ssa_assigns']},{r['vccs']},{r['wall_time']},\"{r['status']}\",\"{w_clean}\""
                     )
                     dir_tex = str(r["directory"]).replace("_", "\\_")
                     arq_tex = os.path.basename(r["file"]).replace("_", "\\_")
                     stat_tex = str(r["status"]).replace("_", "\\_")
+                    fase_tex = fase_clean.replace("_", "\\_")
+                    exp_tex = exp_txt.replace("_", "\\_")
+                    test_tex = stat_test_clean.replace("🟢", "").replace("🔴", "").replace("❌", "").replace("✅", "").strip().replace("_", "\\_")
                     linhas_latex.append(
-                        f"{r['index']} & Grau {r.get('grau', 0)} & \\texttt{{{r['lang']}}} & \\texttt{{{dir_tex}}} & \\texttt{{{arq_tex}}} & {r['ssa_assigns']} & {r['vccs']} & {r['wall_time']} & \\textbf{{{stat_tex}}} \\\\"
+                        f"{r['index']} & Grau {r.get('grau', 0)} & \\texttt{{{r['lang']}}} & \\texttt{{{arq_tex}}} & {fase_tex} & {exp_tex} & \\textbf{{{test_tex}}} & {r['ssa_assigns']} & {r['vccs']} & {r['wall_time']} & \\textbf{{{stat_tex}}} \\\\"
                     )
 
                 linhas_latex.extend([
                     "\\hline",
-                    f"\\multicolumn{{5}}{{r}}{{\\textbf{{Total Consolidado ({len(repo_exploration_summary)} Módulos)}}}} & \\textbf{{{total_ssa_repo}}} & \\textbf{{{total_vccs_repo}}} & \\textbf{{{tempo_total_repo:.2f}s}} & \\textbf{{{total_safe} SAFE / {total_viol} VIOLATION}} \\\\ \\hline",
+                    f"\\multicolumn{{7}}{{r}}{{\\textbf{{Total Consolidado ({len(repo_exploration_summary)} Módulos)}}}} & \\textbf{{{total_ssa_repo}}} & \\textbf{{{total_vccs_repo}}} & \\textbf{{{tempo_total_repo:.2f}s}} & \\textbf{{{total_safe} SAFE / {total_viol} VIOLATION}} \\\\ \\hline",
                     "\\end{tabular}%",
                     "}",
                     "\\end{table*}"

@@ -58,13 +58,21 @@ class LightImportFlattener(ast.NodeTransformer):
         return None
 
 
-def precisa_homogeneizar_v2(codigo_fonte: str, temp_dir: str = "", is_git: bool = False) -> Tuple[bool, str]:
+def precisa_homogeneizar_v2(
+    codigo_fonte: str,
+    temp_dir: str = "",
+    is_git: bool = False,
+    is_harness: bool = False
+) -> Tuple[bool, str]:
     """Detecta se o código Python precisa do ESBMC Homogenizer v2.0 (VeriBee).
 
     Retorna (True, motivo) quando:
       - O código possui imports de frameworks/módulos externos que não existem em `temp_dir`;
       - O código vem de um repositório Git profissional (classes/handlers/APIs sem `assert` top-level);
       - O código define classes ou funções profissionais mas não possui harness/assertions de entrada.
+
+    Retorna (False, motivo) quando o código já é um harness formal (pastas harness/verification/tests),
+    ou possui assertions/entrypoint, ou o repositório contém stubs locais (stubs.py, torch_stubs.py, etc.).
     """
     try:
         tree = ast.parse(codigo_fonte)
@@ -74,6 +82,10 @@ def precisa_homogeneizar_v2(codigo_fonte: str, temp_dir: str = "", is_git: bool 
     # Se já foi homogeneizado pelo VeriBee, não precisa homogeneizar novamente
     if "_esbmc_get_int_arg" in codigo_fonte or "verify_security_contracts" in codigo_fonte:
         return False, "Código já homogeneizado pelo VeriBee v2.0"
+
+    # Se é explicitamente um harness de teste formal do repositório, preserva nativo
+    if is_harness:
+        return False, "Harness formal de teste profissional (preservando asserções e stubs nativos)"
 
     imports_faltantes = []
     tem_assert = False
@@ -100,18 +112,36 @@ def precisa_homogeneizar_v2(codigo_fonte: str, temp_dir: str = "", is_git: bool 
             for alias in sub.names:
                 mod_root = alias.name.split('.')[0]
                 if mod_root not in MODULOS_PADRAO_ESBMC:
-                    if not (temp_dir and os.path.isfile(os.path.join(temp_dir, f"{mod_root}.py"))):
+                    # Verifica se o repositório possui o stub (ex: torch_stubs.py, nki_stubs.py, stubs.py ou mod_root.py)
+                    tem_stub = False
+                    if temp_dir and os.path.isdir(temp_dir):
+                        candidatos_stubs = [
+                            f"{mod_root}.py", f"{mod_root}_stubs.py", "stubs.py",
+                            f"stubs/{mod_root}.py", f"harness/{mod_root}.py"
+                        ]
+                        for c_stub in candidatos_stubs:
+                            if os.path.isfile(os.path.join(temp_dir, c_stub)):
+                                tem_stub = True
+                                break
+                    if not tem_stub:
                         imports_faltantes.append(alias.name)
         elif isinstance(sub, ast.ImportFrom):
             mod_name = sub.module or ""
             mod_root = mod_name.split('.')[0] if mod_name else ""
             if mod_root and mod_root not in MODULOS_PADRAO_ESBMC:
-                tem_stub_modulo = temp_dir and os.path.isfile(os.path.join(temp_dir, f"{mod_root}.py"))
-                tem_stub_sub = any(
-                    temp_dir and os.path.isfile(os.path.join(temp_dir, f"{alias.name}.py"))
-                    for alias in sub.names
-                )
-                if not tem_stub_modulo and not tem_stub_sub:
+                tem_stub = False
+                if temp_dir and os.path.isdir(temp_dir):
+                    candidatos_stubs = [
+                        f"{mod_root}.py", f"{mod_root}_stubs.py", "stubs.py",
+                        f"stubs/{mod_root}.py", f"harness/{mod_root}.py"
+                    ]
+                    for alias in sub.names:
+                        candidatos_stubs.append(f"{alias.name}.py")
+                    for c_stub in candidatos_stubs:
+                        if os.path.isfile(os.path.join(temp_dir, c_stub)):
+                            tem_stub = True
+                            break
+                if not tem_stub:
                     imports_faltantes.append(mod_name)
 
     if imports_faltantes:
@@ -131,6 +161,7 @@ def sanitizar_python(
     caminho_saida: str,
     temp_dir: str = "",
     is_git: bool = False,
+    is_harness: bool = False,
     forcar_homogenizer: bool = False,
     strict_null: bool = False
 ) -> dict:
@@ -151,7 +182,9 @@ def sanitizar_python(
     if not temp_dir:
         temp_dir = os.path.dirname(caminho_arquivo)
 
-    usar_v2, motivo = precisa_homogeneizar_v2(codigo_fonte, temp_dir=temp_dir, is_git=is_git)
+    usar_v2, motivo = precisa_homogeneizar_v2(
+        codigo_fonte, temp_dir=temp_dir, is_git=is_git, is_harness=is_harness
+    )
 
     if forcar_homogenizer or usar_v2:
         alvos = processar_codigo_fonte_v2(

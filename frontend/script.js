@@ -196,11 +196,13 @@ document.addEventListener('DOMContentLoaded', () => {
                     <tr>
                         <th style="padding: 6px 8px; text-align: left;">Teste #</th>
                         <th style="padding: 6px 8px; text-align: left;">Lang</th>
+                        <th style="padding: 6px 8px; text-align: left;">Fase</th>
                         <th style="padding: 6px 8px; text-align: left;">Módulo / Arquivo</th>
                         <th style="padding: 6px 8px; text-align: left;">Modo / Contraexemplo Z3</th>
                         <th style="padding: 6px 8px; text-align: left;">VCCs / SSA</th>
                         <th style="padding: 6px 8px; text-align: left;">Tempo</th>
                         <th style="padding: 6px 8px; text-align: left;">Veredito</th>
+                        <th style="padding: 6px 8px; text-align: left;">Status / Oráculo</th>
                     </tr>
                 </thead>
                 <tbody id="live-streaming-preview-tbody"></tbody>
@@ -970,11 +972,18 @@ document.addEventListener('DOMContentLoaded', () => {
                 const selectedRepoLang = repoLangFilterSelect ? repoLangFilterSelect.value : 'auto';
                 const verificationModeSelect = document.getElementById('verificationModeSelect');
                 const selectedEngineMode = verificationModeSelect ? verificationModeSelect.value : 'assisted';
+                const testSuiteModeCheck = document.getElementById('testSuiteModeCheck');
+                const testSuiteMode = testSuiteModeCheck ? testSuiteModeCheck.checked : false;
+                const verificationPhasesSelect = document.getElementById('verificationPhasesSelect');
+                const selectedPhases = verificationPhasesSelect ? verificationPhasesSelect.value : 'both';
+
                 const requestBody = {
                     flags,
                     language: selectedRepoLang === 'auto' ? 'all' : selectedRepoLang,
                     repo_lang_filter: selectedRepoLang,
                     verification_engine_mode: selectedEngineMode,
+                    test_suite_mode: testSuiteMode,
+                    verification_phases: selectedPhases,
                     git_url: gitUrlValue,
                     explore_repo: true,
                     repo_subdir_filter: repoSubdirFilter ? repoSubdirFilter.value.trim() : '',
@@ -1038,7 +1047,14 @@ document.addEventListener('DOMContentLoaded', () => {
                     statusText.innerHTML = `<span style="display:inline-block; width: 14px; height: 14px; border: 2.5px solid var(--primary); border-top-color: transparent; border-radius: 50%; animation: spin 1s linear infinite;"></span> <span>Verificando <strong>${cur}/${tot}</strong>: <code>${langTag}${fileTag}</code></span>`;
                 }
                 if (scoreboard) {
-                    scoreboard.innerHTML = `✅ SAFE: <strong>${prog.safe_count || 0}</strong> | ❌ VIOLATION: <strong style="color:#dc2626;">${prog.violation_count || 0}</strong> | 📐 VCCs: <strong>${prog.total_vccs || 0}</strong> | 🔗 SSA: <strong>${prog.total_ssa || 0}</strong>`;
+                    const passBug = prog.pass_bug_count || 0;
+                    const passSafe = prog.pass_safe_count || 0;
+                    const regrCount = prog.regression_count || 0;
+                    if (prog.test_suite_mode || passBug > 0 || regrCount > 0) {
+                        scoreboard.innerHTML = `🟢 PASS (Bugs): <strong>${passBug}</strong> | 🛡️ PASS (Safe): <strong>${passSafe}</strong> | 🔴 REGRESSÕES: <strong style="color:#dc2626;">${regrCount}</strong> | 📐 VCCs: <strong>${prog.total_vccs || 0}</strong>`;
+                    } else {
+                        scoreboard.innerHTML = `✅ SAFE: <strong>${prog.safe_count || 0}</strong> | ❌ VIOLATION: <strong style="color:#dc2626;">${prog.violation_count || 0}</strong> | 📐 VCCs: <strong>${prog.total_vccs || 0}</strong> | 🔗 SSA: <strong>${prog.total_ssa || 0}</strong>`;
+                    }
                 }
                 if (barFill) {
                     barFill.style.width = `${pct}%`;
@@ -1053,14 +1069,29 @@ document.addEventListener('DOMContentLoaded', () => {
                         const witnessOrMode = item.z3_witness
                             ? `<span style="color:#dc2626; font-weight:600;">❌ ${item.z3_witness}</span>`
                             : `<span style="color:#4f46e5; font-weight:600;">${item.mode || 'Symbolic BMC'}</span>`;
+
+                        const phaseBadge = item.phase
+                            ? `<span style="background:#fef3c7; color:#92400e; padding:1px 5px; border-radius:3px; font-size:10px; font-weight:600; white-space:nowrap;">${item.phase.split(':')[0]}</span>`
+                            : `<span style="color:#94a3b8;">-</span>`;
+
+                        let testStatusHtml = '<span style="color:#94a3b8;">-</span>';
+                        if (item.test_status) {
+                            let tsColor = '#059669';
+                            if (item.test_status.includes('REGRESSÃO') || item.test_status.includes('VIOLAÇÃO')) tsColor = '#dc2626';
+                            else if (item.test_status.includes('PASS')) tsColor = '#059669';
+                            testStatusHtml = `<span style="background:${tsColor}; color:#fff; padding:1px 6px; border-radius:3px; font-size:10.5px; font-weight:700; white-space:nowrap;">${item.test_status}</span>`;
+                        }
+
                         tr.innerHTML = `
                             <td style="padding: 5px 8px; border-bottom: 1px solid #f1f5f9;"><strong>${item.index}/${tot}</strong></td>
                             <td style="padding: 5px 8px; border-bottom: 1px solid #f1f5f9;"><span style="background:#e0e7ff; color:#3730a3; padding:1px 6px; border-radius:4px; font-weight:700; font-size:10.5px;">${item.lang || 'C/C++'}</span></td>
+                            <td style="padding: 5px 8px; border-bottom: 1px solid #f1f5f9;">${phaseBadge}</td>
                             <td style="padding: 5px 8px; border-bottom: 1px solid #f1f5f9;"><code>${item.directory}/${item.file}</code></td>
                             <td style="padding: 5px 8px; border-bottom: 1px solid #f1f5f9;">${witnessOrMode}</td>
                             <td style="padding: 5px 8px; border-bottom: 1px solid #f1f5f9;"><strong>${item.vccs || 0}</strong> <small style="color:#64748b;">(${item.ssa_assigns || 0} SSA)</small></td>
                             <td style="padding: 5px 8px; border-bottom: 1px solid #f1f5f9;"><code>${item.wall_time || '-'}</code></td>
                             <td style="padding: 5px 8px; border-bottom: 1px solid #f1f5f9;"><span style="background:${badgeColor}; color:#fff; padding:2px 7px; border-radius:4px; font-size:10.5px; font-weight:700;">${item.status}</span></td>
+                            <td style="padding: 5px 8px; border-bottom: 1px solid #f1f5f9;">${testStatusHtml}</td>
                         `;
                     });
                     previewWrapper.scrollTop = previewWrapper.scrollHeight;
@@ -1176,14 +1207,36 @@ document.addEventListener('DOMContentLoaded', () => {
         let auditedModulesSum = 1;
         currentRepoExplorationSummary = repoExplorationSummary || [];
 
-        if (repoExplorationSummary && Array.isArray(repoExplorationSummary) && repoExplorationSummary.length > 0 && repoExplorerSection && repoExplorerTabela) {
-            repoExplorerSection.style.display = 'block';
-            auditedModulesSum = repoExplorationSummary.length;
-            repoExplorationSummary.forEach(item => {
-                totalVccsSum += Number(item.vccs || 0);
-                totalSsaSum += Number(item.ssa_assigns || 0);
+        let currentRepoFilter = 'all';
+
+        function renderRepoExplorerRows(summaryList) {
+            if (!repoExplorerTabela) return;
+            repoExplorerTabela.innerHTML = '';
+
+            const filtered = summaryList.filter(item => {
+                if (currentRepoFilter === 'all') return true;
+                const code = item.test_status_code || '';
+                const desc = item.test_status || '';
+                if (currentRepoFilter === 'pass_bug') {
+                    return code === 'PASS_BUG_FOUND' || desc.includes('Bug Encontrado');
+                }
+                if (currentRepoFilter === 'pass_safe') {
+                    return code === 'PASS_SOUND' || desc.includes('Provado Seguro') || (!code && String(item.status).includes('SAFE'));
+                }
+                if (currentRepoFilter === 'regression') {
+                    return code === 'REGRESSION_FAILED' || desc.includes('REGRESSÃO') || (!code && String(item.status).includes('VIOLATION'));
+                }
+                return true;
+            });
+
+            if (filtered.length === 0) {
+                const tr = repoExplorerTabela.insertRow();
+                tr.innerHTML = `<td colspan="12" style="text-align:center; padding:20px; color:#64748b;">Nenhum módulo corresponde ao filtro selecionado.</td>`;
+                return;
+            }
+
+            filtered.forEach(item => {
                 const statusStr = String(item.status || '');
-                if (!statusStr.startsWith('VIOLATION') && !statusStr.startsWith('RAW ERROR')) safeModulesSum++;
                 const tr = repoExplorerTabela.insertRow();
                 let statusColor = '#059669'; // Emerald for VERIFIED SOUND
                 if (statusStr.startsWith('VIOLATION [NATIVE BUG]')) statusColor = '#dc2626';
@@ -1194,6 +1247,30 @@ document.addEventListener('DOMContentLoaded', () => {
                 else if (statusStr.startsWith('STATIC SAFE')) statusColor = '#0d9488';
                 const statusBadge = `<span class="severity-badge" style="background-color: ${statusColor};">${item.status}</span>`;
                 const langBadge = `<span style="background:#e0e7ff; color:#3730a3; padding:2px 7px; border-radius:4px; font-weight:700; font-size:11px;">${item.lang || 'C/C++'}</span>`;
+                const phaseBadge = item.phase
+                    ? `<span style="background:#fef3c7; color:#92400e; padding:2px 6px; border-radius:4px; font-weight:700; font-size:10.5px; white-space:nowrap;">${item.phase.split(':')[0]}</span>`
+                    : `<span style="color:#94a3b8;">-</span>`;
+
+                let testStatusBadge = '<span style="color:#94a3b8;">-</span>';
+                if (item.test_status) {
+                    let tsColor = '#059669';
+                    let tsBg = '#ecfdf5';
+                    let tsBorder = '#10b981';
+                    if (item.test_status.includes('REGRESSÃO') || item.test_status.includes('VIOLAÇÃO')) {
+                        tsColor = '#dc2626';
+                        tsBg = '#fef2f2';
+                        tsBorder = '#ef4444';
+                    } else if (item.test_status.includes('PASS')) {
+                        tsColor = '#059669';
+                        tsBg = '#ecfdf5';
+                        tsBorder = '#10b981';
+                    }
+                    const oracleSubtext = item.expected_verdict
+                        ? `<div style="font-size:10px; color:#64748b; margin-top:2px;">Esp: <code>${item.expected_verdict}</code></div>`
+                        : '';
+                    testStatusBadge = `<div style="display:inline-block; padding:2px 8px; border-radius:4px; font-size:11px; font-weight:700; background:${tsBg}; color:${tsColor}; border:1px solid ${tsBorder}; white-space:nowrap;">${item.test_status}</div>${oracleSubtext}`;
+                }
+
                 const ssaVccStr = (item.vccs !== undefined) ? `<strong>${item.vccs} VCCs</strong> <small style="color:#64748b;">(${item.ssa_assigns || 0} SSA)</small>` : `Score ${item.score}`;
                 const cliSubtext = item.esbmc_cli
                     ? `<div style="margin-top:4px; font-family:monospace; font-size:10.5px; color:#475569; background:#f8fafc; border:1px solid #e2e8f0; border-radius:4px; padding:2px 6px; word-break:break-all;" title="Exact Reproducible ESBMC CLI Command">💻 ${item.esbmc_cli}</div>`
@@ -1201,9 +1278,11 @@ document.addEventListener('DOMContentLoaded', () => {
                 const witnessHtml = item.z3_witness
                     ? `<div style="color:#dc2626; font-weight:600; font-size:12px;">❌ ${item.z3_witness}</div>${cliSubtext}`
                     : `<div><span style="font-weight:600; color:#4f46e5;">${item.mode || 'Symbolic BMC'}</span> <small style="color:#64748b;">(Score ${item.score})</small></div>${cliSubtext}`;
+
                 tr.innerHTML = `
                     <td><strong>${item.index}</strong></td>
                     <td>${langBadge}</td>
+                    <td>${phaseBadge}</td>
                     <td><code>${item.directory}</code></td>
                     <td><strong>${item.file}</strong></td>
                     <td>${witnessHtml}</td>
@@ -1211,6 +1290,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     <td>${ssaVccStr}</td>
                     <td><code>${item.wall_time || '-'}</code></td>
                     <td>${statusBadge}</td>
+                    <td>${testStatusBadge}</td>
                     <td style="text-align:center;">
                         <button class="btn-ver-homogeneizado btn-editor" data-index="${item.index}" style="padding: 4px 10px; font-size: 11px; background: #0284c7; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: 600; white-space: nowrap;">
                             👁️ Ver Código
@@ -1218,6 +1298,52 @@ document.addEventListener('DOMContentLoaded', () => {
                     </td>
                 `;
             });
+        }
+
+        if (repoExplorationSummary && Array.isArray(repoExplorationSummary) && repoExplorationSummary.length > 0 && repoExplorerSection && repoExplorerTabela) {
+            repoExplorerSection.style.display = 'block';
+            auditedModulesSum = repoExplorationSummary.length;
+            repoExplorationSummary.forEach(item => {
+                totalVccsSum += Number(item.vccs || 0);
+                totalSsaSum += Number(item.ssa_assigns || 0);
+                const statusStr = String(item.status || '');
+                if (!statusStr.startsWith('VIOLATION') && !statusStr.startsWith('RAW ERROR')) safeModulesSum++;
+            });
+            renderRepoExplorerRows(repoExplorationSummary);
+
+            if (!window._filterListenersAttached) {
+                window._filterListenersAttached = true;
+                document.querySelectorAll('.btn-filter-status').forEach(btn => {
+                    btn.addEventListener('click', () => {
+                        document.querySelectorAll('.btn-filter-status').forEach(b => {
+                            b.classList.remove('active');
+                            b.style.background = '#fff';
+                            if (b.dataset.filter === 'all') b.style.color = '#334155';
+                            else if (b.dataset.filter === 'pass_bug') b.style.color = '#16a34a';
+                            else if (b.dataset.filter === 'pass_safe') b.style.color = '#0284c7';
+                            else if (b.dataset.filter === 'regression') b.style.color = '#dc2626';
+                        });
+                        btn.classList.add('active');
+                        if (btn.dataset.filter === 'all') {
+                            btn.style.background = '#334155';
+                            btn.style.color = '#f8fafc';
+                        } else if (btn.dataset.filter === 'pass_bug') {
+                            btn.style.background = '#16a34a';
+                            btn.style.color = '#fff';
+                        } else if (btn.dataset.filter === 'pass_safe') {
+                            btn.style.background = '#0284c7';
+                            btn.style.color = '#fff';
+                        } else if (btn.dataset.filter === 'regression') {
+                            btn.style.background = '#dc2626';
+                            btn.style.color = '#fff';
+                        }
+                        currentRepoFilter = btn.dataset.filter;
+                        if (currentRepoExplorationSummary && currentRepoExplorationSummary.length > 0) {
+                            renderRepoExplorerRows(currentRepoExplorationSummary);
+                        }
+                    });
+                });
+            }
 
             if (repoExplorerTabela && !repoExplorerTabela.dataset.hasHomogenizedListener) {
                 repoExplorerTabela.dataset.hasHomogenizedListener = "true";
@@ -1315,6 +1441,24 @@ document.addEventListener('DOMContentLoaded', () => {
             cardViolacoes.style.color = 'var(--success)';
             if (sucessoSection) sucessoSection.style.display = 'block';
             cardPassos.textContent = resultsArray[0]?.steps?.length || 0;
+        }
+
+        // Se for exploração de suíte de testes profissional com oráculos esperados:
+        if (repoExplorationSummary && Array.isArray(repoExplorationSummary) && repoExplorationSummary.length > 0) {
+            const hasOracles = repoExplorationSummary.some(it => it.expected_verdict);
+            const regressions = repoExplorationSummary.filter(it => it.test_status_code === 'REGRESSION_FAILED' || (it.test_status && it.test_status.includes('REGRESSÃO')));
+            const passBugs = repoExplorationSummary.filter(it => it.test_status_code === 'PASS_BUG_FOUND' || (it.test_status && it.test_status.includes('Bug Encontrado')));
+            const passSafe = repoExplorationSummary.filter(it => it.test_status_code === 'PASS_SOUND' || (it.test_status && it.test_status.includes('Provado Seguro')));
+
+            if (hasOracles) {
+                if (regressions.length > 0) {
+                    statusBanner.className = 'status-banner failed';
+                    statusBanner.textContent = `🔴 SUÍTE DE TESTES: ${regressions.length} REGRESSÃO(ÕES) DETECTADA(S) (DIVERGÊNCIA DE ORÁCULO)`;
+                } else {
+                    statusBanner.className = 'status-banner success';
+                    statusBanner.textContent = `🟢 SUÍTE DE TESTES APROVADA: ${passBugs.length} BUG(S) CONFIRMADO(S) + ${passSafe.length} PROVADO(S) SEGURO(S) [100% ORÁCULOS ATENDIDOS]`;
+                }
+            }
         }
 
         const lineNumbersOfViolations = violationDetails.map(v => v.line);
