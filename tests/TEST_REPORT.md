@@ -86,9 +86,9 @@ E2E-01 PASS  E2E-02 PASS  E2E-03 FAIL  E2E-04 FAIL  E2E-05 FAIL
 After the fixes on `fix/verdict-soundness`:
 ```
 $ venv/bin/python -m pytest -q -p no:cacheprovider
-65 passed, 8 xfailed in ~43s              # remaining xfails: #14 (body preservation), #17, #18, #19, #20
+73 passed, 8 xfailed in ~50s              # remaining xfails: #14 (body preservation), #17, #18, #19, #20
 $ node tests/e2e/ui_verdicts.mjs
-E2E-01 PASS  E2E-02 PASS  E2E-03 PASS  E2E-04 PASS  E2E-05 PASS
+E2E-01..E2E-10 PASS                       # E2E-06..10 stub the backend to pin banner decisions
 ```
 Each fix was mutation-checked: its new or promoted tests fail when the fix is reverted.
 
@@ -108,6 +108,14 @@ There were no pre-existing tests in the repository. A mutation check (forcing `v
 | D8 | High | C++ and `<stdint.h>` C fail to parse on macOS | [#18](https://github.com/esbmc/esbmc-web/issues/18) (new) | open |
 | D9 | Medium | `#include`-driven file creation outside temp dir | [#19](https://github.com/esbmc/esbmc-web/issues/19) (new) | open |
 | D10 | Low | anti-vacuity `--function` target scoring window | [#20](https://github.com/esbmc/esbmc-web/issues/20) (new) | open |
+
+Further defects found and fixed while fixing the above (no separate issues):
+
+- Every repository run that found a violation was shown as a green "approved test suite", because the `-` oracle placeholder counted as an oracle (`script.js`, refs #13).
+- Expected bugs that ESBMC found were graded as regressions, because `VIOLATION [...]` was not recognised as FAILED. Runs without a verdict could also be graded `PASS (Provado Seguro)`, and an `UNSAFE` oracle was read as SAFE.
+- A repository directive such as `--unwind --no-assertions` smuggled a check-disabling flag past the #16 filter.
+- A timed-out repository module was re-run with `--partial-loops`, which can verify a buggy loop as SUCCESSFUL. This pass has been removed (refs #11).
+- The multi-TU retry dropped Phase 2's `--overflow-check`/`--memory-leak-check`. When Phase 2 ended without a verdict, Phase 1's SAFE was kept, and a Phase 1 FAILED was lost in Phase-2-only mode.
 
 ## 6. Coverage gaps and residual risk
 
