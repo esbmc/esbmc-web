@@ -1182,6 +1182,7 @@ document.addEventListener('DOMContentLoaded', () => {
         TIMEOUT: '⏱ TIMED OUT — NO VERDICT',
         ERROR: '⚠ ESBMC ERROR — NO VERDICT (see Terminal Output)',
         UNKNOWN: '⚠ INCONCLUSIVE — ESBMC REPORTED NO VERDICT',
+        MODEL_ONLY: '⚠ ONLY AN ABSTRACTED MODEL WAS VERIFIED — NO VERDICT ON YOUR CODE',
     };
 
     function renderDashboard(resultsArray, codigoFonte, repoExplorationSummary = null, verdict = 'UNKNOWN') {

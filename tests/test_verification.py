@@ -153,11 +153,12 @@ class TestSingleFilePython:
         res = result(analyse(client, {'language': 'python', 'codigo': code, 'flags': []}))
         assert 'a // b' in res['codigo_analisado']
 
-    @known_defect('D4 (#14): homogenizer restricts int inputs to 0..10000')
-    def test_homogenized_function_explores_negative_inputs(self, client):
+    def test_homogenized_run_is_never_reported_successful(self, client):
         code = 'import os\n\ndef f(n: int) -> int:\n    assert n >= 0\n    return n\n'
         res = result(analyse(client, {'language': 'python', 'codigo': code, 'flags': []}))
+        assert res['verdict'] == 'MODEL_ONLY'
         assert res['verificacao_sucesso'] is False
+        assert not any(r.get('status') == 'successful' for r in res['dashboard_data'])
 
 
 class TestRepository:
@@ -200,6 +201,12 @@ class TestRepository:
         repo = local_repo({'src/ok.c': C_SAFE})
         res = result(analyse(client, {'language': 'c', 'git_url': repo, 'explore_repo': True, 'flags': []}))
         assert res['verdict'] == 'SUCCESSFUL'
+
+    def test_exploration_does_not_report_homogenized_python_as_safe(self, client, local_repo):
+        repo = local_repo({'pkg/m.py': 'import os\n\ndef f(n: int) -> int:\n    return 10 // n\n'})
+        res = result(analyse(client, {'language': 'python', 'git_url': repo, 'explore_repo': True, 'flags': []}))
+        assert res['repo_exploration_summary'][0]['status'] == 'MODEL_ONLY (NO VERDICT)'
+        assert res['verificacao_sucesso'] is False
 
     def test_single_repo_file_parse_error_is_not_labelled_safe(self, client, local_repo):
         repo = local_repo({'src/broken.c': C_PARSE_ERROR})

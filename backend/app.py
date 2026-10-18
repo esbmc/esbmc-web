@@ -1397,6 +1397,8 @@ def iniciar_analise():
                     veredito_mod = classificar_veredito(
                         txt_mod, rc_mod, bool(TAREFAS_ATIVAS[task_id].get("cancel_requested"))
                     )
+                    if usou_homog_mod and veredito_mod == "SUCCESSFUL":
+                        veredito_mod = "MODEL_ONLY"  # the homogenized model is not the user's code (#14)
                     if teve_erro_bruto:
                         any_inconclusive_overall = True
                         status_mod = "RAW ERROR (Unresolved Deps)"
@@ -1407,8 +1409,6 @@ def iniciar_analise():
                     elif veredito_mod != "SUCCESSFUL":
                         any_inconclusive_overall = True
                         status_mod = f"{veredito_mod} (NO VERDICT)"
-                    elif usou_homog_mod:
-                        status_mod = f"SLICED SAFE (k={metricas_mod['k_depth']})"
                     elif metricas_mod["vccs_total"] > 0:
                         if '--k-induction' in flags_recebidas:
                             status_mod = "VERIFIED SOUND (k-Induction)"
@@ -1737,6 +1737,8 @@ def iniciar_analise():
             veredito = classificar_veredito(
                 texto_final, returncode, bool(TAREFAS_ATIVAS[task_id].get("cancel_requested"))
             )
+            if usou_homogenizer_v2 and veredito == "SUCCESSFUL":
+                veredito = "MODEL_ONLY"  # the homogenized model is not the user's code (#14)
             verificacao_sucesso = veredito == "SUCCESSFUL"
 
             # Garante que quando o ESBMC tiver sucesso sem vulnerabilidades, o Dashboard receba o status OK!
@@ -1814,8 +1816,6 @@ def iniciar_analise():
                     status_single = f"VIOLATION [{tag_orig}] (k={metricas_single['k_depth']})"
                 elif veredito != "SUCCESSFUL":
                     status_single = f"{veredito} (NO VERDICT)"
-                elif usou_homogenizer_v2:
-                    status_single = f"SLICED SAFE (k={metricas_single['k_depth']})"
                 elif metricas_single["vccs_total"] > 0:
                     status_single = "VERIFIED SOUND (k-Induction)" if '--k-induction' in flags_recebidas else f"BOUNDED SAFE (k={metricas_single['k_depth']})"
                 else:
