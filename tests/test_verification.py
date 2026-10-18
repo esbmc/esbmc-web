@@ -93,7 +93,8 @@ class TestSingleFileC:
     def test_loop_beyond_default_bound_reports_unwinding_assertion(self, client):
         code = '#include <assert.h>\nint main(){int s=0; for(int i=0;i<10;i++) s++; assert(s==10); return 0;}\n'
         res = result(analyse(client, {'language': 'c', 'codigo': code, 'flags': []}))
-        assert res['verdict'] == 'FAILED'
+        assert res['verdict'] == 'BOUND_REACHED'
+        assert res['verificacao_sucesso'] is False
         messages = ' '.join(str(s.get('message', '')) for r in res['dashboard_data'] for s in r.get('steps', []))
         assert 'unwinding assertion' in messages
 
@@ -125,6 +126,18 @@ class TestSingleFileC:
 
 
 class TestSingleFileCpp:
+    CONTAINERS = ('#include <cassert>\n#include <vector>\n#include <string>\n#include <map>\n'
+                  'int main(){ std::vector<int> v{1,2,3}; std::map<int,int> m; m[1]=2;\n'
+                  '  std::string s("ab"); assert(v.size()==3 && m[1]==2 && s.size()==2); return 0; }\n')
+
+    def test_library_loop_beyond_default_bound_is_bound_reached(self, client):
+        res = result(analyse(client, {'language': 'cpp', 'codigo': self.CONTAINERS, 'flags': []}))
+        assert res['verdict'] == 'BOUND_REACHED'
+
+    def test_safe_program_using_std_containers_is_successful_with_enough_unwinding(self, client):
+        res = result(analyse(client, {'language': 'cpp', 'codigo': self.CONTAINERS, 'flags': ['--unwind', '101']}))
+        assert res['verdict'] == 'SUCCESSFUL'
+
     def test_out_of_bounds_vector_access_is_found(self, client):
         code = ('#include <vector>\nint main(){ std::vector<int> v(2); int a[2]; a[v.size()] = 1; return 0; }\n')
         res = result(analyse(client, {'language': 'cpp', 'codigo': code, 'flags': []}))

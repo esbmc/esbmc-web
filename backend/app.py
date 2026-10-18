@@ -134,9 +134,20 @@ def descobrir_funcao_alvo_principal(codigo: str, linguagem: str):
     return None, 0
 
 
+def _propriedades_violadas(texto_esbmc: str) -> List[str]:
+    props = re.findall(r'^\s*FAILED\s+\[[^\]]*\]\s+line\s+\d+\s+(.+)$', texto_esbmc, re.MULTILINE)
+    for bloco in re.findall(r'Violated property:\n((?:[ \t]+\S[^\n]*\n?)+)', texto_esbmc):
+        linhas = [l.strip() for l in bloco.splitlines() if l.strip() and not l.strip().startswith(('file ', 'FAILED'))]
+        props.extend(linhas[:1])
+    return props
+
+
 def classificar_veredito(texto_esbmc: str, returncode: Optional[int], cancelado: bool) -> str:
     """Only ESBMC's own verdict line counts as SUCCESSFUL; anything else is FAILED or inconclusive."""
     if "VERIFICATION FAILED" in texto_esbmc:
+        props = _propriedades_violadas(texto_esbmc)
+        if props and all("unwinding assertion" in p for p in props):
+            return "BOUND_REACHED"  # the loop bound was too small; no verdict on the program itself
         return "FAILED"
     if "VERIFICATION SUCCESSFUL" in texto_esbmc:
         return "SUCCESSFUL"
@@ -1381,6 +1392,9 @@ def iniciar_analise():
                     if teve_erro_bruto:
                         any_inconclusive_overall = True
                         status_mod = "RAW ERROR (Unresolved Deps)"
+                    elif veredito_mod == "BOUND_REACHED":
+                        any_inconclusive_overall = True
+                        status_mod = "BOUND_REACHED (NO VERDICT)"
                     elif mod_violations > 0:
                         any_violation_overall = True
                         tag_orig = "NATIVE BUG" if metricas_mod["violation_origin"] == "[NATIVE CODE BUG]" else "CONTRACT"
@@ -1790,6 +1804,8 @@ def iniciar_analise():
                                 "location": {"file": main_file_path_in_repo, "line": 1, "function": "module_load"}
                             }]
                         }]
+                elif veredito == "BOUND_REACHED":
+                    status_single = "BOUND_REACHED (NO VERDICT)"
                 elif viol_count > 0:
                     tag_orig = "NATIVE BUG" if metricas_single["violation_origin"] == "[NATIVE CODE BUG]" else "CONTRACT"
                     status_single = f"VIOLATION [{tag_orig}] (k={metricas_single['k_depth']})"
