@@ -149,26 +149,35 @@ def classificar_veredito(texto_esbmc: str, returncode: Optional[int], cancelado:
     return "UNKNOWN"
 
 
+def _normalizar_veredito(texto: str) -> str:
+    t = texto.upper()
+    if "FAIL" in t or "VIOLATION" in t:
+        return "FAILED"
+    if "NO VERDICT" in t or "ERROR" in t:
+        return "UNKNOWN"
+    if any(k in t for k in ("SUCCESS", "SOUND", "SAFE", "PASS")):
+        return "SUCCESSFUL"
+    return "UNKNOWN"
+
+
 def avaliar_status_teste(veredicto_obtido: str, veredicto_esperado: Optional[str]) -> Tuple[str, str]:
     """Avalia o status de um teste comparando o veredito obtido pelo ESBMC contra o oráculo esperado.
     Retorna (codigo_status, rotulo_formatado)."""
+    obtido_norm = _normalizar_veredito(veredicto_obtido)
     if not veredicto_esperado or veredicto_esperado == "-":
-        if "FAILED" in veredicto_obtido:
+        if obtido_norm == "FAILED":
             return "VIOLATION", "❌ VIOLATION"
-        elif "SUCCESS" in veredicto_obtido or "SOUND" in veredicto_obtido or "SAFE" in veredicto_obtido:
+        if obtido_norm == "SUCCESSFUL":
             return "SAFE", "✅ SAFE"
         return "COMPLETED", "COMPLETED"
 
-    obtido_norm = "FAILED" if "FAIL" in veredicto_obtido.upper() else ("SUCCESSFUL" if ("SUCCESS" in veredicto_obtido.upper() or "SOUND" in veredicto_obtido.upper() or "SAFE" in veredicto_obtido.upper()) else "UNKNOWN")
-    esperado_norm = "FAILED" if "FAIL" in veredicto_esperado.upper() else ("SUCCESSFUL" if ("SUCCESS" in veredicto_esperado.upper() or "PASS" in veredicto_esperado.upper()) else "UNKNOWN")
-
-    if obtido_norm == esperado_norm:
+    if obtido_norm == "UNKNOWN":
+        return "INCONCLUSIVE", "⚠ INCONCLUSIVE (Sem Veredito)"
+    if obtido_norm == _normalizar_veredito(veredicto_esperado):
         if obtido_norm == "FAILED":
             return "PASS_BUG_FOUND", "🟢 PASS (Bug Encontrado)"
-        else:
-            return "PASS_SOUND", "🟢 PASS (Provado Seguro)"
-    else:
-        return "REGRESSION_FAILED", "🔴 REGRESSÃO (Divergiu do Oráculo)"
+        return "PASS_SOUND", "🟢 PASS (Provado Seguro)"
+    return "REGRESSION_FAILED", "🔴 REGRESSÃO (Divergiu do Oráculo)"
 
 
 from sanitizers.python_sanitizer import sanitizar_python

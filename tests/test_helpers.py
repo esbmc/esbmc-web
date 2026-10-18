@@ -43,20 +43,24 @@ class TestVerdictClassification:
 
 class TestOracleComparison:
     def test_without_oracle_classifies_verdict(self):
-        assert avaliar_status_teste('VIOLATION [NATIVE BUG] (k=1)', None)[0] == 'COMPLETED'
+        assert avaliar_status_teste('VIOLATION [NATIVE BUG] (k=1)', None)[0] == 'VIOLATION'
         assert avaliar_status_teste('VERIFICATION FAILED', None)[0] == 'VIOLATION'
         assert avaliar_status_teste('BOUNDED SAFE (k=1)', '-')[0] == 'SAFE'
+        assert avaliar_status_teste('ERROR (NO VERDICT)', None)[0] == 'COMPLETED'
 
     def test_matching_oracles(self):
-        assert avaliar_status_teste('VERIFICATION FAILED', 'VERIFICATION FAILED')[0] == 'PASS_BUG_FOUND'
+        assert avaliar_status_teste('VIOLATION [NATIVE BUG] (k=1)', 'VERIFICATION FAILED')[0] == 'PASS_BUG_FOUND'
         assert avaliar_status_teste('BOUNDED SAFE (k=1)', 'VERIFICATION SUCCESSFUL')[0] == 'PASS_SOUND'
 
     def test_divergent_oracle_is_regression(self):
         assert avaliar_status_teste('BOUNDED SAFE (k=1)', 'VERIFICATION FAILED')[0] == 'REGRESSION_FAILED'
+        assert avaliar_status_teste('VIOLATION [CONTRACT] (k=1)', 'VERIFICATION SUCCESSFUL')[0] == 'REGRESSION_FAILED'
 
-    def test_unknown_obtained_verdict_never_matches_unknown_oracle_as_safe(self):
-        code, _ = avaliar_status_teste('RAW ERROR (Unresolved Deps)', 'VERIFICATION SUCCESSFUL')
-        assert code == 'REGRESSION_FAILED'
+    def test_run_without_verdict_never_passes_an_oracle(self):
+        for obtained in ('TIMEOUT (NO VERDICT)', 'ERROR (NO VERDICT)', 'MODEL_ONLY (NO VERDICT)',
+                         'STOPPED (NO VERDICT)', 'RAW ERROR (Unresolved Deps)'):
+            for oracle in ('VERIFICATION SUCCESSFUL', 'VERIFICATION FAILED', 'VERIFICATION TIMEOUT', 'UNKNOWN'):
+                assert avaliar_status_teste(obtained, oracle)[0] == 'INCONCLUSIVE', (obtained, oracle)
 
 
 class TestTargetFunctionDiscovery:

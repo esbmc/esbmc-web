@@ -214,6 +214,16 @@ class TestRepository:
         res = result(analyse(client, {'language': 'c', 'git_url': repo, 'explore_repo': True, 'flags': []}))
         assert res['verdict'] == 'FAILED'
 
+    def test_oracles_grade_found_bug_and_proved_safe_as_passes(self, client, local_repo):
+        repo = local_repo({
+            'src/bug.c': '// esbmc-expected: FAILED\n' + C_UNSAFE,
+            'src/ok.c': '// esbmc-expected: SUCCESSFUL\n' + C_SAFE,
+        })
+        res = result(analyse(client, {'language': 'c', 'git_url': repo, 'explore_repo': True,
+                                      'test_suite_mode': True, 'flags': []}))
+        codes = {r['file']: r['test_status_code'] for r in res['repo_exploration_summary']}
+        assert codes == {'src/bug.c': 'PASS_BUG_FOUND', 'src/ok.c': 'PASS_SOUND'}
+
     def test_single_repo_file_parse_error_is_not_labelled_safe(self, client, local_repo):
         repo = local_repo({'src/broken.c': C_PARSE_ERROR})
         res = result(analyse(client, {'language': 'c', 'git_url': repo, 'main_file_path': 'src/broken.c', 'flags': []}))
