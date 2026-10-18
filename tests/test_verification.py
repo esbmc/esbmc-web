@@ -85,10 +85,21 @@ class TestSingleFileC:
                                       'verification_engine_mode': 'raw_esbmc'}))
         assert res['verificacao_sucesso'] is False
 
-    @known_defect('D1 (#11): assisted mode silently adds --unwind 3 --no-unwinding-assertions')
-    def test_assisted_mode_finds_deep_loop_bug(self, client):
+    def test_assisted_mode_does_not_prove_deep_loop_bug_safe(self, client):
         res = result(analyse(client, {'language': 'c', 'codigo': C_DEEP_LOOP_BUG, 'flags': []}))
         assert res['verificacao_sucesso'] is False
+
+    def test_loop_beyond_default_bound_reports_unwinding_assertion(self, client):
+        code = '#include <assert.h>\nint main(){int s=0; for(int i=0;i<10;i++) s++; assert(s==10); return 0;}\n'
+        res = result(analyse(client, {'language': 'c', 'codigo': code, 'flags': []}))
+        assert res['verdict'] == 'FAILED'
+        messages = ' '.join(str(s.get('message', '')) for r in res['dashboard_data'] for s in r.get('steps', []))
+        assert 'unwinding assertion' in messages
+
+    def test_loop_within_default_bound_is_successful(self, client):
+        code = '#include <assert.h>\nint main(){int s=0; for(int i=0;i<2;i++) s++; assert(s==2); return 0;}\n'
+        res = result(analyse(client, {'language': 'c', 'codigo': code, 'flags': []}))
+        assert res['verdict'] == 'SUCCESSFUL'
 
     def test_cancelled_run_is_not_successful(self, client):
         res = result(analyse(client, {'language': 'c', 'codigo': C_SLOW, 'flags': ['--unwind', '5000001']},
@@ -197,8 +208,7 @@ class TestRepository:
         res = result(analyse(client, {'language': 'c', 'git_url': repo, 'explore_repo': True, 'flags': []}))
         assert res['verificacao_sucesso'] is False
 
-    @known_defect('D1 (#11): exploration also injects --unwind 2/3 --no-unwinding-assertions')
-    def test_exploration_finds_deep_loop_bug(self, client, local_repo):
+    def test_exploration_does_not_prove_deep_loop_bug_safe(self, client, local_repo):
         repo = local_repo({'src/deep.c': C_DEEP_LOOP_BUG})
         res = result(analyse(client, {'language': 'c', 'git_url': repo, 'explore_repo': True, 'flags': []}))
         assert res['verificacao_sucesso'] is False

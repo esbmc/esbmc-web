@@ -760,11 +760,11 @@ def iniciar_analise():
                 elif not usuario_escolheu_estrategia and not modo_puro_raw:
                     if lang_efetiva in ('c', 'cpp') or timeout_por_modulo:
                         unwind_val = '2' if timeout_por_modulo else '3'
-                        comando.extend(['--unwind', unwind_val, '--no-unwinding-assertions'])
+                        comando.extend(['--unwind', unwind_val])
                         if lang_efetiva == 'cpp' and '--no-align-check' not in comando:
                             comando.append('--no-align-check')
                         TAREFAS_ATIVAS[task_id]["logs"] += (
-                            f"[SYSTEM] [Strategy Mode: AUTOMATIC] No strategy manually selected -> using '--unwind {unwind_val} --no-unwinding-assertions'\n"
+                            f"[SYSTEM] [Strategy Mode: AUTOMATIC] No strategy manually selected -> using '--unwind {unwind_val}' (unwinding assertions kept)\n"
                         )
                     elif lang_efetiva == 'python' and usou_homogenizer:
                         comando.append('--incremental-bmc')
