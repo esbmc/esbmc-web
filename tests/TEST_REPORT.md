@@ -75,6 +75,7 @@ Each test's steps, data and expected result are the test body itself; the probes
 
 ## 4. Execution
 
+Baseline (`main@d17af99`):
 ```
 $ venv/bin/python -m pytest -q -p no:cacheprovider
 50 passed, 15 xfailed in ~46s
@@ -82,22 +83,31 @@ $ node tests/e2e/ui_verdicts.mjs        # backend on :5000
 E2E-01 PASS  E2E-02 PASS  E2E-03 FAIL  E2E-04 FAIL  E2E-05 FAIL
 ```
 
+After the fixes on `fix/verdict-soundness`:
+```
+$ venv/bin/python -m pytest -q -p no:cacheprovider
+65 passed, 8 xfailed in ~43s              # remaining xfails: #14 (body preservation), #17, #18, #19, #20
+$ node tests/e2e/ui_verdicts.mjs
+E2E-01 PASS  E2E-02 PASS  E2E-03 PASS  E2E-04 PASS  E2E-05 PASS
+```
+Each fix was mutation-checked: its new or promoted tests fail when the fix is reverted.
+
 There were no pre-existing tests in the repository. A mutation check (forcing `verificacao_sucesso = True` in `app.py`) made 10 verdict tests fail, so the passing tests do detect a verdict regression. Every xfail was also run with `--runxfail` to confirm it fails on the documented assertion rather than an incidental error.
 
 ## 5. Defects
 
-| ID | Severity | Summary | Issue |
-|---|---|---|---|
-| D1 | Critical | default `--unwind N --no-unwinding-assertions` → false SUCCESSFUL | [#11](https://github.com/esbmc/esbmc-web/issues/11) (new) |
-| D2 | Critical | cancelled run reported as SUCCESSFUL (backend) | [#12](https://github.com/esbmc/esbmc-web/issues/12) (new) |
-| D3 | Critical | UI shows SUCCESSFUL for parse error / timeout / cancel | [#13](https://github.com/esbmc/esbmc-web/issues/13) (new) |
-| D4 | Critical | Python homogenizer replaces function bodies, restricts inputs | [#14](https://github.com/esbmc/esbmc-web/issues/14) (new) |
-| D5 | Critical | unparseable repo modules replaced by template, reported SAFE | [#15](https://github.com/esbmc/esbmc-web/issues/15) (new) |
-| D6 | Critical | repo `// esbmc-flags:` can disable checks | [#16](https://github.com/esbmc/esbmc-web/issues/16) (new) |
-| D7 | Critical | C++ sanitizer strips `virtual` (and other semantic rewrites) | [#17](https://github.com/esbmc/esbmc-web/issues/17) (new) |
-| D8 | High | C++ and `<stdint.h>` C fail to parse on macOS | [#18](https://github.com/esbmc/esbmc-web/issues/18) (new) |
-| D9 | Medium | `#include`-driven file creation outside temp dir | [#19](https://github.com/esbmc/esbmc-web/issues/19) (new) |
-| D10 | Low | anti-vacuity `--function` target scoring window | [#20](https://github.com/esbmc/esbmc-web/issues/20) (new) |
+| ID | Severity | Summary | Issue | Status on `fix/verdict-soundness` |
+|---|---|---|---|---|
+| D1 | Critical | default `--unwind N --no-unwinding-assertions` → false SUCCESSFUL | [#11](https://github.com/esbmc/esbmc-web/issues/11) (new) | fixed |
+| D2 | Critical | cancelled run reported as SUCCESSFUL (backend) | [#12](https://github.com/esbmc/esbmc-web/issues/12) (new) | fixed |
+| D3 | Critical | UI shows SUCCESSFUL for parse error / timeout / cancel | [#13](https://github.com/esbmc/esbmc-web/issues/13) (new) | fixed |
+| D4 | Critical | Python homogenizer replaces function bodies, restricts inputs | [#14](https://github.com/esbmc/esbmc-web/issues/14) (new) | mitigated: never reported SUCCESSFUL (MODEL_ONLY); bodies still replaced |
+| D5 | Critical | unparseable repo modules replaced by template, reported SAFE | [#15](https://github.com/esbmc/esbmc-web/issues/15) (new) | fixed |
+| D6 | Critical | repo `// esbmc-flags:` can disable checks | [#16](https://github.com/esbmc/esbmc-web/issues/16) (new) | fixed |
+| D7 | Critical | C++ sanitizer strips `virtual` (and other semantic rewrites) | [#17](https://github.com/esbmc/esbmc-web/issues/17) (new) | open |
+| D8 | High | C++ and `<stdint.h>` C fail to parse on macOS | [#18](https://github.com/esbmc/esbmc-web/issues/18) (new) | open |
+| D9 | Medium | `#include`-driven file creation outside temp dir | [#19](https://github.com/esbmc/esbmc-web/issues/19) (new) | open |
+| D10 | Low | anti-vacuity `--function` target scoring window | [#20](https://github.com/esbmc/esbmc-web/issues/20) (new) | open |
 
 ## 6. Coverage gaps and residual risk
 
@@ -113,8 +123,11 @@ There were no pre-existing tests in the repository. A mutation check (forcing `v
   - `innerHTML` rendering of ESBMC messages derived from analysed source
   - `TAREFAS_ATIVAS`/`CLONE_TASKS` are never evicted (unbounded memory)
   - there is no file-size or count limit on cloned repositories
+- The "Adaptive Protocol Bounder" (`forcar_bounded_unwind` in `app.py`) still re-runs a timed-out repository module with `--unwind 1 --partial-loops --no-unwinding-assertions`, the same unsound pattern as #11. It only runs when the backend's watchdog kills ESBMC. In a probe, ESBMC's own `--timeout` always fired first and the module ended as `TIMEOUT (NO VERDICT)`, so the path was not reached and is left unchanged.
 - `/health` hard-codes `"solver": "Z3 v4.8.12 + Bitwuzla"` regardless of what is installed.
 
 ## 7. Conclusion
 
-**Not ready for release.** The tool reports `VERIFICATION SUCCESSFUL` for programs that ESBMC itself proves buggy in its default (assisted) mode: bugs beyond the silent unwind bound, homogenized Python, unparseable repository modules, and repository-disabled assertions. It also reports success for cancelled runs, and in the UI for parse errors and timeouts. Raw ESBMC mode with native C or Python gives correct verdicts. At minimum, D1 through D6 must be fixed before any result can be trusted, and D8 makes C++ unusable on macOS.
+**Baseline: not ready for release.** At `d17af99` the tool reports `VERIFICATION SUCCESSFUL` for programs that ESBMC itself proves buggy in its default (assisted) mode: bugs beyond the silent unwind bound, homogenized Python, unparseable repository modules, and repository-disabled assertions. It also reports success for cancelled runs, and in the UI for parse errors and timeouts.
+
+**After `fix/verdict-soundness`:** none of the false-success paths found in testing remain for C and Python. Success now requires ESBMC's own `VERIFICATION SUCCESSFUL` line on the user's code, and every other outcome is shown as FAILED or as a named no-verdict state. Still open before release: C++ is unusable on macOS (#18), and once it parses, the C++ sanitizer's semantic rewrites can produce false SAFE results (#17). The Python homogenizer still verifies a model rather than the user's code; this is now reported honestly as `MODEL_ONLY` (#14). The header-mock path containment (#19) is also unfixed.
