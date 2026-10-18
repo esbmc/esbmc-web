@@ -7,6 +7,7 @@ import sys
 
 import pytest
 
+import app as backend_app
 from conftest import analyse, known_defect, requires_esbmc, wait_for_task
 
 pytestmark = requires_esbmc
@@ -61,12 +62,14 @@ class TestSingleFileC:
     def test_parse_error_is_not_successful(self, client):
         res = result(analyse(client, {'language': 'c', 'codigo': C_PARSE_ERROR, 'flags': []}))
         assert res['verificacao_sucesso'] is False
+        assert res['verdict'] == 'ERROR'
         assert not any(r.get('status') == 'successful' for r in res['dashboard_data'])
 
     def test_timeout_is_not_successful(self, client):
         res = result(analyse(client, {'language': 'c', 'codigo': C_SLOW,
                                       'flags': ['--unwind', '5000001', '--timeout', '3']}))
         assert res['verificacao_sucesso'] is False
+        assert res['verdict'] == 'TIMEOUT'
         assert not any(r.get('status') == 'successful' for r in res['dashboard_data'])
 
     def test_user_dependency_is_compiled_and_name_is_confined(self, client):
@@ -83,16 +86,28 @@ class TestSingleFileC:
                                       'verification_engine_mode': 'raw_esbmc'}))
         assert res['verificacao_sucesso'] is False
 
-    @known_defect('D1 (#11): assisted mode silently adds --unwind 3 --no-unwinding-assertions')
-    def test_assisted_mode_finds_deep_loop_bug(self, client):
+    def test_assisted_mode_does_not_prove_deep_loop_bug_safe(self, client):
         res = result(analyse(client, {'language': 'c', 'codigo': C_DEEP_LOOP_BUG, 'flags': []}))
         assert res['verificacao_sucesso'] is False
 
-    @known_defect('D2 (#12): cancelling a run reports verificacao_sucesso=True')
+    def test_loop_beyond_default_bound_reports_unwinding_assertion(self, client):
+        code = '#include <assert.h>\nint main(){int s=0; for(int i=0;i<10;i++) s++; assert(s==10); return 0;}\n'
+        res = result(analyse(client, {'language': 'c', 'codigo': code, 'flags': []}))
+        assert res['verdict'] == 'FAILED'
+        messages = ' '.join(str(s.get('message', '')) for r in res['dashboard_data'] for s in r.get('steps', []))
+        assert 'unwinding assertion' in messages
+
+    def test_loop_within_default_bound_is_successful(self, client):
+        code = '#include <assert.h>\nint main(){int s=0; for(int i=0;i<2;i++) s++; assert(s==2); return 0;}\n'
+        res = result(analyse(client, {'language': 'c', 'codigo': code, 'flags': []}))
+        assert res['verdict'] == 'SUCCESSFUL'
+
     def test_cancelled_run_is_not_successful(self, client):
         res = result(analyse(client, {'language': 'c', 'codigo': C_SLOW, 'flags': ['--unwind', '5000001']},
                              cancel_after=3))
         assert res['verificacao_sucesso'] is False
+        assert res['verdict'] == 'CANCELLED'
+        assert not any(r.get('status') == 'successful' for r in res['dashboard_data'])
 
     def test_concurrent_requests_keep_independent_verdicts(self, client):
         ids = {}
@@ -139,11 +154,12 @@ class TestSingleFilePython:
         res = result(analyse(client, {'language': 'python', 'codigo': code, 'flags': []}))
         assert 'a // b' in res['codigo_analisado']
 
-    @known_defect('D4 (#14): homogenizer restricts int inputs to 0..10000')
-    def test_homogenized_function_explores_negative_inputs(self, client):
+    def test_homogenized_run_is_never_reported_successful(self, client):
         code = 'import os\n\ndef f(n: int) -> int:\n    assert n >= 0\n    return n\n'
         res = result(analyse(client, {'language': 'python', 'codigo': code, 'flags': []}))
+        assert res['verdict'] == 'MODEL_ONLY'
         assert res['verificacao_sucesso'] is False
+        assert not any(r.get('status') == 'successful' for r in res['dashboard_data'])
 
 
 class TestRepository:
@@ -174,28 +190,96 @@ class TestRepository:
                                       'repo_subdir_filter': 'src', 'flags': []}))
         assert [r['file'] for r in res['repo_exploration_summary']] == ['src/ok.c']
 
-    @known_defect('D5 (#15): unparseable module is replaced by a synthetic slice and reported SAFE')
     def test_exploration_does_not_report_unparseable_module_as_safe(self, client, local_repo):
-        repo = local_repo({'src/broken.c': C_PARSE_ERROR})
+        repo = local_repo({'src/broken.c': C_PARSE_ERROR, 'src/ok.c': C_SAFE})
         res = result(analyse(client, {'language': 'c', 'git_url': repo, 'explore_repo': True, 'flags': []}))
-        assert 'SAFE' not in res['repo_exploration_summary'][0]['status']
+        statuses = {r['file']: r['status'] for r in res['repo_exploration_summary']}
+        assert statuses['src/broken.c'] == 'ERROR (NO VERDICT)'
+        assert res['verdict'] == 'UNKNOWN'
         assert res['verificacao_sucesso'] is False
 
-    @known_defect('D5 (#15): errored single repo file is summarised as "STATIC SAFE (0 VCCs)"')
+    def test_exploration_of_safe_repository_is_successful(self, client, local_repo):
+        repo = local_repo({'src/ok.c': C_SAFE})
+        res = result(analyse(client, {'language': 'c', 'git_url': repo, 'explore_repo': True, 'flags': []}))
+        assert res['verdict'] == 'SUCCESSFUL'
+
+    def test_exploration_does_not_report_homogenized_python_as_safe(self, client, local_repo):
+        repo = local_repo({'pkg/m.py': 'import os\n\ndef f(n: int) -> int:\n    return 10 // n\n'})
+        res = result(analyse(client, {'language': 'python', 'git_url': repo, 'explore_repo': True, 'flags': []}))
+        assert res['repo_exploration_summary'][0]['status'] == 'MODEL_ONLY (NO VERDICT)'
+        assert res['verificacao_sucesso'] is False
+
+    def test_repository_directive_cannot_smuggle_flag_as_value(self, client, local_repo):
+        code = '// esbmc-flags: --unwind 3 --unwind --no-assertions\n#include <assert.h>\nint main(){ assert(0); return 0; }\n'
+        repo = local_repo({'src/d.c': code})
+        res = result(analyse(client, {'language': 'c', 'git_url': repo, 'explore_repo': True, 'flags': []}))
+        assert res['verdict'] == 'FAILED'
+
+    def test_oracles_grade_found_bug_and_proved_safe_as_passes(self, client, local_repo):
+        repo = local_repo({
+            'src/bug.c': '// esbmc-expected: FAILED\n' + C_UNSAFE,
+            'src/ok.c': '// esbmc-expected: SUCCESSFUL\n' + C_SAFE,
+        })
+        res = result(analyse(client, {'language': 'c', 'git_url': repo, 'explore_repo': True,
+                                      'test_suite_mode': True, 'flags': []}))
+        codes = {r['file']: r['test_status_code'] for r in res['repo_exploration_summary']}
+        assert codes == {'src/bug.c': 'PASS_BUG_FOUND', 'src/ok.c': 'PASS_SOUND'}
+
+    @staticmethod
+    def _patch_esbmc(monkeypatch, fake_for):
+        """Record esbmc commands; replace the first one for which fake_for(cmd) returns a shell script."""
+        real_popen = backend_app.subprocess.Popen
+        commands = []
+
+        def popen(cmd, *args, **kwargs):
+            if cmd and cmd[0] == 'esbmc':
+                commands.append(list(cmd))
+                script = fake_for(cmd)
+                if script and not any(c[0] == 'fake' for c in commands):
+                    commands[-1] = ['fake'] + commands[-1]
+                    return real_popen(['sh', '-c', script], *args, **kwargs)
+            return real_popen(cmd, *args, **kwargs)
+
+        monkeypatch.setattr(backend_app.subprocess, 'Popen', popen)
+        return commands
+
+    def test_multi_tu_retry_keeps_phase_two_flags(self, client, local_repo, monkeypatch):
+        commands = self._patch_esbmc(monkeypatch, lambda cmd: 'exit 134' if '--overflow-check' in cmd else None)
+        repo = local_repo({'src/ok.c': C_SAFE})
+        result(analyse(client, {'language': 'c', 'git_url': repo, 'explore_repo': True, 'flags': []}))
+        aborted = next(i for i, c in enumerate(commands) if c[0] == 'fake')
+        assert '--overflow-check' in commands[aborted + 1]
+
+    def test_phase_two_without_verdict_is_not_reported_safe(self, client, local_repo, monkeypatch):
+        self._patch_esbmc(monkeypatch, lambda cmd: 'echo "ERROR: Timed out"; exit 1' if '--overflow-check' in cmd else None)
+        repo = local_repo({'src/ok.c': C_SAFE})
+        res = result(analyse(client, {'language': 'c', 'git_url': repo, 'explore_repo': True, 'flags': []}))
+        assert res['repo_exploration_summary'][0]['status'] == 'TIMEOUT (NO VERDICT)'
+        assert res['verificacao_sucesso'] is False
+
+    def test_phase_one_failure_survives_phase_two_only_mode(self, client, local_repo, monkeypatch):
+        self._patch_esbmc(monkeypatch, lambda cmd: 'echo "ERROR: Timed out"; exit 1' if '--overflow-check' in cmd else None)
+        repo = local_repo({'src/bug.c': C_UNSAFE})
+        res = result(analyse(client, {'language': 'c', 'git_url': repo, 'explore_repo': True,
+                                      'verification_phases': '2', 'flags': []}))
+        assert res['repo_exploration_summary'][0]['status'].startswith('VIOLATION')
+        assert res['verdict'] == 'FAILED'
+
     def test_single_repo_file_parse_error_is_not_labelled_safe(self, client, local_repo):
         repo = local_repo({'src/broken.c': C_PARSE_ERROR})
         res = result(analyse(client, {'language': 'c', 'git_url': repo, 'main_file_path': 'src/broken.c', 'flags': []}))
-        assert 'SAFE' not in res['repo_exploration_summary'][0]['status']
+        assert res['repo_exploration_summary'][0]['status'] == 'ERROR (NO VERDICT)'
 
-    @known_defect('D6 (#16): repository "// esbmc-flags:" comments can disable checks')
     def test_repository_comment_cannot_disable_assertions(self, client, local_repo):
         code = '// esbmc-flags: --no-assertions\n#include <assert.h>\nint main(){ assert(0); return 0; }\n'
         repo = local_repo({'src/d.c': code})
-        res = result(analyse(client, {'language': 'c', 'git_url': repo, 'explore_repo': True, 'flags': []}))
-        assert res['verificacao_sucesso'] is False
+        status = analyse(client, {'language': 'c', 'git_url': repo, 'explore_repo': True, 'flags': []})
+        res = result(status)
+        assert res['verdict'] == 'FAILED'
+        assert res['repo_exploration_summary'][0]['status'].startswith('VIOLATION')
+        assert 'Ignoring check-disabling repository directive(s) in src/d.c: --no-assertions' in status['logs']
 
-    @known_defect('D1 (#11): exploration also injects --unwind 2/3 --no-unwinding-assertions')
-    def test_exploration_finds_deep_loop_bug(self, client, local_repo):
+    def test_exploration_does_not_prove_deep_loop_bug_safe(self, client, local_repo):
         repo = local_repo({'src/deep.c': C_DEEP_LOOP_BUG})
         res = result(analyse(client, {'language': 'c', 'git_url': repo, 'explore_repo': True, 'flags': []}))
         assert res['verificacao_sucesso'] is False

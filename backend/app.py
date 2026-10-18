@@ -134,30 +134,54 @@ def descobrir_funcao_alvo_principal(codigo: str, linguagem: str):
     return None, 0
 
 
+def classificar_veredito(texto_esbmc: str, returncode: Optional[int], cancelado: bool) -> str:
+    """Only ESBMC's own verdict line counts as SUCCESSFUL; anything else is FAILED or inconclusive."""
+    if "VERIFICATION FAILED" in texto_esbmc:
+        return "FAILED"
+    if "VERIFICATION SUCCESSFUL" in texto_esbmc:
+        return "SUCCESSFUL"
+    if cancelado:
+        return "CANCELLED"
+    if "ERROR: Timed out" in texto_esbmc or "reached bound/time limit" in texto_esbmc:
+        return "TIMEOUT"
+    if "ERROR" in texto_esbmc or "fatal error:" in texto_esbmc or returncode:
+        return "ERROR"
+    return "UNKNOWN"
+
+
+def _normalizar_veredito(texto: str) -> str:
+    t = texto.upper()
+    if "FAIL" in t or "VIOLATION" in t or "UNSAFE" in t or re.search(r'\bFALSE\b', t):
+        return "FAILED"
+    if "NO VERDICT" in t or "ERROR" in t:
+        return "UNKNOWN"
+    if any(k in t for k in ("SUCCESS", "SOUND", "SAFE", "PASS")) or re.search(r'\bTRUE\b', t):
+        return "SUCCESSFUL"
+    return "UNKNOWN"
+
+
 def avaliar_status_teste(veredicto_obtido: str, veredicto_esperado: Optional[str]) -> Tuple[str, str]:
     """Avalia o status de um teste comparando o veredito obtido pelo ESBMC contra o oráculo esperado.
     Retorna (codigo_status, rotulo_formatado)."""
+    obtido_norm = _normalizar_veredito(veredicto_obtido)
     if not veredicto_esperado or veredicto_esperado == "-":
-        if "FAILED" in veredicto_obtido:
+        if obtido_norm == "FAILED":
             return "VIOLATION", "❌ VIOLATION"
-        elif "SUCCESS" in veredicto_obtido or "SOUND" in veredicto_obtido or "SAFE" in veredicto_obtido:
+        if obtido_norm == "SUCCESSFUL":
             return "SAFE", "✅ SAFE"
         return "COMPLETED", "COMPLETED"
 
-    obtido_norm = "FAILED" if "FAIL" in veredicto_obtido.upper() else ("SUCCESSFUL" if ("SUCCESS" in veredicto_obtido.upper() or "SOUND" in veredicto_obtido.upper() or "SAFE" in veredicto_obtido.upper()) else "UNKNOWN")
-    esperado_norm = "FAILED" if "FAIL" in veredicto_esperado.upper() else ("SUCCESSFUL" if ("SUCCESS" in veredicto_esperado.upper() or "PASS" in veredicto_esperado.upper()) else "UNKNOWN")
-
-    if obtido_norm == esperado_norm:
+    if obtido_norm == "UNKNOWN":
+        return "INCONCLUSIVE", "⚠ INCONCLUSIVE (Sem Veredito)"
+    if obtido_norm == _normalizar_veredito(veredicto_esperado):
         if obtido_norm == "FAILED":
             return "PASS_BUG_FOUND", "🟢 PASS (Bug Encontrado)"
-        else:
-            return "PASS_SOUND", "🟢 PASS (Provado Seguro)"
-    else:
-        return "REGRESSION_FAILED", "🔴 REGRESSÃO (Divergiu do Oráculo)"
+        return "PASS_SOUND", "🟢 PASS (Provado Seguro)"
+    return "REGRESSION_FAILED", "🔴 REGRESSÃO (Divergiu do Oráculo)"
 
 
 from sanitizers.python_sanitizer import sanitizar_python
-from sanitizers.cpp_sanitizer import sanitizar_cpp, descubrir_headers_e_includes_no_diretorio, gerar_modelo_simbolico_fallback_c_cpp
+from sanitizers.cpp_sanitizer import sanitizar_cpp, descubrir_headers_e_includes_no_diretorio
 from sanitizers.c_sanitizer import sanitizar_c, descubrir_headers_e_includes_c
 from sanitizers.repo_explorer import (
     construir_indice_python_repositorio,
@@ -191,6 +215,40 @@ FLAGS_PERMITIDAS_COM_VALOR = {
     '--unwind', '--context-bound', '--witness-output', '--function', '--timeout',
     '--witness-output-yaml'
 }
+
+# Flags that remove or narrow checks; the repository under analysis is untrusted, so its
+# directives may only add checks (#16).
+FLAGS_QUE_ENFRAQUECEM = {
+    '--no-standard-checks', '--no-assertions', '--no-bounds-check', '--no-div-by-zero-check',
+    '--no-pointer-check', '--no-align-check', '--no-unwinding-assertions', '--partial-loops',
+    '--function',
+}
+
+
+def _agrupar_flags(flags: List[str]) -> List[List[str]]:
+    """Split a token list into [flag] / [flag, value] groups; a token starting with '-' is never a value."""
+    grupos, i = [], 0
+    while i < len(flags):
+        flag = flags[i]
+        if flag in FLAGS_PERMITIDAS_COM_VALOR and i + 1 < len(flags) and not str(flags[i + 1]).startswith('-'):
+            grupos.append(flags[i:i + 2])
+            i += 2
+        else:
+            grupos.append([flag])
+            i += 1
+    return grupos
+
+
+def filtrar_flags_do_repositorio(flags: List[str]) -> Tuple[List[List[str]], List[str]]:
+    aceitas, ignoradas = [], []
+    for grupo in _agrupar_flags(flags):
+        sem_valor = len(grupo) == 1 and grupo[0] in FLAGS_PERMITIDAS_COM_VALOR
+        if grupo[0] in FLAGS_QUE_ENFRAQUECEM or sem_valor:
+            ignoradas.extend(grupo)
+        else:
+            aceitas.append(grupo)
+    return aceitas, ignoradas
+
 
 MAPEAMENTO_CWE = {
     'cwe-476': {'code': 'CWE-476', 'severity': 'Critical'},
@@ -582,7 +640,6 @@ def iniciar_analise():
                 caminho_rel_repo=None,
                 timeout_por_modulo=None,
                 lang_override=None,
-                forcar_bounded_unwind=False,
                 funcao_alvo_extra=None,
                 modo_puro_raw=False,
                 pular_fontes_dependentes=False,
@@ -625,7 +682,7 @@ def iniciar_analise():
                                             pass
                                         comando.append(aux_src)
                                         fontes_adicionadas.append(rel_aux)
-                                    if fontes_adicionadas and not forcar_bounded_unwind and not funcao_alvo_extra:
+                                    if fontes_adicionadas and not funcao_alvo_extra:
                                         nomes_fontes = descricoes_vinculos or fontes_adicionadas
                                         TAREFAS_ATIVAS[task_id]["logs"] += (
                                             f"[SYSTEM] [RepoSlice-BMC] Cross-directory C/C++ Linker resolved {len(nomes_fontes)} "
@@ -700,7 +757,7 @@ def iniciar_analise():
 
                 # Se o usuário definiu um --timeout manual nos parâmetros, respeita esse valor no watchdog também
                 timeout_efetivo = timeout_por_modulo
-                if '--timeout' in flags_ativas and not forcar_bounded_unwind:
+                if '--timeout' in flags_ativas:
                     idx_t = flags_ativas.index('--timeout')
                     if idx_t + 1 < len(flags_ativas):
                         try:
@@ -715,12 +772,6 @@ def iniciar_analise():
 
                 while i < len(flags_ativas):
                     flag = flags_ativas[i]
-                    if forcar_bounded_unwind and flag in ('--incremental-bmc', '--k-induction', '--falsification', '--termination', '--unwind'):
-                        if flag == '--unwind':
-                            i += 2
-                        else:
-                            i += 1
-                        continue
                     if flag in FLAGS_PERMITIDAS_SIMPLES:
                         comando.append(flag)
                         i += 1
@@ -736,20 +787,14 @@ def iniciar_analise():
                 if funcao_alvo_extra and '--function' not in comando:
                     comando.extend(['--function', funcao_alvo_extra])
 
-                if forcar_bounded_unwind:
-                    comando.extend(['--unwind', '1', '--partial-loops', '--no-unwinding-assertions'])
-                    TAREFAS_ATIVAS[task_id]["logs"] += (
-                        "[SYSTEM] [Adaptive Protocol Bounder] Applying '--unwind 1 --partial-loops --no-unwinding-assertions' "
-                        "to solve native protocol VCCs without infinite state-machine recursion.\n"
-                    )
-                elif not usuario_escolheu_estrategia and not modo_puro_raw:
+                if not usuario_escolheu_estrategia and not modo_puro_raw:
                     if lang_efetiva in ('c', 'cpp') or timeout_por_modulo:
                         unwind_val = '2' if timeout_por_modulo else '3'
-                        comando.extend(['--unwind', unwind_val, '--no-unwinding-assertions'])
+                        comando.extend(['--unwind', unwind_val])
                         if lang_efetiva == 'cpp' and '--no-align-check' not in comando:
                             comando.append('--no-align-check')
                         TAREFAS_ATIVAS[task_id]["logs"] += (
-                            f"[SYSTEM] [Strategy Mode: AUTOMATIC] No strategy manually selected -> using '--unwind {unwind_val} --no-unwinding-assertions'\n"
+                            f"[SYSTEM] [Strategy Mode: AUTOMATIC] No strategy manually selected -> using '--unwind {unwind_val}' (unwinding assertions kept)\n"
                         )
                     elif lang_efetiva == 'python' and usou_homogenizer:
                         comando.append('--incremental-bmc')
@@ -783,8 +828,6 @@ def iniciar_analise():
 
                 if funcao_alvo_extra:
                     prefixo = f"[ANTI-VACUITY ENTRYPOINT PASS: --function {funcao_alvo_extra}]"
-                elif forcar_bounded_unwind:
-                    prefixo = "[ADAPTIVE PROTOCOL BOUND PASS]"
                 elif is_fallback:
                     prefixo = "[HOMOGENIZER FALLBACK PASS]"
                 elif modo_puro_raw:
@@ -885,10 +928,10 @@ def iniciar_analise():
                         caminho_rel_repo=caminho_rel_repo,
                         timeout_por_modulo=timeout_por_modulo,
                         lang_override=lang_override,
-                        forcar_bounded_unwind=forcar_bounded_unwind,
                         funcao_alvo_extra=funcao_alvo_extra,
                         modo_puro_raw=modo_puro_raw,
-                        pular_fontes_dependentes=True
+                        pular_fontes_dependentes=True,
+                        flags_custom_override=flags_custom_override
                     )
 
                 return texto_stdout, processo.returncode
@@ -999,6 +1042,7 @@ def iniciar_analise():
                 aggregated_dashboard_data = []
                 combined_code_preview = []
                 any_violation_overall = False
+                any_inconclusive_overall = False
                 tempo_inicio_repo = time.time()
 
                 TAREFAS_ATIVAS[task_id]["progresso"]["total"] = len(alvos)
@@ -1089,9 +1133,15 @@ def iniciar_analise():
 
                     # Inferência e união de flags de orquestrador / diretivas comentadas
                     flags_modulo_base = list(flags_recebidas)
-                    for cf in alvo_info.get('custom_flags', []):
-                        if cf not in flags_modulo_base:
-                            flags_modulo_base.append(cf)
+                    flags_repo, flags_ignoradas = filtrar_flags_do_repositorio(alvo_info.get('custom_flags', []))
+                    if flags_ignoradas:
+                        TAREFAS_ATIVAS[task_id]["logs"] += (
+                            f"[SYSTEM] [Security] Ignoring check-disabling repository directive(s) in {rel_path}: "
+                            f"{' '.join(flags_ignoradas)}\n"
+                        )
+                    for grupo in flags_repo:
+                        if grupo[0] not in flags_modulo_base:
+                            flags_modulo_base.extend(grupo)
 
                     # Inferência inteligente de concorrência por análise estática rápida
                     if lang_mod in ('c', 'cpp') and re.search(r'\bpthread_|\bstd::thread|\bstd::atomic\b', cod_modulo):
@@ -1120,7 +1170,7 @@ def iniciar_analise():
 
                     # FASE 2: Safety & Aritmética (--overflow-check, --memory-leak-check)
                     if modo_fases in ('2', 'both') and not is_raw_esbmc and not TAREFAS_ATIVAS[task_id].get("cancel_requested"):
-                        if modo_fases == 'both' and p1_failed:
+                        if p1_failed:
                             # A Fase 1 já descobriu bug funcional com contraexemplo Z3!
                             fase_rotulo = "Fase 1 (Contrato Violado)"
                         else:
@@ -1146,7 +1196,11 @@ def iniciar_analise():
                                 txt_mod = txt_p2
                                 rc_mod = rc_p2
                                 fase_rotulo = "Fase 2 (Safety Violado)"
-                            elif modo_fases == 'both' and p1_success and "VERIFICATION SUCCESSFUL" in txt_p2:
+                            elif "VERIFICATION SUCCESSFUL" not in txt_p2:
+                                txt_mod = txt_p2
+                                rc_mod = rc_p2
+                                fase_rotulo = "Fase 2 (Sem Veredito)"
+                            elif modo_fases == 'both' and p1_success:
                                 fase_rotulo = "Fases 1 + 2 (Sound)"
                             elif modo_fases == '2':
                                 txt_mod = txt_p2
@@ -1173,7 +1227,7 @@ def iniciar_analise():
                                 "esbmc_cli": TAREFAS_ATIVAS[task_id].get("last_cli", f"esbmc {arq_exec}"),
                                 "z3_witness": "",
                                 "violations": 0,
-                                "status": "BOUNDED SAFE (STOPPED)",
+                                "status": "STOPPED (NO VERDICT)",
                                 "homogenized_code": cod_exibido
                             })
                         TAREFAS_ATIVAS[task_id]["logs"] += (
@@ -1183,32 +1237,6 @@ def iniciar_analise():
                         break
 
                     if not is_raw_esbmc:
-                        # Adaptive Protocol Bounder para módulos C/C++ nativos que compilaram 100% para GOTO mas atingiram timeout
-                        if (
-                            not TAREFAS_ATIVAS[task_id].get("cancel_requested")
-                            and lang_mod in ('c', 'cpp')
-                            and "GOTO program creation time:" in txt_mod
-                            and "reached bound/time limit" in txt_mod
-                            and "VERIFICATION SUCCESSFUL" not in txt_mod
-                            and "VERIFICATION FAILED" not in txt_mod
-                        ):
-                            TAREFAS_ATIVAS[task_id]["logs"] += (
-                                f"[SYSTEM] [Adaptive Protocol Bounder] Native {lang_mod.upper()} module '{rel_path}' compiled 100% to GOTO without syntax errors, "
-                                f"but unbounded state-machine loop exceeded {timeout_primario}s -> Re-running with Bounded Protocol Unwind (--unwind 1 --partial-loops)...\n"
-                            )
-                            txt_bounded, rc_bounded = rodar_esbmc(
-                                arq_exec,
-                                usou_homogenizer=usou_homog_mod,
-                                is_fallback=False,
-                                caminho_rel_repo=rel_path,
-                                timeout_por_modulo=8,
-                                lang_override=lang_mod,
-                                forcar_bounded_unwind=True
-                            )
-                            txt_mod = txt_mod + "\n" + txt_bounded
-                            rc_mod = rc_bounded
-                            modo_verif_mod = f"Native {lang_mod.upper()} (Bounded k=1)"
-
                         # Fallback Homogenizer v2 para módulo Python ou C/C++ Embarcado se necessário
                         tem_rep_j = (_obter_relatorio_esbmc_json(temp_dir)[0] is not None)
                         if not TAREFAS_ATIVAS[task_id].get("cancel_requested") and lang_mod == 'python' and not usou_homog_mod and not tem_rep_j and ("ERROR:" in txt_mod or rc_mod != 0):
@@ -1222,18 +1250,6 @@ def iniciar_analise():
                             )
                             txt_mod += "\n" + txt_fb
                             tem_rep_j = (_obter_relatorio_esbmc_json(temp_dir)[0] is not None)
-                        elif not TAREFAS_ATIVAS[task_id].get("cancel_requested") and lang_mod in ('c', 'cpp') and not tem_rep_j and ("ERROR: PARSING ERROR" in txt_mod or "fatal error:" in txt_mod):
-                            TAREFAS_ATIVAS[task_id]["logs"] += (
-                                f"[SYSTEM] [ESBMC {lang_mod.upper()} Homogenizer v2.0] Cross-compiler/SDK hardware dependency in {rel_path} -> "
-                                f"Synthesizing Self-Contained Symbolic AST Slice...\n"
-                            )
-                            gerar_modelo_simbolico_fallback_c_cpp(caminho_temp_mod, linguagem=lang_mod)
-                            usou_homog_mod = True
-                            modo_verif_mod = f"{lang_mod.upper()} Homogenizer v2.0 Slice"
-                            txt_fb, rc_mod = rodar_esbmc(
-                                arq_exec, usou_homogenizer=True, is_fallback=True, caminho_rel_repo=rel_path, timeout_por_modulo=12, lang_override=lang_mod
-                            )
-                            txt_mod += "\n" + txt_fb
 
                     metricas_mod = extrair_metricas_e_contraexemplo_esbmc(txt_mod, rel_path, usou_homog_mod)
 
@@ -1242,6 +1258,7 @@ def iniciar_analise():
                         not is_raw_esbmc
                         and not TAREFAS_ATIVAS[task_id].get("cancel_requested")
                         and metricas_mod["vccs_total"] == 0
+                        and "VERIFICATION SUCCESSFUL" in txt_mod
                         and "VERIFICATION FAILED" not in txt_mod
                         and '--function' not in flags_recebidas
                     ):
@@ -1363,14 +1380,21 @@ def iniciar_analise():
                         and "VERIFICATION SUCCESSFUL" not in txt_mod
                         and ("ERROR:" in txt_mod or "fatal error:" in txt_mod or "ImportError" in txt_mod or "ModuleNotFoundError" in txt_mod or rc_mod != 0)
                     )
+                    veredito_mod = classificar_veredito(
+                        txt_mod, rc_mod, bool(TAREFAS_ATIVAS[task_id].get("cancel_requested"))
+                    )
+                    if usou_homog_mod and veredito_mod == "SUCCESSFUL":
+                        veredito_mod = "MODEL_ONLY"  # the homogenized model is not the user's code (#14)
                     if teve_erro_bruto:
+                        any_inconclusive_overall = True
                         status_mod = "RAW ERROR (Unresolved Deps)"
                     elif mod_violations > 0:
                         any_violation_overall = True
                         tag_orig = "NATIVE BUG" if metricas_mod["violation_origin"] == "[NATIVE CODE BUG]" else "CONTRACT"
                         status_mod = f"VIOLATION [{tag_orig}] (k={metricas_mod['k_depth']})"
-                    elif usou_homog_mod:
-                        status_mod = f"SLICED SAFE (k={metricas_mod['k_depth']})"
+                    elif veredito_mod != "SUCCESSFUL":
+                        any_inconclusive_overall = True
+                        status_mod = f"{veredito_mod} (NO VERDICT)"
                     elif metricas_mod["vccs_total"] > 0:
                         if '--k-induction' in flags_recebidas:
                             status_mod = "VERIFIED SOUND (k-Induction)"
@@ -1446,7 +1470,7 @@ def iniciar_analise():
                 tempo_total_repo = time.time() - tempo_inicio_repo
                 total_safe = sum(1 for r in repo_exploration_summary if "SAFE" in r["status"] or "SOUND" in r["status"])
                 total_viol = sum(1 for r in repo_exploration_summary if r["violations"] > 0)
-                total_raw_err = sum(1 for r in repo_exploration_summary if "RAW ERROR" in r["status"])
+                total_raw_err = sum(1 for r in repo_exploration_summary if "RAW ERROR" in r["status"] or "NO VERDICT" in r["status"])
                 total_vccs_repo = sum(int(r.get("vccs", 0)) for r in repo_exploration_summary)
                 total_ssa_repo = sum(int(r.get("ssa_assigns", 0)) for r in repo_exploration_summary)
                 total_pass = sum(1 for r in repo_exploration_summary if "PASS" in r.get("test_status", ""))
@@ -1525,7 +1549,15 @@ def iniciar_analise():
                 )
                 TAREFAS_ATIVAS[task_id]["logs"] += bloco_relatorio_cientifico
 
-                verificacao_sucesso = not any_violation_overall
+                if any_violation_overall:
+                    veredito = "FAILED"
+                elif TAREFAS_ATIVAS[task_id].get("cancel_requested"):
+                    veredito = "CANCELLED"
+                elif any_inconclusive_overall:
+                    veredito = "UNKNOWN"
+                else:
+                    veredito = "SUCCESSFUL"
+                verificacao_sucesso = veredito == "SUCCESSFUL"
                 if verificacao_sucesso and not aggregated_dashboard_data:
                     aggregated_dashboard_data = [{
                         "status": "successful",
@@ -1549,6 +1581,7 @@ def iniciar_analise():
 
                 TAREFAS_ATIVAS[task_id]["resultado"] = {
                     "verificacao_sucesso": verificacao_sucesso,
+                    "verdict": veredito,
                     "dashboard_data": aggregated_dashboard_data,
                     "repo_exploration_summary": repo_exploration_summary,
                     "latex_table": "\n".join(linhas_latex),
@@ -1687,11 +1720,12 @@ def iniciar_analise():
                     "steps": []
                 }]
 
-            verificacao_sucesso = (
-                "VERIFICATION SUCCESSFUL" in texto_final
-                or (returncode == 0 and "VERIFICATION FAILED" not in texto_final and "ERROR:" not in texto_final)
-                or (TAREFAS_ATIVAS[task_id].get("cancel_requested") and "VERIFICATION FAILED" not in texto_final)
+            veredito = classificar_veredito(
+                texto_final, returncode, bool(TAREFAS_ATIVAS[task_id].get("cancel_requested"))
             )
+            if usou_homogenizer_v2 and veredito == "SUCCESSFUL":
+                veredito = "MODEL_ONLY"  # the homogenized model is not the user's code (#14)
+            verificacao_sucesso = veredito == "SUCCESSFUL"
 
             # Garante que quando o ESBMC tiver sucesso sem vulnerabilidades, o Dashboard receba o status OK!
             if verificacao_sucesso and not any(isinstance(r, dict) and r.get("status") == "violation" for r in dashboard_data):
@@ -1766,8 +1800,8 @@ def iniciar_analise():
                 elif viol_count > 0:
                     tag_orig = "NATIVE BUG" if metricas_single["violation_origin"] == "[NATIVE CODE BUG]" else "CONTRACT"
                     status_single = f"VIOLATION [{tag_orig}] (k={metricas_single['k_depth']})"
-                elif usou_homogenizer_v2:
-                    status_single = f"SLICED SAFE (k={metricas_single['k_depth']})"
+                elif veredito != "SUCCESSFUL":
+                    status_single = f"{veredito} (NO VERDICT)"
                 elif metricas_single["vccs_total"] > 0:
                     status_single = "VERIFIED SOUND (k-Induction)" if '--k-induction' in flags_recebidas else f"BOUNDED SAFE (k={metricas_single['k_depth']})"
                 else:
@@ -1811,6 +1845,7 @@ def iniciar_analise():
 
             TAREFAS_ATIVAS[task_id]["resultado"] = {
                 "verificacao_sucesso": verificacao_sucesso,
+                "verdict": veredito,
                 "dashboard_data": dashboard_data,
                 "repo_exploration_summary": repo_single_summary,
                 "html_report_data": html_report,

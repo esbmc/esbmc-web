@@ -20,13 +20,58 @@ const SCENARIOS = [
     code: '#include <assert.h>\nint main(){int x=5; assert(x==6); return 0;}\n' },
   { id: 'E2E-02', lang: 'c', expect: 'SUCCESSFUL',
     code: '#include <assert.h>\nint main(){int x=5; assert(x==5); return 0;}\n' },
-  { id: 'E2E-03', lang: 'c', expect: 'NOT_SUCCESSFUL', knownDefect: '#13', note: 'parse error must not be shown as success',
+  { id: 'E2E-03', lang: 'c', expect: 'NOT_SUCCESSFUL', banner: /ESBMC ERROR/, note: 'parse error must not be shown as success',
     code: 'int main( { return 0 }\n' },
-  { id: 'E2E-04', lang: 'c', expect: 'NOT_SUCCESSFUL', knownDefect: '#13', note: 'timeout must not be shown as success',
+  { id: 'E2E-04', lang: 'c', expect: 'NOT_SUCCESSFUL', banner: /TIMED OUT/, note: 'timeout must not be shown as success',
     timeout: '3', unwind: '5000001', code: SLOW_C },
-  { id: 'E2E-05', lang: 'c', expect: 'NOT_SUCCESSFUL', knownDefect: '#12/#13', note: 'cancelled run must not be shown as success',
+  { id: 'E2E-05', lang: 'c', expect: 'NOT_SUCCESSFUL', banner: /CANCELLED/, note: 'cancelled run must not be shown as success',
     cancelAfterMs: 3000, unwind: '5000001', code: SLOW_C },
 ];
+
+const ROW = (file, status, extra = {}) => ({
+  index: 1, grau: 0, nome_grau: 'Auxiliar', lang: 'C', directory: 'src', file, score: 10, reasons: '-',
+  fused_deps: 0, fused_names: '-', goto_time: '0.1s', ssa_assigns: 0, vccs: 0, wall_time: '0.1s', mode: 'Native C',
+  phase: 'Fase 1', esbmc_cli: 'esbmc', z3_witness: '', violations: 0, status, expected_verdict: '-',
+  test_status: 'COMPLETED', test_status_code: 'COMPLETED', is_harness: false, homogenized_code: '', ...extra,
+});
+
+// Stubbed scenarios replace the backend with a canned /status payload to pin rendering decisions.
+SCENARIOS.push(
+  { id: 'E2E-06', lang: 'c', expect: 'NOT_SUCCESSFUL', banner: /INCONCLUSIVE/, code: 'int main(){return 0;}\n',
+    note: 'oracle suite banner must not override an inconclusive repository verdict',
+    stub: { status: 'completed', logs: '', progresso: null, resultado: {
+      verdict: 'UNKNOWN', verificacao_sucesso: false, dashboard_data: [], codigo_analisado: '// stub',
+      repo_exploration_summary: [
+        ROW('src/a.c', 'BOUNDED SAFE (k=1)', { expected_verdict: 'VERIFICATION SUCCESSFUL', test_status: '🟢 PASS (Provado Seguro)', test_status_code: 'PASS_SOUND' }),
+        ROW('src/b.c', 'ERROR (NO VERDICT)', { index: 2 }),
+      ] } } },
+  { id: 'E2E-07', lang: 'c', expect: 'FAILED', code: 'int main(){return 0;}\n',
+    note: 'partial results with violations must show FAILED, not an error',
+    stub: { status: 'error', logs: '', resultado: null, progresso: {
+      current: 1, total: 2, violation_count: 1,
+      partial_summary: [ROW('src/bug.c', 'VIOLATION [NATIVE BUG] (k=1)', { violations: 1 })] } } },
+  { id: 'E2E-08', lang: 'c', expect: 'FAILED', code: 'int main(){return 0;}\n',
+    note: 'completed repository run with a violation and no oracles must show FAILED',
+    stub: { status: 'completed', logs: '', progresso: null, resultado: {
+      verdict: 'FAILED', verificacao_sucesso: false, codigo_analisado: '// stub',
+      dashboard_data: [{ status: 'violation', steps: [{ type: 'violation', message: 'assertion 0', file: 'src/bug.c', line: 3, function: 'main', cwe: 'CWE-617', severity: 'High' }] }],
+      repo_exploration_summary: [ROW('src/bug.c', 'VIOLATION [NATIVE BUG] (k=1)', { violations: 1, test_status: '❌ VIOLATION', test_status_code: 'VIOLATION' })] } } },
+  { id: 'E2E-09', lang: 'c', expect: 'BANNER', banner: /SUÍTE DE TESTES APROVADA: 1 BUG/, code: 'int main(){return 0;}\n',
+    note: 'a real oracle suite whose expected bug was found still shows the approved-suite banner',
+    stub: { status: 'completed', logs: '', progresso: null, resultado: {
+      verdict: 'FAILED', verificacao_sucesso: false, codigo_analisado: '// stub',
+      dashboard_data: [{ status: 'violation', steps: [{ type: 'violation', message: 'assertion 0', file: 'src/bug.c', line: 3, function: 'main', cwe: 'CWE-617', severity: 'High' }] }],
+      repo_exploration_summary: [ROW('src/bug.c', 'VIOLATION [NATIVE BUG] (k=1)', { violations: 1, expected_verdict: 'VERIFICATION FAILED', test_status: '🟢 PASS (Bug Encontrado)', test_status_code: 'PASS_BUG_FOUND' })] } } },
+  { id: 'E2E-10', lang: 'c', expect: 'BANNER', banner: /INCONCLUSIVA/, code: 'int main(){return 0;}\n',
+    note: 'an oracle module without a verdict keeps the suite from showing as approved',
+    stub: { status: 'completed', logs: '', progresso: null, resultado: {
+      verdict: 'FAILED', verificacao_sucesso: false, codigo_analisado: '// stub',
+      dashboard_data: [{ status: 'violation', steps: [{ type: 'violation', message: 'assertion 0', file: 'src/bug.c', line: 3, function: 'main', cwe: 'CWE-617', severity: 'High' }] }],
+      repo_exploration_summary: [
+        ROW('src/bug.c', 'VIOLATION [NATIVE BUG] (k=1)', { violations: 1, expected_verdict: 'VERIFICATION FAILED', test_status: '🟢 PASS (Bug Encontrado)', test_status_code: 'PASS_BUG_FOUND' }),
+        ROW('src/slow.c', 'TIMEOUT (NO VERDICT)', { index: 2, expected_verdict: 'VERIFICATION SUCCESSFUL', test_status: '⚠ INCONCLUSIVE (Sem Veredito)', test_status_code: 'INCONCLUSIVE' }),
+      ] } } },
+);
 
 async function cdp(port) {
   const targets = await (await fetch(`http://127.0.0.1:${port}/json/list`)).json();
@@ -39,9 +84,10 @@ async function cdp(port) {
     const msg = JSON.parse(ev.data);
     if (msg.id && pending.has(msg.id)) { pending.get(msg.id)(msg); pending.delete(msg.id); }
   });
-  const send = (method, params = {}) => new Promise((r) => {
+  const send = (method, params = {}) => new Promise((r, reject) => {
     const id = ++seq;
-    pending.set(id, r);
+    const timer = setTimeout(() => { pending.delete(id); reject(new Error(`CDP ${method} timed out`)); }, 30000);
+    pending.set(id, (msg) => { clearTimeout(timer); r(msg); });
     ws.send(JSON.stringify({ id, method, params }));
   });
   const evaluate = async (expression) => {
@@ -76,6 +122,19 @@ async function runScenario(page, s) {
     document.getElementById('status-banner').textContent = '';
     return true;
   })()`);
+  if (s.stub) {
+    await evaluate(`(() => {
+      const stub = ${JSON.stringify(s.stub)};
+      const json = (body) => new Response(JSON.stringify(body), { headers: { 'Content-Type': 'application/json' } });
+      const realFetch = window.fetch.bind(window);
+      window.fetch = (url, opts) => {
+        if (String(url).endsWith('/analisar')) return Promise.resolve(json({ task_id: 'stub' }));
+        if (String(url).endsWith('/status/stub')) return Promise.resolve(json(stub));
+        return realFetch(url, opts);
+      };
+      return true;
+    })()`);
+  }
   await waitFor(evaluate, `!document.getElementById('analisarBtn').disabled`, 5000);
   await evaluate(`document.getElementById('analisarBtn').click()`);
   if (s.cancelAfterMs) {
@@ -93,7 +152,8 @@ async function runScenario(page, s) {
   let pass = done && banner !== '';
   if (s.expect === 'SUCCESSFUL') pass &&= showsSuccess && !showsFailed;
   else if (s.expect === 'FAILED') pass &&= showsFailed;
-  else pass &&= !showsSuccess;
+  else if (s.expect === 'NOT_SUCCESSFUL') pass &&= !showsSuccess;
+  if (s.banner) pass &&= s.banner.test(banner);
   const lastEsbmcLine = terminal.split('\n').filter((l) => /VERIFICATION|ERROR|STOPPED/.test(l)).slice(-1)[0] || '';
   let result = pass ? 'PASS' : 'FAIL';
   if (s.knownDefect) result = pass ? 'XPASS' : 'XFAIL';
@@ -117,14 +177,17 @@ try {
   }
   await page.send('Page.enable');
   await page.send('Runtime.enable');
-  for (const s of SCENARIOS) {
+  const only = process.env.E2E_ONLY ? process.env.E2E_ONLY.split(',') : null;
+  for (const s of SCENARIOS.filter((x) => !only || only.includes(x.id))) {
     const r = await runScenario(page, s);
     if (r.result === 'FAIL' || r.result === 'XPASS') failures++;
     console.log(JSON.stringify(r));
   }
   page.close();
 } finally {
+  const exited = new Promise((r) => (chrome.exitCode === null ? chrome.once('exit', r) : r()));
   chrome.kill();
-  rmSync(profile, { recursive: true, force: true });
+  await exited;
+  rmSync(profile, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
 }
 process.exit(failures ? 1 : 0);

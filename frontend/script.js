@@ -1114,7 +1114,8 @@ document.addEventListener('DOMContentLoaded', () => {
                     processCompletedAnalysis(data.resultado);
                 } else if (data.progresso && Array.isArray(data.progresso.partial_summary) && data.progresso.partial_summary.length > 0) {
                     processCompletedAnalysis({
-                        verificacao_sucesso: (data.progresso.violation_count || 0) === 0,
+                        verificacao_sucesso: false,
+                        verdict: (data.progresso.violation_count || 0) > 0 ? 'FAILED' : 'ERROR',
                         dashboard_data: [],
                         repo_exploration_summary: data.progresso.partial_summary,
                         codigo_analisado: data.logs || '// Consolidated Partial Repository Run'
@@ -1154,7 +1155,8 @@ document.addEventListener('DOMContentLoaded', () => {
             renderDashboard(
                 resultado.dashboard_data || [],
                 resultado.codigo_analisado || '// Consolidated Formal Verification Report',
-                resultado.repo_exploration_summary || null
+                resultado.repo_exploration_summary || null,
+                resultado.verdict || (resultado.verificacao_sucesso ? 'SUCCESSFUL' : 'UNKNOWN')
             );
             tabDashboard.click(); 
         }
@@ -1175,7 +1177,15 @@ document.addEventListener('DOMContentLoaded', () => {
         validateInputs(); 
     }     
 
-    function renderDashboard(resultsArray, codigoFonte, repoExplorationSummary = null) {
+    const INCONCLUSIVE_BANNERS = {
+        CANCELLED: '⏹ ANALYSIS CANCELLED — NO VERDICT',
+        TIMEOUT: '⏱ TIMED OUT — NO VERDICT',
+        ERROR: '⚠ ESBMC ERROR — NO VERDICT (see Terminal Output)',
+        UNKNOWN: '⚠ INCONCLUSIVE — ESBMC REPORTED NO VERDICT',
+        MODEL_ONLY: '⚠ ONLY AN ABSTRACTED MODEL WAS VERIFIED — NO VERDICT ON YOUR CODE',
+    };
+
+    function renderDashboard(resultsArray, codigoFonte, repoExplorationSummary = null, verdict = 'UNKNOWN') {
         const statusBanner = document.getElementById('status-banner');
         const cardModulosAuditados = document.getElementById('card-modulos-auditados');
         const cardModulosSafe = document.getElementById('card-modulos-safe');
@@ -1434,6 +1444,14 @@ document.addEventListener('DOMContentLoaded', () => {
                     traceExecucao.textContent += `[Step ${index}] ${step.type} @ ${location} -> ${stepDetails}\n`;
                 });
             }
+        } else if (verdict === 'FAILED') {
+            statusBanner.className = 'status-banner failed';
+            statusBanner.textContent = '❌ VERIFICATION FAILED — SEE MODULE TABLE';
+            cardPassos.textContent = 0;
+        } else if (verdict !== 'SUCCESSFUL') {
+            statusBanner.className = 'status-banner inconclusive';
+            statusBanner.textContent = INCONCLUSIVE_BANNERS[verdict] || INCONCLUSIVE_BANNERS.UNKNOWN;
+            cardPassos.textContent = 0;
         } else {
             statusBanner.className = 'status-banner success';
             statusBanner.textContent = '✅ VERIFICATION SUCCESSFUL — STATUS: OK (NENHUMA VULNERABILIDADE ENCONTRADA)';
@@ -1445,16 +1463,20 @@ document.addEventListener('DOMContentLoaded', () => {
 
         // Se for exploração de suíte de testes profissional com oráculos esperados:
         if (repoExplorationSummary && Array.isArray(repoExplorationSummary) && repoExplorationSummary.length > 0) {
-            const hasOracles = repoExplorationSummary.some(it => it.expected_verdict);
+            const hasOracles = repoExplorationSummary.some(it => it.expected_verdict && it.expected_verdict !== '-');
             const regressions = repoExplorationSummary.filter(it => it.test_status_code === 'REGRESSION_FAILED' || (it.test_status && it.test_status.includes('REGRESSÃO')));
             const passBugs = repoExplorationSummary.filter(it => it.test_status_code === 'PASS_BUG_FOUND' || (it.test_status && it.test_status.includes('Bug Encontrado')));
             const passSafe = repoExplorationSummary.filter(it => it.test_status_code === 'PASS_SOUND' || (it.test_status && it.test_status.includes('Provado Seguro')));
 
+            const inconclusiveOracles = repoExplorationSummary.filter(it => it.test_status_code === 'INCONCLUSIVE');
             if (hasOracles) {
                 if (regressions.length > 0) {
                     statusBanner.className = 'status-banner failed';
                     statusBanner.textContent = `🔴 SUÍTE DE TESTES: ${regressions.length} REGRESSÃO(ÕES) DETECTADA(S) (DIVERGÊNCIA DE ORÁCULO)`;
-                } else {
+                } else if (inconclusiveOracles.length > 0) {
+                    statusBanner.className = 'status-banner inconclusive';
+                    statusBanner.textContent = `⚠ SUÍTE DE TESTES INCONCLUSIVA: ${inconclusiveOracles.length} ORÁCULO(S) SEM VEREDITO`;
+                } else if (verdict === 'SUCCESSFUL' || verdict === 'FAILED') {
                     statusBanner.className = 'status-banner success';
                     statusBanner.textContent = `🟢 SUÍTE DE TESTES APROVADA: ${passBugs.length} BUG(S) CONFIRMADO(S) + ${passSafe.length} PROVADO(S) SEGURO(S) [100% ORÁCULOS ATENDIDOS]`;
                 }

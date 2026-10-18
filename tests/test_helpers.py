@@ -1,6 +1,7 @@
 import app as backend_app
 from conftest import known_defect
-from app import avaliar_status_teste, descobrir_funcao_alvo_principal, normalizar_url_e_subpasta_git
+from app import (avaliar_status_teste, classificar_veredito, descobrir_funcao_alvo_principal,
+                 filtrar_flags_do_repositorio, normalizar_url_e_subpasta_git)
 
 
 class TestGitUrlNormalisation:
@@ -24,22 +25,49 @@ class TestGitUrlNormalisation:
         assert normalizar_url_e_subpasta_git('', 'a', 'b') == ('', 'a', 'b')
 
 
+class TestVerdictClassification:
+    def test_esbmc_verdict_lines_decide(self):
+        assert classificar_veredito('...\nVERIFICATION FAILED\n', 1, False) == 'FAILED'
+        assert classificar_veredito('...\nVERIFICATION SUCCESSFUL\n', 0, False) == 'SUCCESSFUL'
+
+    def test_completed_verdict_survives_late_cancel(self):
+        assert classificar_veredito('VERIFICATION SUCCESSFUL\n', 0, True) == 'SUCCESSFUL'
+
+    def test_no_verdict_line_is_never_successful(self):
+        assert classificar_veredito('Parsing\n', 0, False) == 'UNKNOWN'
+        assert classificar_veredito('Unwinding loop 3\n', -9, True) == 'CANCELLED'
+        assert classificar_veredito('ERROR: Timed out\n', 1, False) == 'TIMEOUT'
+        assert classificar_veredito('ERROR: PARSING ERROR\n', 1, False) == 'ERROR'
+        assert classificar_veredito('', 6, False) == 'ERROR'
+
+
 class TestOracleComparison:
     def test_without_oracle_classifies_verdict(self):
-        assert avaliar_status_teste('VIOLATION [NATIVE BUG] (k=1)', None)[0] == 'COMPLETED'
+        assert avaliar_status_teste('VIOLATION [NATIVE BUG] (k=1)', None)[0] == 'VIOLATION'
         assert avaliar_status_teste('VERIFICATION FAILED', None)[0] == 'VIOLATION'
         assert avaliar_status_teste('BOUNDED SAFE (k=1)', '-')[0] == 'SAFE'
+        assert avaliar_status_teste('ERROR (NO VERDICT)', None)[0] == 'COMPLETED'
 
     def test_matching_oracles(self):
-        assert avaliar_status_teste('VERIFICATION FAILED', 'VERIFICATION FAILED')[0] == 'PASS_BUG_FOUND'
+        assert avaliar_status_teste('VIOLATION [NATIVE BUG] (k=1)', 'VERIFICATION FAILED')[0] == 'PASS_BUG_FOUND'
         assert avaliar_status_teste('BOUNDED SAFE (k=1)', 'VERIFICATION SUCCESSFUL')[0] == 'PASS_SOUND'
+
+    def test_sv_comp_style_oracle_words(self):
+        assert avaliar_status_teste('BOUNDED SAFE (k=3)', 'UNSAFE')[0] == 'REGRESSION_FAILED'
+        assert avaliar_status_teste('VIOLATION [NATIVE BUG] (k=1)', 'UNSAFE')[0] == 'PASS_BUG_FOUND'
+        assert avaliar_status_teste('VIOLATION [NATIVE BUG] (k=1)', 'FALSE')[0] == 'PASS_BUG_FOUND'
+        assert avaliar_status_teste('BOUNDED SAFE (k=3)', 'TRUE')[0] == 'PASS_SOUND'
+        assert avaliar_status_teste('BOUNDED SAFE (k=3)', 'SAFE')[0] == 'PASS_SOUND'
 
     def test_divergent_oracle_is_regression(self):
         assert avaliar_status_teste('BOUNDED SAFE (k=1)', 'VERIFICATION FAILED')[0] == 'REGRESSION_FAILED'
+        assert avaliar_status_teste('VIOLATION [CONTRACT] (k=1)', 'VERIFICATION SUCCESSFUL')[0] == 'REGRESSION_FAILED'
 
-    def test_unknown_obtained_verdict_never_matches_unknown_oracle_as_safe(self):
-        code, _ = avaliar_status_teste('RAW ERROR (Unresolved Deps)', 'VERIFICATION SUCCESSFUL')
-        assert code == 'REGRESSION_FAILED'
+    def test_run_without_verdict_never_passes_an_oracle(self):
+        for obtained in ('TIMEOUT (NO VERDICT)', 'ERROR (NO VERDICT)', 'MODEL_ONLY (NO VERDICT)',
+                         'STOPPED (NO VERDICT)', 'RAW ERROR (Unresolved Deps)'):
+            for oracle in ('VERIFICATION SUCCESSFUL', 'VERIFICATION FAILED', 'VERIFICATION TIMEOUT', 'UNKNOWN'):
+                assert avaliar_status_teste(obtained, oracle)[0] == 'INCONCLUSIVE', (obtained, oracle)
 
 
 class TestTargetFunctionDiscovery:
@@ -57,6 +85,25 @@ class TestTargetFunctionDiscovery:
 
     def test_python_syntax_error_returns_none(self):
         assert descobrir_funcao_alvo_principal('def (:', 'python') == (None, 0)
+
+
+def test_repository_flags_may_only_add_checks():
+    flags = ['--overflow-check', '--no-assertions', '--function', 'helper', '--unwind', '5', '--no-bounds-check']
+    accepted, ignored = filtrar_flags_do_repositorio(flags)
+    assert accepted == [['--overflow-check'], ['--unwind', '5']]
+    assert ignored == ['--no-assertions', '--function', 'helper', '--no-bounds-check']
+
+
+def test_repository_flag_value_cannot_smuggle_another_flag():
+    accepted, ignored = filtrar_flags_do_repositorio(['--unwind', '3', '--unwind', '--no-assertions'])
+    assert accepted == [['--unwind', '3']]
+    assert ignored == ['--unwind', '--no-assertions']
+
+
+def test_repository_value_flag_without_value_is_ignored():
+    accepted, ignored = filtrar_flags_do_repositorio(['--unwind', '--k-induction', '--timeout'])
+    assert accepted == [['--k-induction']]
+    assert ignored == ['--unwind', '--timeout']
 
 
 def test_flag_allowlist_excludes_solver_program_override():
