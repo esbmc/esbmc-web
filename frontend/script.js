@@ -1114,7 +1114,8 @@ document.addEventListener('DOMContentLoaded', () => {
                     processCompletedAnalysis(data.resultado);
                 } else if (data.progresso && Array.isArray(data.progresso.partial_summary) && data.progresso.partial_summary.length > 0) {
                     processCompletedAnalysis({
-                        verificacao_sucesso: (data.progresso.violation_count || 0) === 0,
+                        verificacao_sucesso: false,
+                        verdict: 'ERROR',
                         dashboard_data: [],
                         repo_exploration_summary: data.progresso.partial_summary,
                         codigo_analisado: data.logs || '// Consolidated Partial Repository Run'
@@ -1154,7 +1155,8 @@ document.addEventListener('DOMContentLoaded', () => {
             renderDashboard(
                 resultado.dashboard_data || [],
                 resultado.codigo_analisado || '// Consolidated Formal Verification Report',
-                resultado.repo_exploration_summary || null
+                resultado.repo_exploration_summary || null,
+                resultado.verdict || (resultado.verificacao_sucesso ? 'SUCCESSFUL' : 'UNKNOWN')
             );
             tabDashboard.click(); 
         }
@@ -1175,7 +1177,14 @@ document.addEventListener('DOMContentLoaded', () => {
         validateInputs(); 
     }     
 
-    function renderDashboard(resultsArray, codigoFonte, repoExplorationSummary = null) {
+    const INCONCLUSIVE_BANNERS = {
+        CANCELLED: '⏹ ANALYSIS CANCELLED — NO VERDICT',
+        TIMEOUT: '⏱ TIMED OUT — NO VERDICT',
+        ERROR: '⚠ ESBMC ERROR — NO VERDICT (see Terminal Output)',
+        UNKNOWN: '⚠ INCONCLUSIVE — ESBMC REPORTED NO VERDICT',
+    };
+
+    function renderDashboard(resultsArray, codigoFonte, repoExplorationSummary = null, verdict = 'UNKNOWN') {
         const statusBanner = document.getElementById('status-banner');
         const cardModulosAuditados = document.getElementById('card-modulos-auditados');
         const cardModulosSafe = document.getElementById('card-modulos-safe');
@@ -1434,6 +1443,10 @@ document.addEventListener('DOMContentLoaded', () => {
                     traceExecucao.textContent += `[Step ${index}] ${step.type} @ ${location} -> ${stepDetails}\n`;
                 });
             }
+        } else if (verdict !== 'SUCCESSFUL') {
+            statusBanner.className = 'status-banner inconclusive';
+            statusBanner.textContent = INCONCLUSIVE_BANNERS[verdict] || INCONCLUSIVE_BANNERS.UNKNOWN;
+            cardPassos.textContent = 0;
         } else {
             statusBanner.className = 'status-banner success';
             statusBanner.textContent = '✅ VERIFICATION SUCCESSFUL — STATUS: OK (NENHUMA VULNERABILIDADE ENCONTRADA)';

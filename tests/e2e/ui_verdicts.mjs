@@ -20,11 +20,11 @@ const SCENARIOS = [
     code: '#include <assert.h>\nint main(){int x=5; assert(x==6); return 0;}\n' },
   { id: 'E2E-02', lang: 'c', expect: 'SUCCESSFUL',
     code: '#include <assert.h>\nint main(){int x=5; assert(x==5); return 0;}\n' },
-  { id: 'E2E-03', lang: 'c', expect: 'NOT_SUCCESSFUL', knownDefect: '#13', note: 'parse error must not be shown as success',
+  { id: 'E2E-03', lang: 'c', expect: 'NOT_SUCCESSFUL', banner: /ESBMC ERROR/, note: 'parse error must not be shown as success',
     code: 'int main( { return 0 }\n' },
-  { id: 'E2E-04', lang: 'c', expect: 'NOT_SUCCESSFUL', knownDefect: '#13', note: 'timeout must not be shown as success',
+  { id: 'E2E-04', lang: 'c', expect: 'NOT_SUCCESSFUL', banner: /TIMED OUT/, note: 'timeout must not be shown as success',
     timeout: '3', unwind: '5000001', code: SLOW_C },
-  { id: 'E2E-05', lang: 'c', expect: 'NOT_SUCCESSFUL', knownDefect: '#12/#13', note: 'cancelled run must not be shown as success',
+  { id: 'E2E-05', lang: 'c', expect: 'NOT_SUCCESSFUL', banner: /CANCELLED/, note: 'cancelled run must not be shown as success',
     cancelAfterMs: 3000, unwind: '5000001', code: SLOW_C },
 ];
 
@@ -94,6 +94,7 @@ async function runScenario(page, s) {
   if (s.expect === 'SUCCESSFUL') pass &&= showsSuccess && !showsFailed;
   else if (s.expect === 'FAILED') pass &&= showsFailed;
   else pass &&= !showsSuccess;
+  if (s.banner) pass &&= s.banner.test(banner);
   const lastEsbmcLine = terminal.split('\n').filter((l) => /VERIFICATION|ERROR|STOPPED/.test(l)).slice(-1)[0] || '';
   let result = pass ? 'PASS' : 'FAIL';
   if (s.knownDefect) result = pass ? 'XPASS' : 'XFAIL';
