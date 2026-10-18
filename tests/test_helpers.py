@@ -52,6 +52,13 @@ class TestOracleComparison:
         assert avaliar_status_teste('VIOLATION [NATIVE BUG] (k=1)', 'VERIFICATION FAILED')[0] == 'PASS_BUG_FOUND'
         assert avaliar_status_teste('BOUNDED SAFE (k=1)', 'VERIFICATION SUCCESSFUL')[0] == 'PASS_SOUND'
 
+    def test_sv_comp_style_oracle_words(self):
+        assert avaliar_status_teste('BOUNDED SAFE (k=3)', 'UNSAFE')[0] == 'REGRESSION_FAILED'
+        assert avaliar_status_teste('VIOLATION [NATIVE BUG] (k=1)', 'UNSAFE')[0] == 'PASS_BUG_FOUND'
+        assert avaliar_status_teste('VIOLATION [NATIVE BUG] (k=1)', 'FALSE')[0] == 'PASS_BUG_FOUND'
+        assert avaliar_status_teste('BOUNDED SAFE (k=3)', 'TRUE')[0] == 'PASS_SOUND'
+        assert avaliar_status_teste('BOUNDED SAFE (k=3)', 'SAFE')[0] == 'PASS_SOUND'
+
     def test_divergent_oracle_is_regression(self):
         assert avaliar_status_teste('BOUNDED SAFE (k=1)', 'VERIFICATION FAILED')[0] == 'REGRESSION_FAILED'
         assert avaliar_status_teste('VIOLATION [CONTRACT] (k=1)', 'VERIFICATION SUCCESSFUL')[0] == 'REGRESSION_FAILED'
@@ -89,8 +96,14 @@ def test_repository_flags_may_only_add_checks():
 
 def test_repository_flag_value_cannot_smuggle_another_flag():
     accepted, ignored = filtrar_flags_do_repositorio(['--unwind', '3', '--unwind', '--no-assertions'])
-    assert accepted == [['--unwind', '3'], ['--unwind']]
-    assert ignored == ['--no-assertions']
+    assert accepted == [['--unwind', '3']]
+    assert ignored == ['--unwind', '--no-assertions']
+
+
+def test_repository_value_flag_without_value_is_ignored():
+    accepted, ignored = filtrar_flags_do_repositorio(['--unwind', '--k-induction', '--timeout'])
+    assert accepted == [['--k-induction']]
+    assert ignored == ['--unwind', '--timeout']
 
 
 def test_flag_allowlist_excludes_solver_program_override():

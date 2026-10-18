@@ -151,11 +151,11 @@ def classificar_veredito(texto_esbmc: str, returncode: Optional[int], cancelado:
 
 def _normalizar_veredito(texto: str) -> str:
     t = texto.upper()
-    if "FAIL" in t or "VIOLATION" in t:
+    if "FAIL" in t or "VIOLATION" in t or "UNSAFE" in t or re.search(r'\bFALSE\b', t):
         return "FAILED"
     if "NO VERDICT" in t or "ERROR" in t:
         return "UNKNOWN"
-    if any(k in t for k in ("SUCCESS", "SOUND", "SAFE", "PASS")):
+    if any(k in t for k in ("SUCCESS", "SOUND", "SAFE", "PASS")) or re.search(r'\bTRUE\b', t):
         return "SUCCESSFUL"
     return "UNKNOWN"
 
@@ -242,7 +242,8 @@ def _agrupar_flags(flags: List[str]) -> List[List[str]]:
 def filtrar_flags_do_repositorio(flags: List[str]) -> Tuple[List[List[str]], List[str]]:
     aceitas, ignoradas = [], []
     for grupo in _agrupar_flags(flags):
-        if grupo[0] in FLAGS_QUE_ENFRAQUECEM:
+        sem_valor = len(grupo) == 1 and grupo[0] in FLAGS_PERMITIDAS_COM_VALOR
+        if grupo[0] in FLAGS_QUE_ENFRAQUECEM or sem_valor:
             ignoradas.extend(grupo)
         else:
             aceitas.append(grupo)
@@ -1169,7 +1170,7 @@ def iniciar_analise():
 
                     # FASE 2: Safety & Aritmética (--overflow-check, --memory-leak-check)
                     if modo_fases in ('2', 'both') and not is_raw_esbmc and not TAREFAS_ATIVAS[task_id].get("cancel_requested"):
-                        if modo_fases == 'both' and p1_failed:
+                        if p1_failed:
                             # A Fase 1 já descobriu bug funcional com contraexemplo Z3!
                             fase_rotulo = "Fase 1 (Contrato Violado)"
                         else:

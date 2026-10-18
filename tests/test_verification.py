@@ -225,39 +225,45 @@ class TestRepository:
         codes = {r['file']: r['test_status_code'] for r in res['repo_exploration_summary']}
         assert codes == {'src/bug.c': 'PASS_BUG_FOUND', 'src/ok.c': 'PASS_SOUND'}
 
-    def test_multi_tu_retry_keeps_phase_two_flags(self, client, local_repo, monkeypatch):
+    @staticmethod
+    def _patch_esbmc(monkeypatch, fake_for):
+        """Record esbmc commands; replace the first one for which fake_for(cmd) returns a shell script."""
         real_popen = backend_app.subprocess.Popen
         commands = []
 
         def popen(cmd, *args, **kwargs):
             if cmd and cmd[0] == 'esbmc':
                 commands.append(list(cmd))
-                if len(commands) == 2:  # Phase 2: simulate the ESBMC abort that triggers the retry
-                    return real_popen(['sh', '-c', 'exit 134'], *args, **kwargs)
+                script = fake_for(cmd)
+                if script and not any(c[0] == 'fake' for c in commands):
+                    commands[-1] = ['fake'] + commands[-1]
+                    return real_popen(['sh', '-c', script], *args, **kwargs)
             return real_popen(cmd, *args, **kwargs)
 
         monkeypatch.setattr(backend_app.subprocess, 'Popen', popen)
+        return commands
+
+    def test_multi_tu_retry_keeps_phase_two_flags(self, client, local_repo, monkeypatch):
+        commands = self._patch_esbmc(monkeypatch, lambda cmd: 'exit 134' if '--overflow-check' in cmd else None)
         repo = local_repo({'src/ok.c': C_SAFE})
         result(analyse(client, {'language': 'c', 'git_url': repo, 'explore_repo': True, 'flags': []}))
-        assert '--overflow-check' in commands[1]
-        assert '--overflow-check' in commands[2]
+        aborted = next(i for i, c in enumerate(commands) if c[0] == 'fake')
+        assert '--overflow-check' in commands[aborted + 1]
 
     def test_phase_two_without_verdict_is_not_reported_safe(self, client, local_repo, monkeypatch):
-        real_popen = backend_app.subprocess.Popen
-        calls = []
-
-        def popen(cmd, *args, **kwargs):
-            if cmd and cmd[0] == 'esbmc':
-                calls.append(cmd)
-                if len(calls) == 2:  # Phase 2 (overflow check) times out
-                    return real_popen(['sh', '-c', 'echo "ERROR: Timed out"; exit 1'], *args, **kwargs)
-            return real_popen(cmd, *args, **kwargs)
-
-        monkeypatch.setattr(backend_app.subprocess, 'Popen', popen)
+        self._patch_esbmc(monkeypatch, lambda cmd: 'echo "ERROR: Timed out"; exit 1' if '--overflow-check' in cmd else None)
         repo = local_repo({'src/ok.c': C_SAFE})
         res = result(analyse(client, {'language': 'c', 'git_url': repo, 'explore_repo': True, 'flags': []}))
         assert res['repo_exploration_summary'][0]['status'] == 'TIMEOUT (NO VERDICT)'
         assert res['verificacao_sucesso'] is False
+
+    def test_phase_one_failure_survives_phase_two_only_mode(self, client, local_repo, monkeypatch):
+        self._patch_esbmc(monkeypatch, lambda cmd: 'echo "ERROR: Timed out"; exit 1' if '--overflow-check' in cmd else None)
+        repo = local_repo({'src/bug.c': C_UNSAFE})
+        res = result(analyse(client, {'language': 'c', 'git_url': repo, 'explore_repo': True,
+                                      'verification_phases': '2', 'flags': []}))
+        assert res['repo_exploration_summary'][0]['status'].startswith('VIOLATION')
+        assert res['verdict'] == 'FAILED'
 
     def test_single_repo_file_parse_error_is_not_labelled_safe(self, client, local_repo):
         repo = local_repo({'src/broken.c': C_PARSE_ERROR})
