@@ -134,6 +134,21 @@ def descobrir_funcao_alvo_principal(codigo: str, linguagem: str):
     return None, 0
 
 
+def classificar_veredito(texto_esbmc: str, returncode: Optional[int], cancelado: bool) -> str:
+    """Only ESBMC's own verdict line counts as SUCCESSFUL; anything else is FAILED or inconclusive."""
+    if "VERIFICATION FAILED" in texto_esbmc:
+        return "FAILED"
+    if "VERIFICATION SUCCESSFUL" in texto_esbmc:
+        return "SUCCESSFUL"
+    if cancelado:
+        return "CANCELLED"
+    if "ERROR: Timed out" in texto_esbmc or "reached bound/time limit" in texto_esbmc:
+        return "TIMEOUT"
+    if "ERROR" in texto_esbmc or "fatal error:" in texto_esbmc or returncode:
+        return "ERROR"
+    return "UNKNOWN"
+
+
 def avaliar_status_teste(veredicto_obtido: str, veredicto_esperado: Optional[str]) -> Tuple[str, str]:
     """Avalia o status de um teste comparando o veredito obtido pelo ESBMC contra o oráculo esperado.
     Retorna (codigo_status, rotulo_formatado)."""
@@ -1173,7 +1188,7 @@ def iniciar_analise():
                                 "esbmc_cli": TAREFAS_ATIVAS[task_id].get("last_cli", f"esbmc {arq_exec}"),
                                 "z3_witness": "",
                                 "violations": 0,
-                                "status": "BOUNDED SAFE (STOPPED)",
+                                "status": "STOPPED (NO VERDICT)",
                                 "homogenized_code": cod_exibido
                             })
                         TAREFAS_ATIVAS[task_id]["logs"] += (
@@ -1525,7 +1540,13 @@ def iniciar_analise():
                 )
                 TAREFAS_ATIVAS[task_id]["logs"] += bloco_relatorio_cientifico
 
-                verificacao_sucesso = not any_violation_overall
+                if any_violation_overall:
+                    veredito = "FAILED"
+                elif TAREFAS_ATIVAS[task_id].get("cancel_requested"):
+                    veredito = "CANCELLED"
+                else:
+                    veredito = "SUCCESSFUL"
+                verificacao_sucesso = veredito == "SUCCESSFUL"
                 if verificacao_sucesso and not aggregated_dashboard_data:
                     aggregated_dashboard_data = [{
                         "status": "successful",
@@ -1549,6 +1570,7 @@ def iniciar_analise():
 
                 TAREFAS_ATIVAS[task_id]["resultado"] = {
                     "verificacao_sucesso": verificacao_sucesso,
+                    "verdict": veredito,
                     "dashboard_data": aggregated_dashboard_data,
                     "repo_exploration_summary": repo_exploration_summary,
                     "latex_table": "\n".join(linhas_latex),
@@ -1687,11 +1709,10 @@ def iniciar_analise():
                     "steps": []
                 }]
 
-            verificacao_sucesso = (
-                "VERIFICATION SUCCESSFUL" in texto_final
-                or (returncode == 0 and "VERIFICATION FAILED" not in texto_final and "ERROR:" not in texto_final)
-                or (TAREFAS_ATIVAS[task_id].get("cancel_requested") and "VERIFICATION FAILED" not in texto_final)
+            veredito = classificar_veredito(
+                texto_final, returncode, bool(TAREFAS_ATIVAS[task_id].get("cancel_requested"))
             )
+            verificacao_sucesso = veredito == "SUCCESSFUL"
 
             # Garante que quando o ESBMC tiver sucesso sem vulnerabilidades, o Dashboard receba o status OK!
             if verificacao_sucesso and not any(isinstance(r, dict) and r.get("status") == "violation" for r in dashboard_data):
@@ -1811,6 +1832,7 @@ def iniciar_analise():
 
             TAREFAS_ATIVAS[task_id]["resultado"] = {
                 "verificacao_sucesso": verificacao_sucesso,
+                "verdict": veredito,
                 "dashboard_data": dashboard_data,
                 "repo_exploration_summary": repo_single_summary,
                 "html_report_data": html_report,

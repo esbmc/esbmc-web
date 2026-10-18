@@ -61,12 +61,14 @@ class TestSingleFileC:
     def test_parse_error_is_not_successful(self, client):
         res = result(analyse(client, {'language': 'c', 'codigo': C_PARSE_ERROR, 'flags': []}))
         assert res['verificacao_sucesso'] is False
+        assert res['verdict'] == 'ERROR'
         assert not any(r.get('status') == 'successful' for r in res['dashboard_data'])
 
     def test_timeout_is_not_successful(self, client):
         res = result(analyse(client, {'language': 'c', 'codigo': C_SLOW,
                                       'flags': ['--unwind', '5000001', '--timeout', '3']}))
         assert res['verificacao_sucesso'] is False
+        assert res['verdict'] == 'TIMEOUT'
         assert not any(r.get('status') == 'successful' for r in res['dashboard_data'])
 
     def test_user_dependency_is_compiled_and_name_is_confined(self, client):
@@ -88,11 +90,12 @@ class TestSingleFileC:
         res = result(analyse(client, {'language': 'c', 'codigo': C_DEEP_LOOP_BUG, 'flags': []}))
         assert res['verificacao_sucesso'] is False
 
-    @known_defect('D2 (#12): cancelling a run reports verificacao_sucesso=True')
     def test_cancelled_run_is_not_successful(self, client):
         res = result(analyse(client, {'language': 'c', 'codigo': C_SLOW, 'flags': ['--unwind', '5000001']},
                              cancel_after=3))
         assert res['verificacao_sucesso'] is False
+        assert res['verdict'] == 'CANCELLED'
+        assert not any(r.get('status') == 'successful' for r in res['dashboard_data'])
 
     def test_concurrent_requests_keep_independent_verdicts(self, client):
         ids = {}

@@ -1,6 +1,7 @@
 import app as backend_app
 from conftest import known_defect
-from app import avaliar_status_teste, descobrir_funcao_alvo_principal, normalizar_url_e_subpasta_git
+from app import (avaliar_status_teste, classificar_veredito, descobrir_funcao_alvo_principal,
+                 normalizar_url_e_subpasta_git)
 
 
 class TestGitUrlNormalisation:
@@ -22,6 +23,22 @@ class TestGitUrlNormalisation:
 
     def test_empty_url_is_passthrough(self):
         assert normalizar_url_e_subpasta_git('', 'a', 'b') == ('', 'a', 'b')
+
+
+class TestVerdictClassification:
+    def test_esbmc_verdict_lines_decide(self):
+        assert classificar_veredito('...\nVERIFICATION FAILED\n', 1, False) == 'FAILED'
+        assert classificar_veredito('...\nVERIFICATION SUCCESSFUL\n', 0, False) == 'SUCCESSFUL'
+
+    def test_completed_verdict_survives_late_cancel(self):
+        assert classificar_veredito('VERIFICATION SUCCESSFUL\n', 0, True) == 'SUCCESSFUL'
+
+    def test_no_verdict_line_is_never_successful(self):
+        assert classificar_veredito('Parsing\n', 0, False) == 'UNKNOWN'
+        assert classificar_veredito('Unwinding loop 3\n', -9, True) == 'CANCELLED'
+        assert classificar_veredito('ERROR: Timed out\n', 1, False) == 'TIMEOUT'
+        assert classificar_veredito('ERROR: PARSING ERROR\n', 1, False) == 'ERROR'
+        assert classificar_veredito('', 6, False) == 'ERROR'
 
 
 class TestOracleComparison:
