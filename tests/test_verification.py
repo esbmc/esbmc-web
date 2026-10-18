@@ -188,18 +188,23 @@ class TestRepository:
                                       'repo_subdir_filter': 'src', 'flags': []}))
         assert [r['file'] for r in res['repo_exploration_summary']] == ['src/ok.c']
 
-    @known_defect('D5 (#15): unparseable module is replaced by a synthetic slice and reported SAFE')
     def test_exploration_does_not_report_unparseable_module_as_safe(self, client, local_repo):
-        repo = local_repo({'src/broken.c': C_PARSE_ERROR})
+        repo = local_repo({'src/broken.c': C_PARSE_ERROR, 'src/ok.c': C_SAFE})
         res = result(analyse(client, {'language': 'c', 'git_url': repo, 'explore_repo': True, 'flags': []}))
-        assert 'SAFE' not in res['repo_exploration_summary'][0]['status']
+        statuses = {r['file']: r['status'] for r in res['repo_exploration_summary']}
+        assert statuses['src/broken.c'] == 'ERROR (NO VERDICT)'
+        assert res['verdict'] == 'UNKNOWN'
         assert res['verificacao_sucesso'] is False
 
-    @known_defect('D5 (#15): errored single repo file is summarised as "STATIC SAFE (0 VCCs)"')
+    def test_exploration_of_safe_repository_is_successful(self, client, local_repo):
+        repo = local_repo({'src/ok.c': C_SAFE})
+        res = result(analyse(client, {'language': 'c', 'git_url': repo, 'explore_repo': True, 'flags': []}))
+        assert res['verdict'] == 'SUCCESSFUL'
+
     def test_single_repo_file_parse_error_is_not_labelled_safe(self, client, local_repo):
         repo = local_repo({'src/broken.c': C_PARSE_ERROR})
         res = result(analyse(client, {'language': 'c', 'git_url': repo, 'main_file_path': 'src/broken.c', 'flags': []}))
-        assert 'SAFE' not in res['repo_exploration_summary'][0]['status']
+        assert res['repo_exploration_summary'][0]['status'] == 'ERROR (NO VERDICT)'
 
     @known_defect('D6 (#16): repository "// esbmc-flags:" comments can disable checks')
     def test_repository_comment_cannot_disable_assertions(self, client, local_repo):

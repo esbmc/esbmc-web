@@ -172,7 +172,7 @@ def avaliar_status_teste(veredicto_obtido: str, veredicto_esperado: Optional[str
 
 
 from sanitizers.python_sanitizer import sanitizar_python
-from sanitizers.cpp_sanitizer import sanitizar_cpp, descubrir_headers_e_includes_no_diretorio, gerar_modelo_simbolico_fallback_c_cpp
+from sanitizers.cpp_sanitizer import sanitizar_cpp, descubrir_headers_e_includes_no_diretorio
 from sanitizers.c_sanitizer import sanitizar_c, descubrir_headers_e_includes_c
 from sanitizers.repo_explorer import (
     construir_indice_python_repositorio,
@@ -1014,6 +1014,7 @@ def iniciar_analise():
                 aggregated_dashboard_data = []
                 combined_code_preview = []
                 any_violation_overall = False
+                any_inconclusive_overall = False
                 tempo_inicio_repo = time.time()
 
                 TAREFAS_ATIVAS[task_id]["progresso"]["total"] = len(alvos)
@@ -1237,18 +1238,6 @@ def iniciar_analise():
                             )
                             txt_mod += "\n" + txt_fb
                             tem_rep_j = (_obter_relatorio_esbmc_json(temp_dir)[0] is not None)
-                        elif not TAREFAS_ATIVAS[task_id].get("cancel_requested") and lang_mod in ('c', 'cpp') and not tem_rep_j and ("ERROR: PARSING ERROR" in txt_mod or "fatal error:" in txt_mod):
-                            TAREFAS_ATIVAS[task_id]["logs"] += (
-                                f"[SYSTEM] [ESBMC {lang_mod.upper()} Homogenizer v2.0] Cross-compiler/SDK hardware dependency in {rel_path} -> "
-                                f"Synthesizing Self-Contained Symbolic AST Slice...\n"
-                            )
-                            gerar_modelo_simbolico_fallback_c_cpp(caminho_temp_mod, linguagem=lang_mod)
-                            usou_homog_mod = True
-                            modo_verif_mod = f"{lang_mod.upper()} Homogenizer v2.0 Slice"
-                            txt_fb, rc_mod = rodar_esbmc(
-                                arq_exec, usou_homogenizer=True, is_fallback=True, caminho_rel_repo=rel_path, timeout_por_modulo=12, lang_override=lang_mod
-                            )
-                            txt_mod += "\n" + txt_fb
 
                     metricas_mod = extrair_metricas_e_contraexemplo_esbmc(txt_mod, rel_path, usou_homog_mod)
 
@@ -1378,12 +1367,19 @@ def iniciar_analise():
                         and "VERIFICATION SUCCESSFUL" not in txt_mod
                         and ("ERROR:" in txt_mod or "fatal error:" in txt_mod or "ImportError" in txt_mod or "ModuleNotFoundError" in txt_mod or rc_mod != 0)
                     )
+                    veredito_mod = classificar_veredito(
+                        txt_mod, rc_mod, bool(TAREFAS_ATIVAS[task_id].get("cancel_requested"))
+                    )
                     if teve_erro_bruto:
+                        any_inconclusive_overall = True
                         status_mod = "RAW ERROR (Unresolved Deps)"
                     elif mod_violations > 0:
                         any_violation_overall = True
                         tag_orig = "NATIVE BUG" if metricas_mod["violation_origin"] == "[NATIVE CODE BUG]" else "CONTRACT"
                         status_mod = f"VIOLATION [{tag_orig}] (k={metricas_mod['k_depth']})"
+                    elif veredito_mod != "SUCCESSFUL":
+                        any_inconclusive_overall = True
+                        status_mod = f"{veredito_mod} (NO VERDICT)"
                     elif usou_homog_mod:
                         status_mod = f"SLICED SAFE (k={metricas_mod['k_depth']})"
                     elif metricas_mod["vccs_total"] > 0:
@@ -1461,7 +1457,7 @@ def iniciar_analise():
                 tempo_total_repo = time.time() - tempo_inicio_repo
                 total_safe = sum(1 for r in repo_exploration_summary if "SAFE" in r["status"] or "SOUND" in r["status"])
                 total_viol = sum(1 for r in repo_exploration_summary if r["violations"] > 0)
-                total_raw_err = sum(1 for r in repo_exploration_summary if "RAW ERROR" in r["status"])
+                total_raw_err = sum(1 for r in repo_exploration_summary if "RAW ERROR" in r["status"] or "NO VERDICT" in r["status"])
                 total_vccs_repo = sum(int(r.get("vccs", 0)) for r in repo_exploration_summary)
                 total_ssa_repo = sum(int(r.get("ssa_assigns", 0)) for r in repo_exploration_summary)
                 total_pass = sum(1 for r in repo_exploration_summary if "PASS" in r.get("test_status", ""))
@@ -1544,6 +1540,8 @@ def iniciar_analise():
                     veredito = "FAILED"
                 elif TAREFAS_ATIVAS[task_id].get("cancel_requested"):
                     veredito = "CANCELLED"
+                elif any_inconclusive_overall:
+                    veredito = "UNKNOWN"
                 else:
                     veredito = "SUCCESSFUL"
                 verificacao_sucesso = veredito == "SUCCESSFUL"
@@ -1787,6 +1785,8 @@ def iniciar_analise():
                 elif viol_count > 0:
                     tag_orig = "NATIVE BUG" if metricas_single["violation_origin"] == "[NATIVE CODE BUG]" else "CONTRACT"
                     status_single = f"VIOLATION [{tag_orig}] (k={metricas_single['k_depth']})"
+                elif veredito != "SUCCESSFUL":
+                    status_single = f"{veredito} (NO VERDICT)"
                 elif usou_homogenizer_v2:
                     status_single = f"SLICED SAFE (k={metricas_single['k_depth']})"
                 elif metricas_single["vccs_total"] > 0:
