@@ -1,7 +1,7 @@
 import app as backend_app
 from conftest import known_defect
 from app import (avaliar_status_teste, classificar_veredito, descobrir_funcao_alvo_principal,
-                 normalizar_url_e_subpasta_git)
+                 filtrar_flags_do_repositorio, normalizar_url_e_subpasta_git)
 
 
 class TestGitUrlNormalisation:
@@ -74,6 +74,13 @@ class TestTargetFunctionDiscovery:
 
     def test_python_syntax_error_returns_none(self):
         assert descobrir_funcao_alvo_principal('def (:', 'python') == (None, 0)
+
+
+def test_repository_flags_may_only_add_checks():
+    flags = ['--overflow-check', '--no-assertions', '--function', 'helper', '--unwind', '5', '--no-bounds-check']
+    accepted, ignored = filtrar_flags_do_repositorio(flags)
+    assert accepted == ['--overflow-check', '--unwind', '5']
+    assert ignored == ['--no-assertions', '--function', 'helper', '--no-bounds-check']
 
 
 def test_flag_allowlist_excludes_solver_program_override():

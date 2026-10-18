@@ -207,6 +207,27 @@ FLAGS_PERMITIDAS_COM_VALOR = {
     '--witness-output-yaml'
 }
 
+# Flags that remove or narrow checks; the repository under analysis is untrusted, so its
+# directives may only add checks (#16).
+FLAGS_QUE_ENFRAQUECEM = {
+    '--no-standard-checks', '--no-assertions', '--no-bounds-check', '--no-div-by-zero-check',
+    '--no-pointer-check', '--no-align-check', '--no-unwinding-assertions', '--partial-loops',
+    '--function',
+}
+
+
+def filtrar_flags_do_repositorio(flags: List[str]) -> Tuple[List[str], List[str]]:
+    aceitas, ignoradas = [], []
+    i = 0
+    while i < len(flags):
+        flag = flags[i]
+        consome_valor = flag in FLAGS_PERMITIDAS_COM_VALOR and i + 1 < len(flags)
+        grupo = flags[i:i + 2] if consome_valor else [flag]
+        (ignoradas if flag in FLAGS_QUE_ENFRAQUECEM else aceitas).extend(grupo)
+        i += len(grupo)
+    return aceitas, ignoradas
+
+
 MAPEAMENTO_CWE = {
     'cwe-476': {'code': 'CWE-476', 'severity': 'Critical'},
     'none dereference': {'code': 'CWE-476', 'severity': 'Critical'},
@@ -1105,7 +1126,13 @@ def iniciar_analise():
 
                     # Inferência e união de flags de orquestrador / diretivas comentadas
                     flags_modulo_base = list(flags_recebidas)
-                    for cf in alvo_info.get('custom_flags', []):
+                    flags_repo, flags_ignoradas = filtrar_flags_do_repositorio(alvo_info.get('custom_flags', []))
+                    if flags_ignoradas:
+                        TAREFAS_ATIVAS[task_id]["logs"] += (
+                            f"[SYSTEM] [Security] Ignoring check-disabling repository directive(s) in {rel_path}: "
+                            f"{' '.join(flags_ignoradas)}\n"
+                        )
+                    for cf in flags_repo:
                         if cf not in flags_modulo_base:
                             flags_modulo_base.append(cf)
 

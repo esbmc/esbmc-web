@@ -206,12 +206,14 @@ class TestRepository:
         res = result(analyse(client, {'language': 'c', 'git_url': repo, 'main_file_path': 'src/broken.c', 'flags': []}))
         assert res['repo_exploration_summary'][0]['status'] == 'ERROR (NO VERDICT)'
 
-    @known_defect('D6 (#16): repository "// esbmc-flags:" comments can disable checks')
     def test_repository_comment_cannot_disable_assertions(self, client, local_repo):
         code = '// esbmc-flags: --no-assertions\n#include <assert.h>\nint main(){ assert(0); return 0; }\n'
         repo = local_repo({'src/d.c': code})
-        res = result(analyse(client, {'language': 'c', 'git_url': repo, 'explore_repo': True, 'flags': []}))
-        assert res['verificacao_sucesso'] is False
+        status = analyse(client, {'language': 'c', 'git_url': repo, 'explore_repo': True, 'flags': []})
+        res = result(status)
+        assert res['verdict'] == 'FAILED'
+        assert res['repo_exploration_summary'][0]['status'].startswith('VIOLATION')
+        assert 'Ignoring check-disabling repository directive(s) in src/d.c: --no-assertions' in status['logs']
 
     def test_exploration_does_not_prove_deep_loop_bug_safe(self, client, local_repo):
         repo = local_repo({'src/deep.c': C_DEEP_LOOP_BUG})
