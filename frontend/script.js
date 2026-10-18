@@ -1468,10 +1468,14 @@ document.addEventListener('DOMContentLoaded', () => {
             const passBugs = repoExplorationSummary.filter(it => it.test_status_code === 'PASS_BUG_FOUND' || (it.test_status && it.test_status.includes('Bug Encontrado')));
             const passSafe = repoExplorationSummary.filter(it => it.test_status_code === 'PASS_SOUND' || (it.test_status && it.test_status.includes('Provado Seguro')));
 
+            const inconclusiveOracles = repoExplorationSummary.filter(it => it.test_status_code === 'INCONCLUSIVE');
             if (hasOracles) {
                 if (regressions.length > 0) {
                     statusBanner.className = 'status-banner failed';
                     statusBanner.textContent = `🔴 SUÍTE DE TESTES: ${regressions.length} REGRESSÃO(ÕES) DETECTADA(S) (DIVERGÊNCIA DE ORÁCULO)`;
+                } else if (inconclusiveOracles.length > 0) {
+                    statusBanner.className = 'status-banner inconclusive';
+                    statusBanner.textContent = `⚠ SUÍTE DE TESTES INCONCLUSIVA: ${inconclusiveOracles.length} ORÁCULO(S) SEM VEREDITO`;
                 } else if (verdict === 'SUCCESSFUL' || verdict === 'FAILED') {
                     statusBanner.className = 'status-banner success';
                     statusBanner.textContent = `🟢 SUÍTE DE TESTES APROVADA: ${passBugs.length} BUG(S) CONFIRMADO(S) + ${passSafe.length} PROVADO(S) SEGURO(S) [100% ORÁCULOS ATENDIDOS]`;
