@@ -738,13 +738,6 @@ def iniciar_analise():
                                                 comando.extend(['--function', '__esbmc_main'])
                                 except Exception:
                                     pass
-                        try:
-                            clang_path = subprocess.run(
-                                ['clang', '-print-resource-dir'], capture_output=True, text=True, check=True
-                            ).stdout.strip()
-                            comando.extend(['-I', os.path.join(clang_path, 'include')])
-                        except Exception:
-                            pass
                         if os.path.isdir('/usr/include/x86_64-linux-gnu'):
                             comando.extend(['-I', '/usr/include/x86_64-linux-gnu'])
 

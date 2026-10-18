@@ -118,7 +118,6 @@ class TestSingleFileC:
             for task_id in ids[name]:
                 assert result(wait_for_task(client, task_id))['verificacao_sucesso'] is expected
 
-    @known_defect(condition=sys.platform == 'darwin', reason='D8 (#18): -I <clang resource dir> shadows ESBMC headers -> PARSING ERROR on macOS')
     def test_c_program_using_stdint_parses(self, client):
         code = '#include <stdint.h>\n#include <assert.h>\nint main(){uint8_t x=1; assert(x==2); return 0;}\n'
         res = result(analyse(client, {'language': 'c', 'codigo': code, 'flags': []}))
@@ -126,7 +125,11 @@ class TestSingleFileC:
 
 
 class TestSingleFileCpp:
-    @known_defect(condition=sys.platform == 'darwin', reason='D8 (#18): -I <clang resource dir> shadows ESBMC headers -> PARSING ERROR on macOS')
+    def test_out_of_bounds_vector_access_is_found(self, client):
+        code = ('#include <vector>\nint main(){ std::vector<int> v(2); int a[2]; a[v.size()] = 1; return 0; }\n')
+        res = result(analyse(client, {'language': 'cpp', 'codigo': code, 'flags': []}))
+        assert res['verdict'] == 'FAILED'
+
     def test_failing_assertion_is_reported(self, client):
         code = '#include <cassert>\nint main(){int x=1; assert(x==2); return 0;}\n'
         res = result(analyse(client, {'language': 'cpp', 'codigo': code, 'flags': []}))

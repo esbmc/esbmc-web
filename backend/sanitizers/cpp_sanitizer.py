@@ -1,6 +1,8 @@
 import os
 import re
 import subprocess
+import tempfile
+from concurrent.futures import ThreadPoolExecutor
 
 STDLIB_CPP = {
     'iostream', 'vector', 'string', 'stdio.h', 'stdlib.h', 'cstdio', 'cstdlib',
@@ -3178,7 +3180,44 @@ def _injetar_mocks_boost_e_headers_compatibilidade(temp_dir: str) -> str:
                 "}\n"
             )
 
+    _remover_shims_std_nativos(mock_dir)
     return mock_dir
+
+
+_CABECALHOS_STD_NATIVOS = {}
+
+
+def _esbmc_analisa_cabecalho(cabecalho: str) -> bool:
+    with tempfile.TemporaryDirectory() as d:
+        sonda = os.path.join(d, 'sonda.cpp')
+        with open(sonda, 'w', encoding='utf-8') as f:
+            f.write(f"#include <{cabecalho}>\nint main() {{ return 0; }}\n")
+        try:
+            return subprocess.run(['esbmc', sonda, '--parse-tree-only'], capture_output=True, timeout=60).returncode == 0
+        except (OSError, subprocess.TimeoutExpired):
+            return False
+
+
+def _remover_shims_std_nativos(mock_dir: str) -> None:
+    """Drop standard-library shims for headers the installed ESBMC already parses (#18).
+
+    The shims add definitions after #include_next, which redefine what newer ESBMC
+    libraries provide and turn every C++ program into a PARSING ERROR. Support is
+    measured once per ESBMC version, so older versions keep the shims they need."""
+    try:
+        versao = subprocess.run(['esbmc', '--version'], capture_output=True, text=True, timeout=10).stdout.strip()
+    except (OSError, subprocess.TimeoutExpired):
+        return
+    shims = sorted(n for n in os.listdir(mock_dir)
+                   if '.' not in n and os.path.isfile(os.path.join(mock_dir, n)))
+    nativos = _CABECALHOS_STD_NATIVOS.setdefault(versao, {})
+    pendentes = [n for n in shims if n not in nativos]
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        for nome, ok in zip(pendentes, pool.map(_esbmc_analisa_cabecalho, pendentes)):
+            nativos[nome] = ok
+    for nome in shims:
+        if nativos[nome]:
+            os.remove(os.path.join(mock_dir, nome))
 
 
 def sanitizar_cpp(caminho_arquivo: str, temp_dir: str, tem_flag_function: bool = False, sub_dir_repo: str = None):
