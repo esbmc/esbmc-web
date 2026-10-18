@@ -75,9 +75,10 @@ async function cdp(port) {
     const msg = JSON.parse(ev.data);
     if (msg.id && pending.has(msg.id)) { pending.get(msg.id)(msg); pending.delete(msg.id); }
   });
-  const send = (method, params = {}) => new Promise((r) => {
+  const send = (method, params = {}) => new Promise((r, reject) => {
     const id = ++seq;
-    pending.set(id, r);
+    const timer = setTimeout(() => { pending.delete(id); reject(new Error(`CDP ${method} timed out`)); }, 30000);
+    pending.set(id, (msg) => { clearTimeout(timer); r(msg); });
     ws.send(JSON.stringify({ id, method, params }));
   });
   const evaluate = async (expression) => {
@@ -167,7 +168,8 @@ try {
   }
   await page.send('Page.enable');
   await page.send('Runtime.enable');
-  for (const s of SCENARIOS) {
+  const only = process.env.E2E_ONLY ? process.env.E2E_ONLY.split(',') : null;
+  for (const s of SCENARIOS.filter((x) => !only || only.includes(x.id))) {
     const r = await runScenario(page, s);
     if (r.result === 'FAIL' || r.result === 'XPASS') failures++;
     console.log(JSON.stringify(r));
