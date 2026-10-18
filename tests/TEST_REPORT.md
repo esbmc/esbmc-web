@@ -109,13 +109,13 @@ There were no pre-existing tests in the repository. A mutation check (forcing `v
 | D9 | Medium | `#include`-driven file creation outside temp dir | [#19](https://github.com/esbmc/esbmc-web/issues/19) (new) | open |
 | D10 | Low | anti-vacuity `--function` target scoring window | [#20](https://github.com/esbmc/esbmc-web/issues/20) (new) | open |
 
-Further defects found and fixed while fixing the above (no separate issues):
+Further defects found and fixed while fixing the above:
 
-- Every repository run that found a violation was shown as a green "approved test suite", because the `-` oracle placeholder counted as an oracle (`script.js`, refs #13).
-- Expected bugs that ESBMC found were graded as regressions, because `VIOLATION [...]` was not recognised as FAILED. Runs without a verdict could also be graded `PASS (Provado Seguro)`, and an `UNSAFE` oracle was read as SAFE.
+- Every repository run that found a violation was shown as a green "approved test suite", because the `-` oracle placeholder counted as an oracle ([#22](https://github.com/esbmc/esbmc-web/issues/22)).
+- Expected bugs that ESBMC found were graded as regressions, because `VIOLATION [...]` was not recognised as FAILED. Runs without a verdict could also be graded `PASS (Provado Seguro)`, and an `UNSAFE` oracle was read as SAFE ([#23](https://github.com/esbmc/esbmc-web/issues/23)).
 - A repository directive such as `--unwind --no-assertions` smuggled a check-disabling flag past the #16 filter.
 - A timed-out repository module was re-run with `--partial-loops`, which can verify a buggy loop as SUCCESSFUL. This pass has been removed (refs #11).
-- The multi-TU retry dropped Phase 2's `--overflow-check`/`--memory-leak-check`. When Phase 2 ended without a verdict, Phase 1's SAFE was kept, and a Phase 1 FAILED was lost in Phase-2-only mode.
+- The multi-TU retry dropped Phase 2's `--overflow-check`/`--memory-leak-check`. When Phase 2 ended without a verdict, Phase 1's SAFE was kept, and a Phase 1 FAILED was lost in Phase-2-only mode ([#24](https://github.com/esbmc/esbmc-web/issues/24)).
 
 ## 6. Coverage gaps and residual risk
 
