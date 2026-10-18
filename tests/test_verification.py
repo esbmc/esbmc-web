@@ -7,6 +7,7 @@ import sys
 
 import pytest
 
+import app as backend_app
 from conftest import analyse, known_defect, requires_esbmc, wait_for_task
 
 pytestmark = requires_esbmc
@@ -223,6 +224,23 @@ class TestRepository:
                                       'test_suite_mode': True, 'flags': []}))
         codes = {r['file']: r['test_status_code'] for r in res['repo_exploration_summary']}
         assert codes == {'src/bug.c': 'PASS_BUG_FOUND', 'src/ok.c': 'PASS_SOUND'}
+
+    def test_multi_tu_retry_keeps_phase_two_flags(self, client, local_repo, monkeypatch):
+        real_popen = backend_app.subprocess.Popen
+        commands = []
+
+        def popen(cmd, *args, **kwargs):
+            if cmd and cmd[0] == 'esbmc':
+                commands.append(list(cmd))
+                if len(commands) == 2:  # Phase 2: simulate the ESBMC abort that triggers the retry
+                    return real_popen(['sh', '-c', 'exit 134'], *args, **kwargs)
+            return real_popen(cmd, *args, **kwargs)
+
+        monkeypatch.setattr(backend_app.subprocess, 'Popen', popen)
+        repo = local_repo({'src/ok.c': C_SAFE})
+        result(analyse(client, {'language': 'c', 'git_url': repo, 'explore_repo': True, 'flags': []}))
+        assert '--overflow-check' in commands[1]
+        assert '--overflow-check' in commands[2]
 
     def test_single_repo_file_parse_error_is_not_labelled_safe(self, client, local_repo):
         repo = local_repo({'src/broken.c': C_PARSE_ERROR})

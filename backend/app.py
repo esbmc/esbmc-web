@@ -929,7 +929,8 @@ def iniciar_analise():
                         lang_override=lang_override,
                         funcao_alvo_extra=funcao_alvo_extra,
                         modo_puro_raw=modo_puro_raw,
-                        pular_fontes_dependentes=True
+                        pular_fontes_dependentes=True,
+                        flags_custom_override=flags_custom_override
                     )
 
                 return texto_stdout, processo.returncode
