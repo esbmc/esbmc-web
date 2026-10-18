@@ -20,11 +20,11 @@ const SCENARIOS = [
     code: '#include <assert.h>\nint main(){int x=5; assert(x==6); return 0;}\n' },
   { id: 'E2E-02', lang: 'c', expect: 'SUCCESSFUL',
     code: '#include <assert.h>\nint main(){int x=5; assert(x==5); return 0;}\n' },
-  { id: 'E2E-03', lang: 'c', expect: 'NOT_SUCCESSFUL', knownDefect: 'D3', note: 'parse error must not be shown as success',
+  { id: 'E2E-03', lang: 'c', expect: 'NOT_SUCCESSFUL', knownDefect: '#13', note: 'parse error must not be shown as success',
     code: 'int main( { return 0 }\n' },
-  { id: 'E2E-04', lang: 'c', expect: 'NOT_SUCCESSFUL', knownDefect: 'D3', note: 'timeout must not be shown as success',
+  { id: 'E2E-04', lang: 'c', expect: 'NOT_SUCCESSFUL', knownDefect: '#13', note: 'timeout must not be shown as success',
     timeout: '3', unwind: '5000001', code: SLOW_C },
-  { id: 'E2E-05', lang: 'c', expect: 'NOT_SUCCESSFUL', knownDefect: 'D2/D3', note: 'cancelled run must not be shown as success',
+  { id: 'E2E-05', lang: 'c', expect: 'NOT_SUCCESSFUL', knownDefect: '#12/#13', note: 'cancelled run must not be shown as success',
     cancelAfterMs: 3000, unwind: '5000001', code: SLOW_C },
 ];
 

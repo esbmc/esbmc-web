@@ -29,7 +29,7 @@ class TestPythonHomogenizerDecision:
         assert info['usou_homogenizer_v2'] is False
         assert '10 // x' in out.read_text()
 
-    @known_defect('D4: homogenizer drops the original function body')
+    @known_defect('D4 (#14): homogenizer drops the original function body')
     def test_homogenized_output_preserves_function_body(self, tmp_path):
         src, out = tmp_path / 'm.py', tmp_path / 'o.py'
         src.write_text('import os\n\ndef f(x: int) -> int:\n    return 10 // x\n')
@@ -62,7 +62,7 @@ class TestCSanitizer:
 class TestCppSanitizer:
 
     @requires_esbmc
-    @known_defect('D7: sanitizer strips "virtual", turning dynamic dispatch static')
+    @known_defect('D7 (#17): sanitizer strips "virtual", turning dynamic dispatch static')
     def test_rewrite_preserves_virtual_dispatch_verdict(self, tmp_path):
         code = ('#include <cassert>\nstruct B{ virtual int f(){return 1;} };\n'
                 'struct D : B { int f(){return 0;} };\n'
@@ -75,7 +75,7 @@ class TestCppSanitizer:
         assert 'VERIFICATION FAILED' in out
 
 
-@known_defect('D9: #include names are joined to temp_dir unchecked')
+@known_defect('D9 (#19): #include names are joined to temp_dir unchecked')
 @pytest.mark.parametrize('sanitize, name', [(sanitizar_c, 'codigo.c'), (sanitizar_cpp, 'codigo.cpp')])
 def test_mock_headers_stay_inside_work_dir(tmp_path, sanitize, name):
     work = tmp_path / 'work'

@@ -88,16 +88,16 @@ There were no pre-existing tests in the repository. A mutation check (forcing `v
 
 | ID | Severity | Summary | Issue |
 |---|---|---|---|
-| D1 | Critical | default `--unwind N --no-unwinding-assertions` → false SUCCESSFUL | _pending_ |
-| D2 | Critical | cancelled run reported as SUCCESSFUL (backend) | _pending_ |
-| D3 | Critical | UI shows SUCCESSFUL for parse error / timeout / cancel | _pending_ |
-| D4 | Critical | Python homogenizer replaces function bodies, restricts inputs | _pending_ |
-| D5 | Critical | unparseable repo modules replaced by template, reported SAFE | _pending_ |
-| D6 | Critical | repo `// esbmc-flags:` can disable checks | _pending_ |
-| D7 | Critical | C++ sanitizer strips `virtual` (and other semantic rewrites) | _pending_ |
-| D8 | High | C++ and `<stdint.h>` C fail to parse on macOS | _pending_ |
-| D9 | Medium | `#include`-driven file creation outside temp dir | _pending_ |
-| D10 | Low | anti-vacuity `--function` target scoring window | _pending_ |
+| D1 | Critical | default `--unwind N --no-unwinding-assertions` → false SUCCESSFUL | [#11](https://github.com/esbmc/esbmc-web/issues/11) (new) |
+| D2 | Critical | cancelled run reported as SUCCESSFUL (backend) | [#12](https://github.com/esbmc/esbmc-web/issues/12) (new) |
+| D3 | Critical | UI shows SUCCESSFUL for parse error / timeout / cancel | [#13](https://github.com/esbmc/esbmc-web/issues/13) (new) |
+| D4 | Critical | Python homogenizer replaces function bodies, restricts inputs | [#14](https://github.com/esbmc/esbmc-web/issues/14) (new) |
+| D5 | Critical | unparseable repo modules replaced by template, reported SAFE | [#15](https://github.com/esbmc/esbmc-web/issues/15) (new) |
+| D6 | Critical | repo `// esbmc-flags:` can disable checks | [#16](https://github.com/esbmc/esbmc-web/issues/16) (new) |
+| D7 | Critical | C++ sanitizer strips `virtual` (and other semantic rewrites) | [#17](https://github.com/esbmc/esbmc-web/issues/17) (new) |
+| D8 | High | C++ and `<stdint.h>` C fail to parse on macOS | [#18](https://github.com/esbmc/esbmc-web/issues/18) (new) |
+| D9 | Medium | `#include`-driven file creation outside temp dir | [#19](https://github.com/esbmc/esbmc-web/issues/19) (new) |
+| D10 | Low | anti-vacuity `--function` target scoring window | [#20](https://github.com/esbmc/esbmc-web/issues/20) (new) |
 
 ## 6. Coverage gaps and residual risk
 

@@ -43,7 +43,7 @@ class TestOracleComparison:
 
 
 class TestTargetFunctionDiscovery:
-    @known_defect('D10: scoring window spills past the function body into later functions')
+    @known_defect('D10 (#20): scoring window spills past the function body into later functions')
     def test_c_prefers_function_with_asserts_and_branches(self):
         code = 'int a(int x){return x;}\nint b(int x){ if(x) assert(x>0); return x; }\n'
         assert descobrir_funcao_alvo_principal(code, 'c') == ('b', 1)
