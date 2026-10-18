@@ -125,7 +125,9 @@ try {
   }
   page.close();
 } finally {
+  const exited = new Promise((r) => (chrome.exitCode === null ? chrome.once('exit', r) : r()));
   chrome.kill();
-  rmSync(profile, { recursive: true, force: true });
+  await exited;
+  rmSync(profile, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
 }
 process.exit(failures ? 1 : 0);
