@@ -208,6 +208,12 @@ class TestRepository:
         assert res['repo_exploration_summary'][0]['status'] == 'MODEL_ONLY (NO VERDICT)'
         assert res['verificacao_sucesso'] is False
 
+    def test_repository_directive_cannot_smuggle_flag_as_value(self, client, local_repo):
+        code = '// esbmc-flags: --unwind 3 --unwind --no-assertions\n#include <assert.h>\nint main(){ assert(0); return 0; }\n'
+        repo = local_repo({'src/d.c': code})
+        res = result(analyse(client, {'language': 'c', 'git_url': repo, 'explore_repo': True, 'flags': []}))
+        assert res['verdict'] == 'FAILED'
+
     def test_single_repo_file_parse_error_is_not_labelled_safe(self, client, local_repo):
         repo = local_repo({'src/broken.c': C_PARSE_ERROR})
         res = result(analyse(client, {'language': 'c', 'git_url': repo, 'main_file_path': 'src/broken.c', 'flags': []}))

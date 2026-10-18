@@ -216,15 +216,27 @@ FLAGS_QUE_ENFRAQUECEM = {
 }
 
 
-def filtrar_flags_do_repositorio(flags: List[str]) -> Tuple[List[str], List[str]]:
-    aceitas, ignoradas = [], []
-    i = 0
+def _agrupar_flags(flags: List[str]) -> List[List[str]]:
+    """Split a token list into [flag] / [flag, value] groups; a token starting with '-' is never a value."""
+    grupos, i = [], 0
     while i < len(flags):
         flag = flags[i]
-        consome_valor = flag in FLAGS_PERMITIDAS_COM_VALOR and i + 1 < len(flags)
-        grupo = flags[i:i + 2] if consome_valor else [flag]
-        (ignoradas if flag in FLAGS_QUE_ENFRAQUECEM else aceitas).extend(grupo)
-        i += len(grupo)
+        if flag in FLAGS_PERMITIDAS_COM_VALOR and i + 1 < len(flags) and not str(flags[i + 1]).startswith('-'):
+            grupos.append(flags[i:i + 2])
+            i += 2
+        else:
+            grupos.append([flag])
+            i += 1
+    return grupos
+
+
+def filtrar_flags_do_repositorio(flags: List[str]) -> Tuple[List[List[str]], List[str]]:
+    aceitas, ignoradas = [], []
+    for grupo in _agrupar_flags(flags):
+        if grupo[0] in FLAGS_QUE_ENFRAQUECEM:
+            ignoradas.extend(grupo)
+        else:
+            aceitas.append(grupo)
     return aceitas, ignoradas
 
 
@@ -1132,9 +1144,9 @@ def iniciar_analise():
                             f"[SYSTEM] [Security] Ignoring check-disabling repository directive(s) in {rel_path}: "
                             f"{' '.join(flags_ignoradas)}\n"
                         )
-                    for cf in flags_repo:
-                        if cf not in flags_modulo_base:
-                            flags_modulo_base.append(cf)
+                    for grupo in flags_repo:
+                        if grupo[0] not in flags_modulo_base:
+                            flags_modulo_base.extend(grupo)
 
                     # Inferência inteligente de concorrência por análise estática rápida
                     if lang_mod in ('c', 'cpp') and re.search(r'\bpthread_|\bstd::thread|\bstd::atomic\b', cod_modulo):
