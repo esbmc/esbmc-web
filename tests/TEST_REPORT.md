@@ -123,7 +123,6 @@ There were no pre-existing tests in the repository. A mutation check (forcing `v
   - `innerHTML` rendering of ESBMC messages derived from analysed source
   - `TAREFAS_ATIVAS`/`CLONE_TASKS` are never evicted (unbounded memory)
   - there is no file-size or count limit on cloned repositories
-- The "Adaptive Protocol Bounder" (`forcar_bounded_unwind` in `app.py`) still re-runs a timed-out repository module with `--unwind 1 --partial-loops --no-unwinding-assertions`, the same unsound pattern as #11. It only runs when the backend's watchdog kills ESBMC. In a probe, ESBMC's own `--timeout` always fired first and the module ended as `TIMEOUT (NO VERDICT)`, so the path was not reached and is left unchanged.
 - `/health` hard-codes `"solver": "Z3 v4.8.12 + Bitwuzla"` regardless of what is installed.
 
 ## 7. Conclusion

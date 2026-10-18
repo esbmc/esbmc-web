@@ -630,7 +630,6 @@ def iniciar_analise():
                 caminho_rel_repo=None,
                 timeout_por_modulo=None,
                 lang_override=None,
-                forcar_bounded_unwind=False,
                 funcao_alvo_extra=None,
                 modo_puro_raw=False,
                 pular_fontes_dependentes=False,
@@ -673,7 +672,7 @@ def iniciar_analise():
                                             pass
                                         comando.append(aux_src)
                                         fontes_adicionadas.append(rel_aux)
-                                    if fontes_adicionadas and not forcar_bounded_unwind and not funcao_alvo_extra:
+                                    if fontes_adicionadas and not funcao_alvo_extra:
                                         nomes_fontes = descricoes_vinculos or fontes_adicionadas
                                         TAREFAS_ATIVAS[task_id]["logs"] += (
                                             f"[SYSTEM] [RepoSlice-BMC] Cross-directory C/C++ Linker resolved {len(nomes_fontes)} "
@@ -748,7 +747,7 @@ def iniciar_analise():
 
                 # Se o usuário definiu um --timeout manual nos parâmetros, respeita esse valor no watchdog também
                 timeout_efetivo = timeout_por_modulo
-                if '--timeout' in flags_ativas and not forcar_bounded_unwind:
+                if '--timeout' in flags_ativas:
                     idx_t = flags_ativas.index('--timeout')
                     if idx_t + 1 < len(flags_ativas):
                         try:
@@ -763,12 +762,6 @@ def iniciar_analise():
 
                 while i < len(flags_ativas):
                     flag = flags_ativas[i]
-                    if forcar_bounded_unwind and flag in ('--incremental-bmc', '--k-induction', '--falsification', '--termination', '--unwind'):
-                        if flag == '--unwind':
-                            i += 2
-                        else:
-                            i += 1
-                        continue
                     if flag in FLAGS_PERMITIDAS_SIMPLES:
                         comando.append(flag)
                         i += 1
@@ -784,13 +777,7 @@ def iniciar_analise():
                 if funcao_alvo_extra and '--function' not in comando:
                     comando.extend(['--function', funcao_alvo_extra])
 
-                if forcar_bounded_unwind:
-                    comando.extend(['--unwind', '1', '--partial-loops', '--no-unwinding-assertions'])
-                    TAREFAS_ATIVAS[task_id]["logs"] += (
-                        "[SYSTEM] [Adaptive Protocol Bounder] Applying '--unwind 1 --partial-loops --no-unwinding-assertions' "
-                        "to solve native protocol VCCs without infinite state-machine recursion.\n"
-                    )
-                elif not usuario_escolheu_estrategia and not modo_puro_raw:
+                if not usuario_escolheu_estrategia and not modo_puro_raw:
                     if lang_efetiva in ('c', 'cpp') or timeout_por_modulo:
                         unwind_val = '2' if timeout_por_modulo else '3'
                         comando.extend(['--unwind', unwind_val])
@@ -831,8 +818,6 @@ def iniciar_analise():
 
                 if funcao_alvo_extra:
                     prefixo = f"[ANTI-VACUITY ENTRYPOINT PASS: --function {funcao_alvo_extra}]"
-                elif forcar_bounded_unwind:
-                    prefixo = "[ADAPTIVE PROTOCOL BOUND PASS]"
                 elif is_fallback:
                     prefixo = "[HOMOGENIZER FALLBACK PASS]"
                 elif modo_puro_raw:
@@ -933,7 +918,6 @@ def iniciar_analise():
                         caminho_rel_repo=caminho_rel_repo,
                         timeout_por_modulo=timeout_por_modulo,
                         lang_override=lang_override,
-                        forcar_bounded_unwind=forcar_bounded_unwind,
                         funcao_alvo_extra=funcao_alvo_extra,
                         modo_puro_raw=modo_puro_raw,
                         pular_fontes_dependentes=True
@@ -1238,32 +1222,6 @@ def iniciar_analise():
                         break
 
                     if not is_raw_esbmc:
-                        # Adaptive Protocol Bounder para módulos C/C++ nativos que compilaram 100% para GOTO mas atingiram timeout
-                        if (
-                            not TAREFAS_ATIVAS[task_id].get("cancel_requested")
-                            and lang_mod in ('c', 'cpp')
-                            and "GOTO program creation time:" in txt_mod
-                            and "reached bound/time limit" in txt_mod
-                            and "VERIFICATION SUCCESSFUL" not in txt_mod
-                            and "VERIFICATION FAILED" not in txt_mod
-                        ):
-                            TAREFAS_ATIVAS[task_id]["logs"] += (
-                                f"[SYSTEM] [Adaptive Protocol Bounder] Native {lang_mod.upper()} module '{rel_path}' compiled 100% to GOTO without syntax errors, "
-                                f"but unbounded state-machine loop exceeded {timeout_primario}s -> Re-running with Bounded Protocol Unwind (--unwind 1 --partial-loops)...\n"
-                            )
-                            txt_bounded, rc_bounded = rodar_esbmc(
-                                arq_exec,
-                                usou_homogenizer=usou_homog_mod,
-                                is_fallback=False,
-                                caminho_rel_repo=rel_path,
-                                timeout_por_modulo=8,
-                                lang_override=lang_mod,
-                                forcar_bounded_unwind=True
-                            )
-                            txt_mod = txt_mod + "\n" + txt_bounded
-                            rc_mod = rc_bounded
-                            modo_verif_mod = f"Native {lang_mod.upper()} (Bounded k=1)"
-
                         # Fallback Homogenizer v2 para módulo Python ou C/C++ Embarcado se necessário
                         tem_rep_j = (_obter_relatorio_esbmc_json(temp_dir)[0] is not None)
                         if not TAREFAS_ATIVAS[task_id].get("cancel_requested") and lang_mod == 'python' and not usou_homog_mod and not tem_rep_j and ("ERROR:" in txt_mod or rc_mod != 0):
