@@ -242,6 +242,23 @@ class TestRepository:
         assert '--overflow-check' in commands[1]
         assert '--overflow-check' in commands[2]
 
+    def test_phase_two_without_verdict_is_not_reported_safe(self, client, local_repo, monkeypatch):
+        real_popen = backend_app.subprocess.Popen
+        calls = []
+
+        def popen(cmd, *args, **kwargs):
+            if cmd and cmd[0] == 'esbmc':
+                calls.append(cmd)
+                if len(calls) == 2:  # Phase 2 (overflow check) times out
+                    return real_popen(['sh', '-c', 'echo "ERROR: Timed out"; exit 1'], *args, **kwargs)
+            return real_popen(cmd, *args, **kwargs)
+
+        monkeypatch.setattr(backend_app.subprocess, 'Popen', popen)
+        repo = local_repo({'src/ok.c': C_SAFE})
+        res = result(analyse(client, {'language': 'c', 'git_url': repo, 'explore_repo': True, 'flags': []}))
+        assert res['repo_exploration_summary'][0]['status'] == 'TIMEOUT (NO VERDICT)'
+        assert res['verificacao_sucesso'] is False
+
     def test_single_repo_file_parse_error_is_not_labelled_safe(self, client, local_repo):
         repo = local_repo({'src/broken.c': C_PARSE_ERROR})
         res = result(analyse(client, {'language': 'c', 'git_url': repo, 'main_file_path': 'src/broken.c', 'flags': []}))

@@ -1195,7 +1195,11 @@ def iniciar_analise():
                                 txt_mod = txt_p2
                                 rc_mod = rc_p2
                                 fase_rotulo = "Fase 2 (Safety Violado)"
-                            elif modo_fases == 'both' and p1_success and "VERIFICATION SUCCESSFUL" in txt_p2:
+                            elif "VERIFICATION SUCCESSFUL" not in txt_p2:
+                                txt_mod = txt_p2
+                                rc_mod = rc_p2
+                                fase_rotulo = "Fase 2 (Sem Veredito)"
+                            elif modo_fases == 'both' and p1_success:
                                 fase_rotulo = "Fases 1 + 2 (Sound)"
                             elif modo_fases == '2':
                                 txt_mod = txt_p2
@@ -1253,6 +1257,7 @@ def iniciar_analise():
                         not is_raw_esbmc
                         and not TAREFAS_ATIVAS[task_id].get("cancel_requested")
                         and metricas_mod["vccs_total"] == 0
+                        and "VERIFICATION SUCCESSFUL" in txt_mod
                         and "VERIFICATION FAILED" not in txt_mod
                         and '--function' not in flags_recebidas
                     ):
