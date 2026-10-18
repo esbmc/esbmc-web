@@ -1115,7 +1115,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 } else if (data.progresso && Array.isArray(data.progresso.partial_summary) && data.progresso.partial_summary.length > 0) {
                     processCompletedAnalysis({
                         verificacao_sucesso: false,
-                        verdict: 'ERROR',
+                        verdict: (data.progresso.violation_count || 0) > 0 ? 'FAILED' : 'ERROR',
                         dashboard_data: [],
                         repo_exploration_summary: data.progresso.partial_summary,
                         codigo_analisado: data.logs || '// Consolidated Partial Repository Run'
@@ -1444,6 +1444,10 @@ document.addEventListener('DOMContentLoaded', () => {
                     traceExecucao.textContent += `[Step ${index}] ${step.type} @ ${location} -> ${stepDetails}\n`;
                 });
             }
+        } else if (verdict === 'FAILED') {
+            statusBanner.className = 'status-banner failed';
+            statusBanner.textContent = '❌ VERIFICATION FAILED — SEE MODULE TABLE';
+            cardPassos.textContent = 0;
         } else if (verdict !== 'SUCCESSFUL') {
             statusBanner.className = 'status-banner inconclusive';
             statusBanner.textContent = INCONCLUSIVE_BANNERS[verdict] || INCONCLUSIVE_BANNERS.UNKNOWN;
@@ -1459,7 +1463,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         // Se for exploração de suíte de testes profissional com oráculos esperados:
         if (repoExplorationSummary && Array.isArray(repoExplorationSummary) && repoExplorationSummary.length > 0) {
-            const hasOracles = repoExplorationSummary.some(it => it.expected_verdict);
+            const hasOracles = repoExplorationSummary.some(it => it.expected_verdict && it.expected_verdict !== '-');
             const regressions = repoExplorationSummary.filter(it => it.test_status_code === 'REGRESSION_FAILED' || (it.test_status && it.test_status.includes('REGRESSÃO')));
             const passBugs = repoExplorationSummary.filter(it => it.test_status_code === 'PASS_BUG_FOUND' || (it.test_status && it.test_status.includes('Bug Encontrado')));
             const passSafe = repoExplorationSummary.filter(it => it.test_status_code === 'PASS_SOUND' || (it.test_status && it.test_status.includes('Provado Seguro')));
@@ -1468,7 +1472,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (regressions.length > 0) {
                     statusBanner.className = 'status-banner failed';
                     statusBanner.textContent = `🔴 SUÍTE DE TESTES: ${regressions.length} REGRESSÃO(ÕES) DETECTADA(S) (DIVERGÊNCIA DE ORÁCULO)`;
-                } else {
+                } else if (verdict === 'SUCCESSFUL' || verdict === 'FAILED') {
                     statusBanner.className = 'status-banner success';
                     statusBanner.textContent = `🟢 SUÍTE DE TESTES APROVADA: ${passBugs.length} BUG(S) CONFIRMADO(S) + ${passSafe.length} PROVADO(S) SEGURO(S) [100% ORÁCULOS ATENDIDOS]`;
                 }
