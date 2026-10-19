@@ -190,6 +190,11 @@ class TestSingleFilePython:
         assert res['verificacao_sucesso'] is False
         assert 'not exercised: C.m' in status['logs']
 
+    def test_real_bug_after_unsupported_call_is_still_found(self, client):
+        code = 'import os\n\ndef f(x: int) -> int:\n    p = os.path.join("a", "b")\n    assert x != 3\n    return x\n'
+        res = result(analyse(client, {'language': 'python', 'codigo': code, 'flags': []}))
+        assert res['verdict'] == 'FAILED'
+
     def test_harness_explores_negative_inputs(self, client):
         code = 'import os\n\ndef f(n: int) -> int:\n    assert n >= 0\n    return n\n'
         res = result(analyse(client, {'language': 'python', 'codigo': code, 'flags': []}))
@@ -360,6 +365,11 @@ class TestRepository:
         assert row['status'] == 'UNSUPPORTED (NO VERDICT)'
         assert row['violations'] == 0
         assert res['verdict'] == 'UNKNOWN'
+
+    def test_exploration_finds_real_bug_after_unsupported_call(self, client, local_repo):
+        repo = local_repo({'pkg/p.py': 'import os\n\ndef f(x: int) -> int:\n    p = os.path.join("a", "b")\n    assert x != 3\n    return x\n'})
+        res = result(analyse(client, {'language': 'python', 'git_url': repo, 'explore_repo': True, 'flags': []}))
+        assert res['repo_exploration_summary'][0]['status'].startswith('VIOLATION')
 
     def test_single_repo_file_parse_error_is_not_labelled_safe(self, client, local_repo):
         repo = local_repo({'src/broken.c': C_PARSE_ERROR})

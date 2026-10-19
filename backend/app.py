@@ -660,6 +660,23 @@ def iniciar_analise():
                     "z3_witness": z3_witness_summary
                 }
 
+            def reexecutar_com_multi_property(texto, rc, flags, executar, concatenar=False):
+                """ESBMC stops at the first violated property; when that is only a loop bound or an
+                unmodelled call, re-run once with --multi-property so a later real bug is not lost."""
+                if (
+                    '--multi-property' in flags
+                    or TAREFAS_ATIVAS[task_id].get("cancel_requested")
+                    or classificar_veredito(texto, rc, False) not in ("BOUND_REACHED", "UNSUPPORTED")
+                ):
+                    return texto, rc
+                TAREFAS_ATIVAS[task_id]["logs"] += (
+                    "[SYSTEM] Only a loop bound or unmodelled call was violated; re-running with --multi-property...\n"
+                )
+                texto2, rc2 = executar(list(flags) + ['--multi-property'])
+                if classificar_veredito(texto2, rc2, False) != "FAILED":
+                    return texto, rc
+                return (texto + "\n" + texto2 if concatenar else texto2), rc2
+
             def _obter_relatorio_esbmc_json(diretorio_temp):
                 """Localiza e carrega o arquivo de relatório gerado pelo ESBMC (--generate-json-report).
                 Prioriza estritamente 'report.json' e ignora arquivos JSON do próprio repositório Git
@@ -1289,6 +1306,14 @@ def iniciar_analise():
                         )
                         break
 
+                    if not is_raw_esbmc:
+                        txt_mod, rc_mod = reexecutar_com_multi_property(
+                            txt_mod, rc_mod, flags_modulo_base,
+                            lambda flags: rodar_esbmc(arq_exec, usou_homogenizer=usou_homog_mod, caminho_rel_repo=rel_path,
+                                                      timeout_por_modulo=timeout_primario, lang_override=lang_mod,
+                                                      flags_custom_override=flags),
+                            concatenar=True
+                        )
                     metricas_mod = extrair_metricas_e_contraexemplo_esbmc(txt_mod, rel_path)
 
                     # Melhoria 1 de Fidelidade ESBMC: Detector Anti-Vacuidade (0 VCCs) + Auto-Entrypoint (--function)
@@ -1709,6 +1734,11 @@ def iniciar_analise():
                 is_fallback=False,
                 modo_puro_raw=is_raw_esbmc
             )
+            if not is_raw_esbmc:
+                texto_final, returncode = reexecutar_com_multi_property(
+                    texto_final, returncode, flags_recebidas,
+                    lambda flags: rodar_esbmc(arquivo_alvo, usou_homogenizer=usou_homogenizer_v2, flags_custom_override=flags)
+                )
 
             # --- 3. PARSING DOS RESULTADOS GERAIS (DASHBOARD) ---
             dashboard_data = []
