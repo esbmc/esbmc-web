@@ -2,6 +2,8 @@ import os
 import re
 import subprocess
 
+from sanitizers.caminhos import contido_em
+
 STDLIB_C = {
     'stdio.h', 'stdlib.h', 'string.h', 'math.h', 'stdbool.h',
     'stdint.h', 'stddef.h', 'assert.h', 'time.h', 'unistd.h', 'pthread.h',
@@ -251,6 +253,8 @@ def sanitizar_c(caminho_arquivo: str, temp_dir: str, tem_flag_function: bool = F
             continue
 
         caminho_mock = os.path.join(temp_dir, inc)
+        if not contido_em(temp_dir, caminho_mock):
+            continue
         os.makedirs(os.path.dirname(caminho_mock), exist_ok=True)
         macro_nome = "MOCK_" + re.sub(r'[^A-Za-z0-9]', '_', inc).upper()
 

@@ -100,6 +100,8 @@ $ node tests/e2e/ui_verdicts.mjs
 E2E-01..E2E-11 PASS
 ```
 
+After `fix/mock-path-containment` (#19): `105 passed, 3 xfailed` (remaining xfails: #14 body preservation, #20).
+
 There were no pre-existing tests in the repository. A mutation check (forcing `verificacao_sucesso = True` in `app.py`) made 10 verdict tests fail, so the passing tests do detect a verdict regression. Every xfail was also run with `--runxfail` to confirm it fails on the documented assertion rather than an incidental error.
 
 ## 5. Defects
@@ -114,7 +116,7 @@ There were no pre-existing tests in the repository. A mutation check (forcing `v
 | D6 | Critical | repo `// esbmc-flags:` can disable checks | [#16](https://github.com/esbmc/esbmc-web/issues/16) (new) | fixed |
 | D7 | Critical | C++ sanitizer strips `virtual` (and other semantic rewrites) | [#17](https://github.com/esbmc/esbmc-web/issues/17) (new) | fixed (`fix/cpp-parse-macos`) |
 | D8 | High | C++ and `<stdint.h>` C fail to parse on macOS | [#18](https://github.com/esbmc/esbmc-web/issues/18) (new) | fixed (`fix/cpp-parse-macos`) |
-| D9 | Medium | `#include`-driven file creation outside temp dir | [#19](https://github.com/esbmc/esbmc-web/issues/19) (new) | open |
+| D9 | Medium | `#include`-driven file creation outside temp dir | [#19](https://github.com/esbmc/esbmc-web/issues/19) (new) | fixed (`fix/mock-path-containment`) |
 | D10 | Low | anti-vacuity `--function` target scoring window | [#20](https://github.com/esbmc/esbmc-web/issues/20) (new) | open |
 
 Further defects found and fixed while fixing the above:

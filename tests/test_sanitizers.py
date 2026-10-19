@@ -3,6 +3,7 @@ import subprocess
 import pytest
 
 from conftest import known_defect, requires_esbmc
+from sanitizers.caminhos import contido_em, remover_links_externos
 from sanitizers.c_sanitizer import sanitizar_c
 from sanitizers import cpp_sanitizer
 from sanitizers.cpp_sanitizer import sanitizar_cpp
@@ -50,7 +51,7 @@ class TestCSanitizer:
         f = tmp_path / 'codigo.c'
         original = 'int main(void){ return 0; }\n'
         f.write_text(original)
-        assert sanitizar_c(str(f), str(tmp_path)) == []
+        assert not sanitizar_c(str(f), str(tmp_path))
         assert f.read_text() == original
 
     def test_mocks_missing_local_header(self, tmp_path):
@@ -99,15 +100,41 @@ class TestCppSanitizer:
         assert 'VERIFICATION FAILED' in out
 
 
-@known_defect('D9 (#19): #include names are joined to temp_dir unchecked')
 @pytest.mark.parametrize('sanitize, name', [(sanitizar_c, 'codigo.c'), (sanitizar_cpp, 'codigo.cpp')])
-def test_mock_headers_stay_inside_work_dir(tmp_path, sanitize, name):
-    work = tmp_path / 'work'
+@pytest.mark.parametrize('include', ['../outside/escaped.h', '{outside}/abs/escaped.h', 'link/escaped.h'])
+def test_mock_headers_stay_inside_work_dir(tmp_path, sanitize, name, include):
+    work, outside = tmp_path / 'work', tmp_path / 'outside'
     work.mkdir()
+    outside.mkdir()
+    (work / 'link').symlink_to(outside, target_is_directory=True)
     f = work / name
-    f.write_text('#include "../outside/escaped.h"\nint main(void){ return 0; }\n')
+    f.write_text(f'#include "{include.format(outside=outside)}"\nint main(void){{ return 0; }}\n')
     sanitize(str(f), str(work))
-    assert not (tmp_path / 'outside' / 'escaped.h').exists()
+    assert not any(p.is_file() for p in outside.rglob('*'))
+
+
+@pytest.mark.parametrize('sanitize, name', [(sanitizar_c, 'codigo.c'), (sanitizar_cpp, 'codigo.cpp')])
+def test_nested_mock_header_inside_work_dir_is_still_created(tmp_path, sanitize, name):
+    f = tmp_path / name
+    f.write_text('#include "sub/dir/missing.h"\nint main(void){ return 0; }\n')
+    sanitize(str(f), str(tmp_path))
+    assert (tmp_path / 'sub' / 'dir' / 'missing.h').is_file()
+
+
+def test_only_symlinks_leaving_the_root_are_removed(tmp_path):
+    root, outside = tmp_path / 'repo', tmp_path / 'outside'
+    (root / 'include').mkdir(parents=True)
+    outside.mkdir()
+    (root / 'include' / 'a.h').write_text('int a;')
+    (root / 'inner.h').symlink_to(root / 'include' / 'a.h')
+    (root / 'inc').symlink_to(root / 'include', target_is_directory=True)
+    (root / 'include' / 'out.h').symlink_to(outside / 'x.h')
+    (root / 'outdir').symlink_to(outside, target_is_directory=True)
+    (root / 'chain').symlink_to(root / 'outdir', target_is_directory=True)
+    assert remover_links_externos(str(root)) == ['chain', 'include/out.h', 'outdir']
+    assert (root / 'inner.h').is_symlink() and (root / 'inc').is_symlink()
+    assert contido_em(str(root), str(root / 'inc' / 'a.h'))
+    assert not contido_em(str(root), str(root / '..' / 'outside'))
 
 
 def test_failed_header_probe_keeps_shim_and_is_not_cached(tmp_path, monkeypatch):
@@ -121,3 +148,15 @@ def test_failed_header_probe_keeps_shim_and_is_not_cached(tmp_path, monkeypatch)
     monkeypatch.setattr(cpp_sanitizer, '_esbmc_analisa_cabecalho', lambda name: True)
     cpp_sanitizer._remover_shims_std_nativos(str(tmp_path))
     assert not (tmp_path / 'vector').exists()
+
+
+def test_cpp_sanitizer_does_not_rewrite_headers_outside_work_dir(tmp_path):
+    work, outside = tmp_path / 'work', tmp_path / 'outside'
+    work.mkdir()
+    outside.mkdir()
+    header = outside / 'lib.hpp'
+    header.write_text('consteval int f(){ return 1; }\n')
+    f = work / 'codigo.cpp'
+    f.write_text('int main(){ return 0; }\n')
+    sanitizar_cpp(str(f), str(work), sub_dir_repo=str(outside))
+    assert header.read_text() == 'consteval int f(){ return 1; }\n'

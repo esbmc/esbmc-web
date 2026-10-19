@@ -4,10 +4,12 @@ Tests marked xfail(strict=True) pin confirmed soundness defects: the assertion s
 correct behaviour, and the test turns into an XPASS failure once the defect is fixed.
 """
 
+import os
+
 import pytest
 
 import app as backend_app
-from conftest import analyse, known_defect, requires_esbmc, wait_for_task
+from conftest import analyse, commit, known_defect, requires_esbmc, wait_for_task
 
 pytestmark = requires_esbmc
 
@@ -294,6 +296,45 @@ class TestRepository:
         row = res['repo_exploration_summary'][0]
         assert row['status'] == 'BOUND_REACHED (NO VERDICT)'
         assert row['violations'] == 0
+
+    def test_repository_symlinks_cannot_reach_outside_the_clone(self, client, local_repo, tmp_path):
+        outside = tmp_path / 'outside'
+        outside.mkdir()
+        secret = outside / 'secret.txt'
+        secret.write_text('top secret\n')
+        repo = local_repo({'src/ok.cpp': '#include <cassert>\nint main(){ assert(1); return 0; }\n'})
+        os.symlink(secret, os.path.join(repo, 'src', 'leak.cpp'))
+        os.symlink(outside, os.path.join(repo, 'mock_boost'), target_is_directory=True)
+        commit(repo)
+        status = analyse(client, {'language': 'cpp', 'git_url': repo, 'explore_repo': True, 'flags': []})
+        res = result(status)
+        assert sorted(p.name for p in outside.iterdir()) == ['secret.txt']
+        assert secret.read_text() == 'top secret\n'
+        assert 'top secret' not in res['codigo_analisado']
+        assert 'Removed symlink(s) pointing outside the repository: mock_boost, src/leak.cpp' in status['logs']
+
+    @pytest.mark.parametrize('mode', ['assisted', 'raw_esbmc'])
+    def test_main_file_path_cannot_read_outside_the_clone(self, client, local_repo, tmp_path, mode):
+        secret = tmp_path / 'secret.c'
+        secret.write_text('int top_secret_marker;\n')
+        repo = local_repo({'src/ok.c': C_SAFE})
+        for path in ('../' * 12 + str(secret).lstrip('/'), str(secret)):
+            status = analyse(client, {'language': 'c', 'git_url': repo, 'main_file_path': path, 'flags': [],
+                                      'verification_engine_mode': mode})
+            assert status['status'] == 'error'
+            assert 'top_secret_marker' not in status['logs']
+            assert status['resultado'] is None
+
+    def test_main_file_path_cannot_rewrite_headers_outside_the_clone(self, client, local_repo, tmp_path):
+        victim = tmp_path / 'victim'
+        victim.mkdir()
+        header = victim / 'lib.hpp'
+        header.write_text('consteval int f(){ return 1; }\n')
+        repo = local_repo({'src/ok.cpp': 'int main(){ return 0; }\n'})
+        status = analyse(client, {'language': 'cpp', 'git_url': repo, 'main_file_path': str(victim / 'nonexistent.cpp'),
+                                  'codigo': 'int main(){ return 0; }\n', 'flags': []})
+        assert status['status'] == 'error'
+        assert header.read_text() == 'consteval int f(){ return 1; }\n'
 
     def test_single_repo_file_parse_error_is_not_labelled_safe(self, client, local_repo):
         repo = local_repo({'src/broken.c': C_PARSE_ERROR})

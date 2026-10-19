@@ -5,6 +5,8 @@ import tempfile
 from concurrent.futures import ThreadPoolExecutor
 from typing import Optional
 
+from sanitizers.caminhos import contido_em
+
 STDLIB_CPP = {
     'iostream', 'vector', 'string', 'stdio.h', 'stdlib.h', 'cstdio', 'cstdlib',
     'cstring', 'cmath', 'cassert', 'cstdint', 'cstddef', 'algorithm', 'map',
@@ -3224,6 +3226,8 @@ def sanitizar_cpp(caminho_arquivo: str, temp_dir: str, tem_flag_function: bool =
     codigo_headers_locais = ""
     arquivos_headers_processados = set()
     for inc_dir in include_dirs:
+        if not contido_em(temp_dir, inc_dir):
+            continue
         try:
             for root, _, files in os.walk(inc_dir):
                 for fname in files:
@@ -3263,6 +3267,8 @@ def sanitizar_cpp(caminho_arquivo: str, temp_dir: str, tem_flag_function: bool =
             continue
 
         caminho_mock = os.path.join(temp_dir, inc)
+        if not contido_em(temp_dir, caminho_mock):
+            continue
         os.makedirs(os.path.dirname(caminho_mock), exist_ok=True)
 
         with open(caminho_mock, 'w', encoding='utf-8') as f:
