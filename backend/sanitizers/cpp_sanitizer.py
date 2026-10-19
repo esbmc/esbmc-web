@@ -3226,6 +3226,8 @@ def sanitizar_cpp(caminho_arquivo: str, temp_dir: str, tem_flag_function: bool =
     codigo_headers_locais = ""
     arquivos_headers_processados = set()
     for inc_dir in include_dirs:
+        if not contido_em(temp_dir, inc_dir):
+            continue
         try:
             for root, _, files in os.walk(inc_dir):
                 for fname in files:

@@ -194,7 +194,7 @@ def avaliar_status_teste(veredicto_obtido: str, veredicto_esperado: Optional[str
 from sanitizers.python_sanitizer import sanitizar_python
 from sanitizers.cpp_sanitizer import sanitizar_cpp, descubrir_headers_e_includes_no_diretorio
 from sanitizers.c_sanitizer import sanitizar_c, descubrir_headers_e_includes_c
-from sanitizers.caminhos import remover_links_externos
+from sanitizers.caminhos import contido_em, remover_links_externos
 from sanitizers.repo_explorer import (
     construir_indice_python_repositorio,
     fundir_dependencias_internas_python,
@@ -490,6 +490,8 @@ def iniciar_analise():
                     TAREFAS_ATIVAS[task_id]["logs"] += (
                         f"[SYSTEM] [Security] Removed symlink(s) pointing outside the repository: {', '.join(links_externos)}\n"
                     )
+                if main_file_path_in_repo and not contido_em(temp_dir, os.path.join(temp_dir, main_file_path_in_repo)):
+                    raise Exception(f"Target file '{main_file_path_in_repo}' is outside the repository.")
                 if not explore_repo and main_file_path_in_repo:
                     caminho_arquivo = os.path.join(temp_dir, main_file_path_in_repo)
                     sub_dir_repo = os.path.dirname(caminho_arquivo)

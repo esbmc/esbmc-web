@@ -313,6 +313,29 @@ class TestRepository:
         assert 'top secret' not in res['codigo_analisado']
         assert 'Removed symlink(s) pointing outside the repository: mock_boost, src/leak.cpp' in status['logs']
 
+    @pytest.mark.parametrize('mode', ['assisted', 'raw_esbmc'])
+    def test_main_file_path_cannot_read_outside_the_clone(self, client, local_repo, tmp_path, mode):
+        secret = tmp_path / 'secret.c'
+        secret.write_text('int top_secret_marker;\n')
+        repo = local_repo({'src/ok.c': C_SAFE})
+        for path in ('../' * 12 + str(secret).lstrip('/'), str(secret)):
+            status = analyse(client, {'language': 'c', 'git_url': repo, 'main_file_path': path, 'flags': [],
+                                      'verification_engine_mode': mode})
+            assert status['status'] == 'error'
+            assert 'top_secret_marker' not in status['logs']
+            assert status['resultado'] is None
+
+    def test_main_file_path_cannot_rewrite_headers_outside_the_clone(self, client, local_repo, tmp_path):
+        victim = tmp_path / 'victim'
+        victim.mkdir()
+        header = victim / 'lib.hpp'
+        header.write_text('consteval int f(){ return 1; }\n')
+        repo = local_repo({'src/ok.cpp': 'int main(){ return 0; }\n'})
+        status = analyse(client, {'language': 'cpp', 'git_url': repo, 'main_file_path': str(victim / 'nonexistent.cpp'),
+                                  'codigo': 'int main(){ return 0; }\n', 'flags': []})
+        assert status['status'] == 'error'
+        assert header.read_text() == 'consteval int f(){ return 1; }\n'
+
     def test_single_repo_file_parse_error_is_not_labelled_safe(self, client, local_repo):
         repo = local_repo({'src/broken.c': C_PARSE_ERROR})
         res = result(analyse(client, {'language': 'c', 'git_url': repo, 'main_file_path': 'src/broken.c', 'flags': []}))

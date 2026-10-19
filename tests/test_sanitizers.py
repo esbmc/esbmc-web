@@ -148,3 +148,15 @@ def test_failed_header_probe_keeps_shim_and_is_not_cached(tmp_path, monkeypatch)
     monkeypatch.setattr(cpp_sanitizer, '_esbmc_analisa_cabecalho', lambda name: True)
     cpp_sanitizer._remover_shims_std_nativos(str(tmp_path))
     assert not (tmp_path / 'vector').exists()
+
+
+def test_cpp_sanitizer_does_not_rewrite_headers_outside_work_dir(tmp_path):
+    work, outside = tmp_path / 'work', tmp_path / 'outside'
+    work.mkdir()
+    outside.mkdir()
+    header = outside / 'lib.hpp'
+    header.write_text('consteval int f(){ return 1; }\n')
+    f = work / 'codigo.cpp'
+    f.write_text('int main(){ return 0; }\n')
+    sanitizar_cpp(str(f), str(work), sub_dir_repo=str(outside))
+    assert header.read_text() == 'consteval int f(){ return 1; }\n'
