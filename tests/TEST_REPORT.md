@@ -102,7 +102,7 @@ E2E-01..E2E-11 PASS
 
 After `fix/mock-path-containment` (#19): `105 passed, 3 xfailed` (remaining xfails: #14 body preservation, #20).
 
-After `fix/function-target-scoring` (#20): `111 passed, 2 xfailed` (remaining xfails: #14 body preservation).
+After `fix/function-target-scoring` (#20): `118 passed, 2 xfailed` (remaining xfails: #14 body preservation).
 
 There were no pre-existing tests in the repository. A mutation check (forcing `verificacao_sucesso = True` in `app.py`) made 10 verdict tests fail, so the passing tests do detect a verdict regression. Every xfail was also run with `--runxfail` to confirm it fails on the documented assertion rather than an incidental error.
 
