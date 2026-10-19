@@ -3,7 +3,6 @@
 Tests marked xfail(strict=True) pin confirmed soundness defects: the assertion states the
 correct behaviour, and the test turns into an XPASS failure once the defect is fixed.
 """
-import sys
 
 import pytest
 
@@ -93,7 +92,8 @@ class TestSingleFileC:
     def test_loop_beyond_default_bound_reports_unwinding_assertion(self, client):
         code = '#include <assert.h>\nint main(){int s=0; for(int i=0;i<10;i++) s++; assert(s==10); return 0;}\n'
         res = result(analyse(client, {'language': 'c', 'codigo': code, 'flags': []}))
-        assert res['verdict'] == 'FAILED'
+        assert res['verdict'] == 'BOUND_REACHED'
+        assert res['verificacao_sucesso'] is False
         messages = ' '.join(str(s.get('message', '')) for r in res['dashboard_data'] for s in r.get('steps', []))
         assert 'unwinding assertion' in messages
 
@@ -118,7 +118,6 @@ class TestSingleFileC:
             for task_id in ids[name]:
                 assert result(wait_for_task(client, task_id))['verificacao_sucesso'] is expected
 
-    @known_defect(condition=sys.platform == 'darwin', reason='D8 (#18): -I <clang resource dir> shadows ESBMC headers -> PARSING ERROR on macOS')
     def test_c_program_using_stdint_parses(self, client):
         code = '#include <stdint.h>\n#include <assert.h>\nint main(){uint8_t x=1; assert(x==2); return 0;}\n'
         res = result(analyse(client, {'language': 'c', 'codigo': code, 'flags': []}))
@@ -126,7 +125,23 @@ class TestSingleFileC:
 
 
 class TestSingleFileCpp:
-    @known_defect(condition=sys.platform == 'darwin', reason='D8 (#18): -I <clang resource dir> shadows ESBMC headers -> PARSING ERROR on macOS')
+    CONTAINERS = ('#include <cassert>\n#include <vector>\n#include <string>\n#include <map>\n'
+                  'int main(){ std::vector<int> v{1,2,3}; std::map<int,int> m; m[1]=2;\n'
+                  '  std::string s("ab"); assert(v.size()==3 && m[1]==2 && s.size()==2); return 0; }\n')
+
+    def test_library_loop_beyond_default_bound_is_bound_reached(self, client):
+        res = result(analyse(client, {'language': 'cpp', 'codigo': self.CONTAINERS, 'flags': []}))
+        assert res['verdict'] == 'BOUND_REACHED'
+
+    def test_safe_program_using_std_containers_is_successful_with_enough_unwinding(self, client):
+        res = result(analyse(client, {'language': 'cpp', 'codigo': self.CONTAINERS, 'flags': ['--unwind', '101']}))
+        assert res['verdict'] == 'SUCCESSFUL'
+
+    def test_out_of_bounds_vector_access_is_found(self, client):
+        code = '#include <vector>\nint main(){ std::vector<int> v(2); int a[2]; a[v.size()] = 1; return 0; }\n'
+        res = result(analyse(client, {'language': 'cpp', 'codigo': code, 'flags': []}))
+        assert res['verdict'] == 'FAILED'
+
     def test_failing_assertion_is_reported(self, client):
         code = '#include <cassert>\nint main(){int x=1; assert(x==2); return 0;}\n'
         res = result(analyse(client, {'language': 'cpp', 'codigo': code, 'flags': []}))
@@ -264,6 +279,21 @@ class TestRepository:
                                       'verification_phases': '2', 'flags': []}))
         assert res['repo_exploration_summary'][0]['status'].startswith('VIOLATION')
         assert res['verdict'] == 'FAILED'
+
+    def test_bound_only_phase_one_still_runs_phase_two(self, client, local_repo, monkeypatch):
+        unwinding_only = "printf 'Violated property:\\n  unwinding assertion loop 0\\n\\nVERIFICATION FAILED\\n'; exit 1"
+        commands = self._patch_esbmc(monkeypatch, lambda cmd: None if '--overflow-check' in cmd else unwinding_only)
+        repo = local_repo({'src/ok.c': C_SAFE})
+        result(analyse(client, {'language': 'c', 'git_url': repo, 'explore_repo': True, 'flags': []}))
+        assert any('--overflow-check' in c for c in commands)
+
+    def test_bound_reached_module_counts_no_violation(self, client, local_repo):
+        code = '#include <assert.h>\nint main(){int s=0; for(int i=0;i<10;i++) s++; assert(s==10); return 0;}\n'
+        repo = local_repo({'src/loop.c': code})
+        res = result(analyse(client, {'language': 'c', 'git_url': repo, 'explore_repo': True, 'flags': []}))
+        row = res['repo_exploration_summary'][0]
+        assert row['status'] == 'BOUND_REACHED (NO VERDICT)'
+        assert row['violations'] == 0
 
     def test_single_repo_file_parse_error_is_not_labelled_safe(self, client, local_repo):
         repo = local_repo({'src/broken.c': C_PARSE_ERROR})

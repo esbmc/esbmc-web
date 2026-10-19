@@ -26,6 +26,9 @@ const SCENARIOS = [
     timeout: '3', unwind: '5000001', code: SLOW_C },
   { id: 'E2E-05', lang: 'c', expect: 'NOT_SUCCESSFUL', banner: /CANCELLED/, note: 'cancelled run must not be shown as success',
     cancelAfterMs: 3000, unwind: '5000001', code: SLOW_C },
+  { id: 'E2E-11', lang: 'c', expect: 'NOT_SUCCESSFUL', banner: /LOOP BOUND REACHED/,
+    note: 'a safe loop longer than the default bound is shown as bound reached, not as a failure',
+    code: '#include <assert.h>\nint main(){int s=0; for(int i=0;i<10;i++) s++; assert(s==10); return 0;}\n' },
 ];
 
 const ROW = (file, status, extra = {}) => ({

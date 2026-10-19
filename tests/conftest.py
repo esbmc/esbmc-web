@@ -27,16 +27,16 @@ def client():
 
 
 def wait_for_task(client, task_id, timeout=180, cancel_after=None, status_route='/status'):
-    start = time.time()
+    start = time.monotonic()
     cancelled = False
     while True:
         status = client.get(f'{status_route}/{task_id}').get_json()
-        if cancel_after is not None and not cancelled and time.time() - start > cancel_after:
+        if cancel_after is not None and not cancelled and time.monotonic() - start > cancel_after:
             client.post(f'/cancelar/{task_id}')
             cancelled = True
         if status['status'] in ('completed', 'error'):
             return status
-        if time.time() - start > timeout:
+        if time.monotonic() - start > timeout:
             client.post(f'/cancelar/{task_id}')
             pytest.fail(f'task {task_id} did not finish within {timeout}s')
         time.sleep(0.3)

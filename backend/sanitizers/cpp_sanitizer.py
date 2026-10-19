@@ -1,6 +1,9 @@
 import os
 import re
 import subprocess
+import tempfile
+from concurrent.futures import ThreadPoolExecutor
+from typing import Optional
 
 STDLIB_CPP = {
     'iostream', 'vector', 'string', 'stdio.h', 'stdlib.h', 'cstdio', 'cstdlib',
@@ -293,15 +296,10 @@ def _remover_clausulas_requires_cpp20(codigo: str) -> str:
 
 
 def _sanitizar_constructos_rtti_e_headers_padrao(codigo: str, eh_header: bool = False) -> str:
-    """Transpila constructos C++17/C++20 (`requires(...)`, `if constexpr`, `consteval`, `std::is_*_v`,
-    `typeid(T).name()` sem `<typeinfo>` e diretivas `#include MACRO_IDENT`) para C++14 compatível com ESBMC."""
-    codigo_limpo = re.sub(r'\btypeid\s*\([^()]*\)\s*\.name\s*\(\s*\)', '"type"', codigo)
-    codigo_limpo = re.sub(
-        r'^(\s*)#include\s+([A-Za-z_][A-Za-z0-9_]*)\s*$',
-        r'\1// [ESBMC Auto-Healer] Neutralized macro include: \2',
-        codigo_limpo,
-        flags=re.MULTILINE
-    )
+    """Transpila constructos C++17/C++20 (`requires(...)`, `if constexpr`, `consteval`, `std::is_*_v`)
+    para C++14 compatível com ESBMC. Não substitui valores, não remove expressões nem includes e não
+    contorna verificações de limites do usuário: isso altera o veredito (#17)."""
+    codigo_limpo = codigo
     # Transpilação Sintática C++20 / C++17 -> C++14:
     if 'requires' in codigo_limpo:
         codigo_limpo = _remover_clausulas_requires_cpp20(codigo_limpo)
@@ -334,17 +332,6 @@ def _sanitizar_constructos_rtti_e_headers_padrao(codigo: str, eh_header: bool = 
     codigo_limpo = re.sub(r'(\bas_string\s*\(\s*\))\s*<\s*([A-Za-z0-9_.]+)', r'\1.compare(\2) < 0', codigo_limpo)
     codigo_limpo = re.sub(r'(\bas_string\s*\(\s*\))\s*>\s*([A-Za-z0-9_.]+)', r'\1.compare(\2) > 0', codigo_limpo)
 
-    # Transpilação de as_string()[i] -> as_string().c_str()[i]
-    codigo_limpo = re.sub(r'(\bas_string\s*\(\s*\))\[([0-9A-Za-z_]+)\]', r'\1.c_str()[\2]', codigo_limpo)
-
-    # Transpilação de indexação em const std::string: const std::string &var ... var[i] -> var.c_str()[i]
-    for m_param in re.finditer(r'\bconst\s+(?:std::)?(?:basic_)?string(?:<[^>]+>)?\s*&\s*([A-Za-z_][A-Za-z0-9_]*)', codigo_limpo):
-        var_name = m_param.group(1)
-        codigo_limpo = re.sub(rf'\b{var_name}\s*\[([^\[\]]+)\]', rf'{var_name}.c_str()[\1]', codigo_limpo)
-    for m_local in re.finditer(r'\bconst\s+(?:std::)?(?:basic_)?string(?:<[^>]+>)?\s+([A-Za-z_][A-Za-z0-9_]*)\s*=', codigo_limpo):
-        var_name = m_local.group(1)
-        codigo_limpo = re.sub(rf'\b{var_name}\s*\[([^\[\]]+)\]', rf'{var_name}.c_str()[\1]', codigo_limpo)
-
     # Substituição de std::addressof(...) -> (&(...))
     codigo_limpo = re.sub(r'\bstd::addressof\s*\(([^()]+)\)', r'(&(\1))', codigo_limpo)
 
@@ -360,33 +347,8 @@ def _sanitizar_constructos_rtti_e_headers_padrao(codigo: str, eh_header: bool = 
         codigo_limpo
     )
 
-    # Transpilação de hash<std::thread::id> e system_clock
     codigo_limpo = re.sub(r'\bstd::time_t\b', 'time_t', codigo_limpo)
-    codigo_limpo = re.sub(r'\bstd::chrono::system_clock::to_time_t\s*\([^()]+\)', '0', codigo_limpo)
-    codigo_limpo = re.sub(r'\bstd::chrono::system_clock::now\s*\(\s*\)', '0', codigo_limpo)
-    codigo_limpo = re.sub(r'\bstd::hash<\s*std::thread::id\s*>\s*\{\s*\}\s*\([^()]+\)', '0', codigo_limpo)
-    # Transpilação de std::hash para string / string_view (usa .size() ao invés de cast direto)
-    codigo_limpo = re.sub(
-        r'\bstd::hash\s*<\s*(?:std::)?(?:basic_)?string(?:_view)?(?:<[^>]+>)?\s*>\s*\{\s*\}\s*\(\s*([^()]+)\s*\)',
-        r'((unsigned long)((\1).size()))',
-        codigo_limpo
-    )
-    codigo_limpo = re.sub(r'\bstd::hash\s*<\s*[^<>]+\s*>\s*\{\s*\}\s*\(\s*([^()]+)\s*\)', r'((unsigned long)(\1))', codigo_limpo)
-    codigo_limpo = re.sub(r'\b(?:std::)?time_t\s+[A-Za-z0-9_]+\s*=\s*std::chrono::system_clock::to_time_t\s*\([^;]+;', 'time_t currentTime = 0;', codigo_limpo)
-    codigo_limpo = re.sub(r'\bstd::put_time\s*\([^()]*(?:\([^()]*\)[^()]*)*\)', '""', codigo_limpo)
-    # Transpilação do idiom de log com rvalue stringstream/ostringstream: (std::ostringstream{} << ...).str() -> std::string("")
-    codigo_limpo = re.sub(
-        r'\(\s*(?:std::)?(?:o)?stringstream\s*(?:\{\s*\}|\(\s*\))\s*<<\s*.*?\)\s*\.str\s*\(\s*\)',
-        'std::string("")',
-        codigo_limpo,
-        flags=re.DOTALL
-    )
-    codigo_limpo = re.sub(r'\bstd::unreachable\s*\(\s*\)', '((void)0)', codigo_limpo)
     codigo_limpo = re.sub(r'(\b[A-Za-z0-9_]+)\.data\s*\(\s*\)', r'(&\1[0])', codigo_limpo)
-    # Transpilação de métodos virtuais para evitar bugs de vtable duplicada / thunk collisions no frontend do ESBMC 8.4.0
-    codigo_limpo = re.sub(r'\bvirtual\s+~([A-Za-z0-9_]+)\s*\([^)]*\)\s*=\s*default\s*;', r'~\1() = default;', codigo_limpo)
-    codigo_limpo = re.sub(r'\bvirtual\s+~([A-Za-z0-9_]+)\s*\(\s*\)', r'~\1()', codigo_limpo)
-    codigo_limpo = re.sub(r'\bvirtual\s+(?![a-z_]*\s*=[^;]*0)([^;=]+;)', r'\1', codigo_limpo)
     # Transpilação de begin(c) e end(c) em containers
     codigo_limpo = re.sub(r'\bbegin\s*\(\s*([A-Za-z0-9_]+)\s*\)', r'(const_cast<decltype(\1)&>(\1)).begin()', codigo_limpo)
     codigo_limpo = re.sub(r'\bend\s*\(\s*([A-Za-z0-9_]+)\s*\)', r'(const_cast<decltype(\1)&>(\1)).end()', codigo_limpo)
@@ -3178,7 +3140,46 @@ def _injetar_mocks_boost_e_headers_compatibilidade(temp_dir: str) -> str:
                 "}\n"
             )
 
+    _remover_shims_std_nativos(mock_dir)
     return mock_dir
+
+
+_CABECALHOS_STD_NATIVOS = {}
+
+
+def _esbmc_analisa_cabecalho(cabecalho: str) -> Optional[bool]:
+    """True/False when ESBMC answered; None when the probe could not run (not cached)."""
+    with tempfile.TemporaryDirectory() as d:
+        sonda = os.path.join(d, 'sonda.cpp')
+        with open(sonda, 'w', encoding='utf-8') as f:
+            f.write(f"#include <{cabecalho}>\nint main() {{ return 0; }}\n")
+        try:
+            return subprocess.run(['esbmc', sonda, '--parse-tree-only'], capture_output=True, timeout=60).returncode == 0
+        except (OSError, subprocess.TimeoutExpired):
+            return None
+
+
+def _remover_shims_std_nativos(mock_dir: str) -> None:
+    """Drop standard-library shims for headers the installed ESBMC already parses (#18).
+
+    The shims add definitions after #include_next, which redefine what newer ESBMC
+    libraries provide and turn every C++ program into a PARSING ERROR. Support is
+    measured once per ESBMC version, so older versions keep the shims they need."""
+    try:
+        versao = subprocess.run(['esbmc', '--version'], capture_output=True, text=True, timeout=10).stdout.strip()
+    except (OSError, subprocess.TimeoutExpired):
+        return
+    shims = sorted(n for n in os.listdir(mock_dir)
+                   if '.' not in n and os.path.isfile(os.path.join(mock_dir, n)))
+    nativos = _CABECALHOS_STD_NATIVOS.setdefault(versao, {})
+    pendentes = [n for n in shims if n not in nativos]
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        for nome, ok in zip(pendentes, pool.map(_esbmc_analisa_cabecalho, pendentes)):
+            if ok is not None:
+                nativos[nome] = ok
+    for nome in shims:
+        if nativos.get(nome):
+            os.remove(os.path.join(mock_dir, nome))
 
 
 def sanitizar_cpp(caminho_arquivo: str, temp_dir: str, tem_flag_function: bool = False, sub_dir_repo: str = None):
@@ -3196,7 +3197,7 @@ def sanitizar_cpp(caminho_arquivo: str, temp_dir: str, tem_flag_function: bool =
     with open(caminho_arquivo, 'r', encoding='utf-8', errors='replace') as f:
         codigo_original = f.read()
 
-    # Sanitiza typeid(...).name() no arquivo principal
+    # Rebaixa constructos C++20 no arquivo principal
     codigo_sanitizado = _sanitizar_constructos_rtti_e_headers_padrao(codigo_original)
     if codigo_sanitizado != codigo_original:
         codigo_original = codigo_sanitizado
@@ -3219,7 +3220,7 @@ def sanitizar_cpp(caminho_arquivo: str, temp_dir: str, tem_flag_function: bool =
     if mock_boost_dir and os.path.isdir(mock_boost_dir) and mock_boost_dir not in include_dirs:
         include_dirs.insert(0, mock_boost_dir)
 
-    # Lê e também sanitiza `typeid(...).name()` e constructos nos headers reais do repositório (ex: dyad.h ou string_pool.h)
+    # Lê e também rebaixa constructos C++20 nos headers reais do repositório (ex: dyad.h ou string_pool.h)
     codigo_headers_locais = ""
     arquivos_headers_processados = set()
     for inc_dir in include_dirs:

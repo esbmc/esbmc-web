@@ -30,6 +30,20 @@ class TestVerdictClassification:
         assert classificar_veredito('...\nVERIFICATION FAILED\n', 1, False) == 'FAILED'
         assert classificar_veredito('...\nVERIFICATION SUCCESSFUL\n', 0, False) == 'SUCCESSFUL'
 
+    def test_only_unwinding_assertions_violated_is_bound_reached(self):
+        single = 'Violated property:\n  file x.c line 2 function main\n  unwinding assertion loop 0\n\nVERIFICATION FAILED\n'
+        multi = ('Violated property:\n  unwinding assertion loop 3\n'
+                 '  FAILED       [main.assertion.1]  line 2  unwinding assertion loop 3\nVERIFICATION FAILED\n')
+        mixed = multi.replace('VERIFICATION FAILED', '  FAILED       [main.assertion.2]  line 2  assertion s==3\nVERIFICATION FAILED')
+        assert classificar_veredito(single, 1, False) == 'BOUND_REACHED'
+        assert classificar_veredito(multi, 1, False) == 'BOUND_REACHED'
+        assert classificar_veredito(mixed, 1, False) == 'FAILED'
+        real = 'Violated property:\n  file x.c line 2 function main\n  assertion x==6\n  !(x == 6)\n\nVERIFICATION FAILED\n'
+        assert classificar_veredito(real, 1, False) == 'FAILED'
+        user_text = ('Violated property:\n  file x.c line 2 function main\n'
+                     '  assertion x==2 && "unwinding assertion"\n  !(x == 2)\n\nVERIFICATION FAILED\n')
+        assert classificar_veredito(user_text, 1, False) == 'FAILED'
+
     def test_completed_verdict_survives_late_cancel(self):
         assert classificar_veredito('VERIFICATION SUCCESSFUL\n', 0, True) == 'SUCCESSFUL'
 
