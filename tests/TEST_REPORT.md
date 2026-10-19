@@ -151,7 +151,6 @@ Further defects found and fixed while fixing the above:
 - **Python harness scope:** the harness is appended only when a module has no module-level code of its own (program mode otherwise). A buggy function the program never calls is therefore not checked in that case.
   - Harness calls run sequentially, so a function that always raises hides the checks on the functions called after it.
   - `nondet_str()` combined with string methods tends to time out.
-- `backend/sanitizers/esbmc_homogenizer_v2.py` (the old model generator) is no longer referenced. It is kept until deletion is confirmed.
 - `/health` hard-codes `"solver": "Z3 v4.8.12 + Bitwuzla"` regardless of what is installed.
 
 ## 7. Conclusion
