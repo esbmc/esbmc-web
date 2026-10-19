@@ -4,6 +4,7 @@ import pytest
 
 from conftest import known_defect, requires_esbmc
 from sanitizers.c_sanitizer import sanitizar_c
+from sanitizers import cpp_sanitizer
 from sanitizers.cpp_sanitizer import sanitizar_cpp
 from sanitizers.python_sanitizer import precisa_homogeneizar_v2, sanitizar_python
 
@@ -107,3 +108,16 @@ def test_mock_headers_stay_inside_work_dir(tmp_path, sanitize, name):
     f.write_text('#include "../outside/escaped.h"\nint main(void){ return 0; }\n')
     sanitize(str(f), str(work))
     assert not (tmp_path / 'outside' / 'escaped.h').exists()
+
+
+def test_failed_header_probe_keeps_shim_and_is_not_cached(tmp_path, monkeypatch):
+    (tmp_path / 'vector').write_text('// shim')
+    monkeypatch.setattr(cpp_sanitizer, '_CABECALHOS_STD_NATIVOS', {})
+    monkeypatch.setattr(cpp_sanitizer, '_esbmc_analisa_cabecalho', lambda name: None)
+    cpp_sanitizer._remover_shims_std_nativos(str(tmp_path))
+    assert (tmp_path / 'vector').exists()
+    assert all(not per_version for per_version in cpp_sanitizer._CABECALHOS_STD_NATIVOS.values())
+
+    monkeypatch.setattr(cpp_sanitizer, '_esbmc_analisa_cabecalho', lambda name: True)
+    cpp_sanitizer._remover_shims_std_nativos(str(tmp_path))
+    assert not (tmp_path / 'vector').exists()

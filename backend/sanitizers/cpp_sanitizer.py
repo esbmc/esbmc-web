@@ -3,6 +3,7 @@ import re
 import subprocess
 import tempfile
 from concurrent.futures import ThreadPoolExecutor
+from typing import Optional
 
 STDLIB_CPP = {
     'iostream', 'vector', 'string', 'stdio.h', 'stdlib.h', 'cstdio', 'cstdlib',
@@ -3146,7 +3147,8 @@ def _injetar_mocks_boost_e_headers_compatibilidade(temp_dir: str) -> str:
 _CABECALHOS_STD_NATIVOS = {}
 
 
-def _esbmc_analisa_cabecalho(cabecalho: str) -> bool:
+def _esbmc_analisa_cabecalho(cabecalho: str) -> Optional[bool]:
+    """True/False when ESBMC answered; None when the probe could not run (not cached)."""
     with tempfile.TemporaryDirectory() as d:
         sonda = os.path.join(d, 'sonda.cpp')
         with open(sonda, 'w', encoding='utf-8') as f:
@@ -3154,7 +3156,7 @@ def _esbmc_analisa_cabecalho(cabecalho: str) -> bool:
         try:
             return subprocess.run(['esbmc', sonda, '--parse-tree-only'], capture_output=True, timeout=60).returncode == 0
         except (OSError, subprocess.TimeoutExpired):
-            return False
+            return None
 
 
 def _remover_shims_std_nativos(mock_dir: str) -> None:
@@ -3173,9 +3175,10 @@ def _remover_shims_std_nativos(mock_dir: str) -> None:
     pendentes = [n for n in shims if n not in nativos]
     with ThreadPoolExecutor(max_workers=8) as pool:
         for nome, ok in zip(pendentes, pool.map(_esbmc_analisa_cabecalho, pendentes)):
-            nativos[nome] = ok
+            if ok is not None:
+                nativos[nome] = ok
     for nome in shims:
-        if nativos[nome]:
+        if nativos.get(nome):
             os.remove(os.path.join(mock_dir, nome))
 
 
