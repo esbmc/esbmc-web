@@ -3,6 +3,7 @@ import subprocess
 import pytest
 
 from conftest import known_defect, requires_esbmc
+from sanitizers.caminhos import contido_em, remover_links_externos
 from sanitizers.c_sanitizer import sanitizar_c
 from sanitizers import cpp_sanitizer
 from sanitizers.cpp_sanitizer import sanitizar_cpp
@@ -118,6 +119,22 @@ def test_nested_mock_header_inside_work_dir_is_still_created(tmp_path, sanitize,
     f.write_text('#include "sub/dir/missing.h"\nint main(void){ return 0; }\n')
     sanitize(str(f), str(tmp_path))
     assert (tmp_path / 'sub' / 'dir' / 'missing.h').is_file()
+
+
+def test_only_symlinks_leaving_the_root_are_removed(tmp_path):
+    root, outside = tmp_path / 'repo', tmp_path / 'outside'
+    (root / 'include').mkdir(parents=True)
+    outside.mkdir()
+    (root / 'include' / 'a.h').write_text('int a;')
+    (root / 'inner.h').symlink_to(root / 'include' / 'a.h')
+    (root / 'inc').symlink_to(root / 'include', target_is_directory=True)
+    (root / 'include' / 'out.h').symlink_to(outside / 'x.h')
+    (root / 'outdir').symlink_to(outside, target_is_directory=True)
+    (root / 'chain').symlink_to(root / 'outdir', target_is_directory=True)
+    assert remover_links_externos(str(root)) == ['chain', 'include/out.h', 'outdir']
+    assert (root / 'inner.h').is_symlink() and (root / 'inc').is_symlink()
+    assert contido_em(str(root), str(root / 'inc' / 'a.h'))
+    assert not contido_em(str(root), str(root / '..' / 'outside'))
 
 
 def test_failed_header_probe_keeps_shim_and_is_not_cached(tmp_path, monkeypatch):

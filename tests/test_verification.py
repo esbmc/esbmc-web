@@ -4,10 +4,12 @@ Tests marked xfail(strict=True) pin confirmed soundness defects: the assertion s
 correct behaviour, and the test turns into an XPASS failure once the defect is fixed.
 """
 
+import os
+
 import pytest
 
 import app as backend_app
-from conftest import analyse, known_defect, requires_esbmc, wait_for_task
+from conftest import analyse, commit, known_defect, requires_esbmc, wait_for_task
 
 pytestmark = requires_esbmc
 
@@ -294,6 +296,22 @@ class TestRepository:
         row = res['repo_exploration_summary'][0]
         assert row['status'] == 'BOUND_REACHED (NO VERDICT)'
         assert row['violations'] == 0
+
+    def test_repository_symlinks_cannot_reach_outside_the_clone(self, client, local_repo, tmp_path):
+        outside = tmp_path / 'outside'
+        outside.mkdir()
+        secret = outside / 'secret.txt'
+        secret.write_text('top secret\n')
+        repo = local_repo({'src/ok.cpp': '#include <cassert>\nint main(){ assert(1); return 0; }\n'})
+        os.symlink(secret, os.path.join(repo, 'src', 'leak.cpp'))
+        os.symlink(outside, os.path.join(repo, 'mock_boost'), target_is_directory=True)
+        commit(repo)
+        status = analyse(client, {'language': 'cpp', 'git_url': repo, 'explore_repo': True, 'flags': []})
+        res = result(status)
+        assert sorted(p.name for p in outside.iterdir()) == ['secret.txt']
+        assert secret.read_text() == 'top secret\n'
+        assert 'top secret' not in res['codigo_analisado']
+        assert 'Removed symlink(s) pointing outside the repository: mock_boost, src/leak.cpp' in status['logs']
 
     def test_single_repo_file_parse_error_is_not_labelled_safe(self, client, local_repo):
         repo = local_repo({'src/broken.c': C_PARSE_ERROR})

@@ -57,10 +57,14 @@ def local_repo(tmp_path):
             p = repo / rel
             p.parent.mkdir(parents=True, exist_ok=True)
             p.write_text(content)
-        env = dict(os.environ, GIT_AUTHOR_NAME='t', GIT_AUTHOR_EMAIL='t@t',
-                   GIT_COMMITTER_NAME='t', GIT_COMMITTER_EMAIL='t@t')
         subprocess.run(['git', 'init', '-q'], cwd=repo, check=True)
-        subprocess.run(['git', 'add', '-A'], cwd=repo, check=True)
-        subprocess.run(['git', 'commit', '-qm', 'fixture'], cwd=repo, check=True, env=env)
+        commit(str(repo))
         return str(repo)
     return build
+
+
+def commit(repo):
+    env = dict(os.environ, GIT_AUTHOR_NAME='t', GIT_AUTHOR_EMAIL='t@t',
+               GIT_COMMITTER_NAME='t', GIT_COMMITTER_EMAIL='t@t')
+    subprocess.run(['git', 'add', '-A'], cwd=repo, check=True)
+    subprocess.run(['git', 'commit', '-qm', 'fixture'], cwd=repo, check=True, env=env)
