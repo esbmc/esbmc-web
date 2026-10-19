@@ -37,10 +37,14 @@ if [ ! -d "venv" ]; then
     fi
 fi
 
-# Instala dependências
-echo "A verificar e a atualizar as dependências..."
-./venv/bin/python3 -m pip install --upgrade pip
-./venv/bin/python3 -m pip install -r backend/requirements.txt
+# Instala dependencias apenas se estiverem em falta (evita travar quando offline)
+echo "A verificar dependencias do ambiente virtual..."
+if ! ./venv/bin/python3 -c "import flask, flask_cors, git, ast2json, requests" >/dev/null 2>&1; then
+    echo "Instalando dependencias em falta a partir de backend/requirements.txt..."
+    ./venv/bin/python3 -m pip install --retries 1 --timeout 5 -r backend/requirements.txt 2>/dev/null || true
+else
+    echo "Todas as dependencias ja estao instaladas. Inicializacao instantanea!"
+fi
 
 # Garante que a porta 5000 está livre (elimina processos zombies anteriores)
 echo "A verificar e a libertar a porta 5000..."
