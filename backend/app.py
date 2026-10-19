@@ -1169,7 +1169,7 @@ def iniciar_analise():
                         flags_custom_override=flags_modulo_base
                     )
 
-                    p1_failed = ("VERIFICATION FAILED" in txt_mod)
+                    p1_failed = classificar_veredito(txt_mod, rc_mod, False) == "FAILED"
                     p1_success = ("VERIFICATION SUCCESSFUL" in txt_mod)
 
                     # FASE 2: Safety & Aritmética (--overflow-check, --memory-leak-check)
@@ -1394,6 +1394,7 @@ def iniciar_analise():
                         status_mod = "RAW ERROR (Unresolved Deps)"
                     elif veredito_mod == "BOUND_REACHED":
                         any_inconclusive_overall = True
+                        mod_violations = 0
                         status_mod = "BOUND_REACHED (NO VERDICT)"
                     elif mod_violations > 0:
                         any_violation_overall = True

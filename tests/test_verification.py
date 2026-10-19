@@ -3,7 +3,6 @@
 Tests marked xfail(strict=True) pin confirmed soundness defects: the assertion states the
 correct behaviour, and the test turns into an XPASS failure once the defect is fixed.
 """
-import sys
 
 import pytest
 
@@ -139,7 +138,7 @@ class TestSingleFileCpp:
         assert res['verdict'] == 'SUCCESSFUL'
 
     def test_out_of_bounds_vector_access_is_found(self, client):
-        code = ('#include <vector>\nint main(){ std::vector<int> v(2); int a[2]; a[v.size()] = 1; return 0; }\n')
+        code = '#include <vector>\nint main(){ std::vector<int> v(2); int a[2]; a[v.size()] = 1; return 0; }\n'
         res = result(analyse(client, {'language': 'cpp', 'codigo': code, 'flags': []}))
         assert res['verdict'] == 'FAILED'
 
@@ -280,6 +279,21 @@ class TestRepository:
                                       'verification_phases': '2', 'flags': []}))
         assert res['repo_exploration_summary'][0]['status'].startswith('VIOLATION')
         assert res['verdict'] == 'FAILED'
+
+    def test_bound_only_phase_one_still_runs_phase_two(self, client, local_repo, monkeypatch):
+        unwinding_only = "printf 'Violated property:\\n  unwinding assertion loop 0\\n\\nVERIFICATION FAILED\\n'; exit 1"
+        commands = self._patch_esbmc(monkeypatch, lambda cmd: None if '--overflow-check' in cmd else unwinding_only)
+        repo = local_repo({'src/ok.c': C_SAFE})
+        result(analyse(client, {'language': 'c', 'git_url': repo, 'explore_repo': True, 'flags': []}))
+        assert any('--overflow-check' in c for c in commands)
+
+    def test_bound_reached_module_counts_no_violation(self, client, local_repo):
+        code = '#include <assert.h>\nint main(){int s=0; for(int i=0;i<10;i++) s++; assert(s==10); return 0;}\n'
+        repo = local_repo({'src/loop.c': code})
+        res = result(analyse(client, {'language': 'c', 'git_url': repo, 'explore_repo': True, 'flags': []}))
+        row = res['repo_exploration_summary'][0]
+        assert row['status'] == 'BOUND_REACHED (NO VERDICT)'
+        assert row['violations'] == 0
 
     def test_single_repo_file_parse_error_is_not_labelled_safe(self, client, local_repo):
         repo = local_repo({'src/broken.c': C_PARSE_ERROR})
