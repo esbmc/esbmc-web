@@ -50,7 +50,7 @@ class TestCSanitizer:
         f = tmp_path / 'codigo.c'
         original = 'int main(void){ return 0; }\n'
         f.write_text(original)
-        assert sanitizar_c(str(f), str(tmp_path)) == []
+        assert not sanitizar_c(str(f), str(tmp_path))
         assert f.read_text() == original
 
     def test_mocks_missing_local_header(self, tmp_path):
@@ -118,3 +118,16 @@ def test_nested_mock_header_inside_work_dir_is_still_created(tmp_path, sanitize,
     f.write_text('#include "sub/dir/missing.h"\nint main(void){ return 0; }\n')
     sanitize(str(f), str(tmp_path))
     assert (tmp_path / 'sub' / 'dir' / 'missing.h').is_file()
+
+
+def test_failed_header_probe_keeps_shim_and_is_not_cached(tmp_path, monkeypatch):
+    (tmp_path / 'vector').write_text('// shim')
+    monkeypatch.setattr(cpp_sanitizer, '_CABECALHOS_STD_NATIVOS', {})
+    monkeypatch.setattr(cpp_sanitizer, '_esbmc_analisa_cabecalho', lambda name: None)
+    cpp_sanitizer._remover_shims_std_nativos(str(tmp_path))
+    assert (tmp_path / 'vector').exists()
+    assert all(not per_version for per_version in cpp_sanitizer._CABECALHOS_STD_NATIVOS.values())
+
+    monkeypatch.setattr(cpp_sanitizer, '_esbmc_analisa_cabecalho', lambda name: True)
+    cpp_sanitizer._remover_shims_std_nativos(str(tmp_path))
+    assert not (tmp_path / 'vector').exists()
