@@ -164,11 +164,19 @@ NONDET_POR_TIPO = {
 def gerar_harness_python(codigo_fonte: str) -> Tuple[str, List[str], List[str]]:
     """Append calls to every top-level function with unconstrained nondet arguments (#14).
 
-    The user's source is kept verbatim, so line numbers in counterexamples still match. A function
-    is skipped (and listed) when a parameter's type has no nondet constructor in ESBMC-Python."""
+    The user's source is kept verbatim, so line numbers in counterexamples still match. Functions it
+    cannot call (unsupported parameter types, async functions, class methods) are returned as skipped,
+    so a run that does not exercise them is never reported as fully SUCCESSFUL."""
     arvore = ast.parse(codigo_fonte)
     chamadas, ignoradas, linhas = [], [], []
     for no in arvore.body:
+        if isinstance(no, ast.ClassDef):
+            ignoradas.extend(f"{no.name}.{m.name}" for m in no.body
+                             if isinstance(m, (ast.FunctionDef, ast.AsyncFunctionDef)))
+            continue
+        if isinstance(no, ast.AsyncFunctionDef):
+            ignoradas.append(no.name)
+            continue
         if not isinstance(no, ast.FunctionDef) or no.name.startswith('__'):
             continue
         args = no.args
@@ -198,8 +206,7 @@ def sanitizar_python(
     caminho_saida: str,
     temp_dir: str = "",
     is_git: bool = False,
-    is_harness: bool = False,
-    forcar_homogenizer: bool = False
+    is_harness: bool = False
 ) -> dict:
     """Executa a sanitização/homogeneização Python de forma inteligente.
 
@@ -222,13 +229,13 @@ def sanitizar_python(
         codigo_fonte, temp_dir=temp_dir, is_git=is_git, is_harness=is_harness
     )
 
-    if forcar_homogenizer or usar_v2:
+    if usar_v2:
         codigo_final, chamadas, ignoradas = gerar_harness_python(codigo_fonte)
         with open(caminho_saida, 'w', encoding='utf-8') as f:
             f.write(codigo_final)
         return {
             'usou_homogenizer_v2': True,
-            'motivo': motivo if not forcar_homogenizer else "Fallback automático para harness de entrada",
+            'motivo': motivo,
             'alvos_extraidos': len(chamadas),
             'funcoes_ignoradas': ignoradas,
             'caminho_saida': caminho_saida,

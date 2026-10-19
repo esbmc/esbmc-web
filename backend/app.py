@@ -213,6 +213,13 @@ def _normalizar_veredito(texto: str) -> str:
     return "UNKNOWN"
 
 
+def descrever_harness(info: dict) -> str:
+    """Log line for an appended Python entry harness, naming what it could not exercise (#14)."""
+    nao_exercitadas = info.get('funcoes_ignoradas') or []
+    linha = f"[SYSTEM] [Entry Harness] {info['motivo']}: calls {info['alvos_extraidos']} function(s) with unconstrained inputs"
+    return linha + (f"; not exercised: {', '.join(nao_exercitadas)}\n" if nao_exercitadas else ".\n")
+
+
 def avaliar_status_teste(veredicto_obtido: str, veredicto_esperado: Optional[str]) -> Tuple[str, str]:
     """Avalia o status de um teste comparando o veredito obtido pelo ESBMC contra o oráculo esperado.
     Retorna (codigo_status, rotulo_formatado)."""
@@ -1125,6 +1132,7 @@ def iniciar_analise():
 
                     deps_modulo = []
                     usou_homog_mod = False
+                    nao_exercitadas_mod = []
                     nome_temp_mod = f"modulo_{idx_a}" + (".py" if lang_mod == "python" else (".cpp" if lang_mod == "cpp" else ".c"))
                     caminho_temp_mod = os.path.join(temp_dir, nome_temp_mod)
                     nome_sanit_mod = f"modulo_{idx_a}_sanitized.py"
@@ -1148,10 +1156,13 @@ def iniciar_analise():
                         with open(caminho_temp_mod, 'w', encoding='utf-8') as f:
                             f.write(cod_modulo)
                         info_s = sanitizar_python(
-                            caminho_temp_mod, caminho_sanit_mod, temp_dir=temp_dir, is_git=True, is_harness=alvo_info.get('is_harness', False), forcar_homogenizer=False
+                            caminho_temp_mod, caminho_sanit_mod, temp_dir=temp_dir, is_git=True, is_harness=alvo_info.get('is_harness', False)
                         )
                         arq_exec = nome_sanit_mod
                         usou_homog_mod = info_s['usou_homogenizer_v2']
+                        if usou_homog_mod:
+                            nao_exercitadas_mod = info_s['funcoes_ignoradas']
+                            TAREFAS_ATIVAS[task_id]["logs"] += descrever_harness(info_s)
                         modo_verif_mod = "Python + Entry Harness" if usou_homog_mod else ("Harness Native Python" if alvo_info.get('is_harness') else "Native Python")
                         cod_exibido = info_s['codigo_final']
                     elif lang_mod == 'cpp':
@@ -1277,21 +1288,6 @@ def iniciar_analise():
                             f"for the {len(repo_exploration_summary)} completed module(s)...\n"
                         )
                         break
-
-                    if not is_raw_esbmc:
-                        # Fallback Homogenizer v2 para módulo Python ou C/C++ Embarcado se necessário
-                        tem_rep_j = (_obter_relatorio_esbmc_json(temp_dir)[0] is not None)
-                        if not TAREFAS_ATIVAS[task_id].get("cancel_requested") and lang_mod == 'python' and not usou_homog_mod and not tem_rep_j and ("ERROR:" in txt_mod or rc_mod != 0):
-                            info_s = sanitizar_python(
-                                caminho_temp_mod, caminho_sanit_mod, temp_dir=temp_dir, is_git=True, forcar_homogenizer=True
-                            )
-                            usou_homog_mod = True
-                            modo_verif_mod = "Python + Entry Harness"
-                            txt_fb, rc_mod = rodar_esbmc(
-                                arq_exec, usou_homogenizer=True, is_fallback=True, caminho_rel_repo=rel_path, timeout_por_modulo=14, lang_override=lang_mod
-                            )
-                            txt_mod += "\n" + txt_fb
-                            tem_rep_j = (_obter_relatorio_esbmc_json(temp_dir)[0] is not None)
 
                     metricas_mod = extrair_metricas_e_contraexemplo_esbmc(txt_mod, rel_path)
 
@@ -1425,6 +1421,8 @@ def iniciar_analise():
                     veredito_mod = classificar_veredito(
                         txt_mod, rc_mod, bool(TAREFAS_ATIVAS[task_id].get("cancel_requested"))
                     )
+                    if veredito_mod == "SUCCESSFUL" and nao_exercitadas_mod:
+                        veredito_mod = "PARTIAL"
                     if teve_erro_bruto:
                         any_inconclusive_overall = True
                         status_mod = "RAW ERROR (Unresolved Deps)"
@@ -1643,6 +1641,7 @@ def iniciar_analise():
             # ==========================================================
             arquivo_alvo = main_file_path_in_repo if (is_git and main_file_path_in_repo and is_raw_esbmc) else nome_arquivo_principal
             usou_homogenizer_v2 = False
+            nao_exercitadas = []
 
             if is_raw_esbmc:
                 TAREFAS_ATIVAS[task_id]["logs"] += (
@@ -1651,24 +1650,21 @@ def iniciar_analise():
                     f"[SYSTEM] [Strict Pure ESBMC Baseline] Executing native ESBMC directly on unmodified source: {arquivo_alvo}\n"
                 )
             elif linguagem == 'python':
-                TAREFAS_ATIVAS[task_id]["logs"] += "\n[SYSTEM] Analyzing Python AST & Dependencies (ESBMC Homogenizer v2.0)...\n"
+                TAREFAS_ATIVAS[task_id]["logs"] += "\n[SYSTEM] Analyzing Python entry points...\n"
                 caminho_sanitizado = os.path.join(temp_dir, 'codigo_esbmc_sanitized.py')
                 try:
                     info_sanit = sanitizar_python(
                         caminho_original,
                         caminho_sanitizado,
                         temp_dir=temp_dir,
-                        is_git=is_git,
-                        forcar_homogenizer=False
+                        is_git=is_git
                     )
                     arquivo_alvo = 'codigo_esbmc_sanitized.py'
                     usou_homogenizer_v2 = info_sanit['usou_homogenizer_v2']
                     codigo_para_dashboard = info_sanit['codigo_final']
                     if usou_homogenizer_v2:
-                        TAREFAS_ATIVAS[task_id]["logs"] += (
-                            f"[SYSTEM] [ESBMC Homogenizer v2.0] Activated: {info_sanit['motivo']}\n"
-                            f"[SYSTEM] [ESBMC Homogenizer v2.0] Symbolic model generated ({info_sanit['alvos_extraidos']} target(s) + SMT security contracts).\n"
-                        )
+                        nao_exercitadas = info_sanit['funcoes_ignoradas']
+                        TAREFAS_ATIVAS[task_id]["logs"] += descrever_harness(info_sanit)
                     else:
                         TAREFAS_ATIVAS[task_id]["logs"] += (
                             f"[SYSTEM] Direct Python verification mode ({info_sanit['motivo']}).\n"
@@ -1714,36 +1710,6 @@ def iniciar_analise():
                 modo_puro_raw=is_raw_esbmc
             )
 
-            lista_json = glob.glob(os.path.join(temp_dir, '*.json'))
-            if (
-                not is_raw_esbmc
-                and not TAREFAS_ATIVAS[task_id].get("cancel_requested")
-                and linguagem == 'python'
-                and not usou_homogenizer_v2
-                and not lista_json
-                and ("ERROR:" in texto_final or "ImportError" in texto_final or "ModuleNotFoundError" in texto_final or returncode != 0)
-            ):
-                TAREFAS_ATIVAS[task_id]["logs"] += (
-                    "\n[SYSTEM] Direct pass encountered unresolved constructs/dependencies. "
-                    "Triggering ESBMC Homogenizer v2.0 (VeriBee) automatic fallback...\n"
-                )
-                try:
-                    caminho_sanitizado = os.path.join(temp_dir, 'codigo_esbmc_sanitized.py')
-                    info_sanit = sanitizar_python(
-                        caminho_original,
-                        caminho_sanitizado,
-                        temp_dir=temp_dir,
-                        is_git=True,
-                        forcar_homogenizer=True
-                    )
-                    arquivo_alvo = 'codigo_esbmc_sanitized.py'
-                    usou_homogenizer_v2 = True
-                    codigo_para_dashboard = info_sanit['codigo_final']
-                    texto_final, returncode = rodar_esbmc(arquivo_alvo, usou_homogenizer=True, is_fallback=True)
-                    lista_json = glob.glob(os.path.join(temp_dir, '*.json'))
-                except Exception as e:
-                    TAREFAS_ATIVAS[task_id]["logs"] += f"[ERROR] Fallback Homogenizer failed: {str(e)}\n"
-
             # --- 3. PARSING DOS RESULTADOS GERAIS (DASHBOARD) ---
             dashboard_data = []
             arquivo_report_json = os.path.join(temp_dir, 'report.json')
@@ -1767,6 +1733,8 @@ def iniciar_analise():
             veredito = classificar_veredito(
                 texto_final, returncode, bool(TAREFAS_ATIVAS[task_id].get("cancel_requested"))
             )
+            if veredito == "SUCCESSFUL" and nao_exercitadas:
+                veredito = "PARTIAL"
             verificacao_sucesso = veredito == "SUCCESSFUL"
 
             # Garante que quando o ESBMC tiver sucesso sem vulnerabilidades, o Dashboard receba o status OK!

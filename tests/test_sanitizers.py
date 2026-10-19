@@ -53,8 +53,9 @@ class TestPythonHarness:
         code = ('def a(x: list) -> None:\n    pass\n\ndef b(*args):\n    pass\n\n'
                 'def c(*, k):\n    pass\n\ndef __d(x):\n    pass\n\nclass K:\n    def m(self, x: int):\n        pass\n')
         out, called, skipped = gerar_harness_python(code)
-        assert (out, called, skipped) == (code, [], ['a', 'b', 'c'])
+        assert (out, called, skipped) == (code, [], ['a', 'b', 'c', 'K.m'])
         assert '__ESBMC_assume' not in gerar_harness_python('def f(n: int):\n    pass\n')[0]
+        assert gerar_harness_python('async def f(n: int):\n    pass\n')[2] == ['f']
 
 
 class TestCSanitizer:

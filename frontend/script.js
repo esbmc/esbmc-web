@@ -1184,6 +1184,7 @@ document.addEventListener('DOMContentLoaded', () => {
         UNKNOWN: '⚠ INCONCLUSIVE — ESBMC REPORTED NO VERDICT',
         BOUND_REACHED: '⚠ LOOP BOUND REACHED — NO VERDICT (increase --unwind or use --k-induction)',
         UNSUPPORTED: '⚠ ESBMC DOES NOT MODEL A LIBRARY CALL THAT WAS REACHED — NO VERDICT',
+        PARTIAL: '⚠ PARTIAL — NO BUG FOUND, BUT SOME FUNCTIONS WERE NOT EXERCISED (see Terminal Output)',
     };
 
     function renderDashboard(resultsArray, codigoFonte, repoExplorationSummary = null, verdict = 'UNKNOWN') {

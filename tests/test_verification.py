@@ -181,6 +181,15 @@ class TestSingleFilePython:
         res = result(analyse(client, {'language': 'python', 'codigo': code, 'flags': []}))
         assert res['verdict'] == 'UNSUPPORTED'
 
+    def test_harness_reports_partial_when_functions_are_not_exercised(self, client):
+        code = ('import os\n\nclass C:\n    def m(self, y: int) -> int:\n        return 10 // y\n\n'
+                'def g(n: int) -> int:\n    return n\n')
+        status = analyse(client, {'language': 'python', 'codigo': code, 'flags': []})
+        res = result(status)
+        assert res['verdict'] == 'PARTIAL'
+        assert res['verificacao_sucesso'] is False
+        assert 'not exercised: C.m' in status['logs']
+
     def test_harness_explores_negative_inputs(self, client):
         code = 'import os\n\ndef f(n: int) -> int:\n    assert n >= 0\n    return n\n'
         res = result(analyse(client, {'language': 'python', 'codigo': code, 'flags': []}))
