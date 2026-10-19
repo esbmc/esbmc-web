@@ -72,6 +72,45 @@ def normalizar_url_e_subpasta_git(git_url: str, repo_subdir_filter: str = "", ma
     return url_limpa.rstrip('/'), repo_subdir_filter, main_file_path
 
 
+JANELA_CORPO_FUNCAO = 1500
+
+
+def _fim_do_bloco(codigo: str, inicio: int, limite: int = JANELA_CORPO_FUNCAO) -> int:
+    """Index of the '}' closing the block whose '{' ends just before `inicio`, scanning at most
+    `limite` characters so a mis-scan never costs more, or reaches further, than the old window.
+    Skips comments, string/char/raw-string literals, digit separators and preprocessor lines."""
+    profundidade, i, n = 1, inicio, min(len(codigo), inicio + limite)
+    while i < n:
+        c = codigo[i]
+        if codigo.startswith('//', i) or (c == '#' and codigo[codigo.rfind('\n', 0, i) + 1:i].strip() == ''):
+            while i < n and codigo[i] != '\n':
+                i += 2 if codigo[i] == '\\' else 1
+        elif codigo.startswith('/*', i):
+            fim = codigo.find('*/', i + 2, n)
+            i = n if fim < 0 else fim + 2
+            continue
+        elif codigo.startswith('R"', i) and not (codigo[i - 1].isalnum() or codigo[i - 1] == '_'):
+            abre = codigo.find('(', i + 2, n)
+            delim = codigo[i + 2:abre] if abre >= 0 else ''
+            fim = codigo.find(')' + delim + '"', abre, n) if abre >= 0 else -1
+            i = n if fim < 0 else fim + len(delim) + 2
+            continue
+        elif c == "'" and codigo[i - 1].isalnum() and i + 1 < n and codigo[i + 1].isalnum():
+            pass  # C++14 digit separator, e.g. 1'000
+        elif c in '"\'':
+            i += 1
+            while i < n and codigo[i] != c:
+                i += 2 if codigo[i] == '\\' else 1
+        elif c == '{':
+            profundidade += 1
+        elif c == '}':
+            profundidade -= 1
+            if profundidade == 0:
+                return i
+        i += 1
+    return n
+
+
 def descobrir_funcao_alvo_principal(codigo: str, linguagem: str):
     """Descobre automaticamente a função pública de maior complexidade lógica (CFG/branches/ponteiros)
     em um módulo C, C++ ou Python quando o ESBMC gera 0 VCCs (prova vazia / ausência de main()),
@@ -120,7 +159,7 @@ def descobrir_funcao_alvo_principal(codigo: str, linguagem: str):
         if nome_fn in proibidos or nome_fn.startswith('__'):
             continue
         inicio_corpo = m.end()
-        trecho_corpo = codigo[inicio_corpo:inicio_corpo + 1500]
+        trecho_corpo = codigo[inicio_corpo:_fim_do_bloco(codigo, inicio_corpo)]
         score = 10
         score += 25 * len(re.findall(r'\bassert\s*\(', trecho_corpo))
         score += 10 * len(re.findall(r'\b(?:if|while|for|switch)\s*\(', trecho_corpo))

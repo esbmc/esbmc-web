@@ -1,6 +1,7 @@
+import pytest
+
 import app as backend_app
-from conftest import known_defect
-from app import (avaliar_status_teste, classificar_veredito, descobrir_funcao_alvo_principal,
+from app import (JANELA_CORPO_FUNCAO, _fim_do_bloco, avaliar_status_teste, classificar_veredito, descobrir_funcao_alvo_principal,
                  filtrar_flags_do_repositorio, normalizar_url_e_subpasta_git)
 
 
@@ -85,10 +86,36 @@ class TestOracleComparison:
 
 
 class TestTargetFunctionDiscovery:
-    @known_defect('D10 (#20): scoring window spills past the function body into later functions')
     def test_c_prefers_function_with_asserts_and_branches(self):
         code = 'int a(int x){return x;}\nint b(int x){ if(x) assert(x>0); return x; }\n'
         assert descobrir_funcao_alvo_principal(code, 'c') == ('b', 1)
+
+    @pytest.mark.parametrize('body', [
+        ' { int y = x; } return x; ',
+        ' /* } */ return x; ',
+        ' // }\n return x; ',
+        ' const char *s = "}\\"}"; return x; ',
+        " char c = '}'; char d = '\\''; return x; ",
+        " int n = 1'000; return x; ",
+        ' const char *r = R"x(a")}")x"; return x; ',
+        '\n#define LBRACE {\n return x; ',
+        "\n#error don't\n return x; ",
+        ' // continued \\\n } still a comment\n return x; ',
+    ])
+    def test_block_end_skips_nested_blocks_comments_and_literals(self, body):
+        code = 'int f(int x){' + body + '}\nint g(void){ return 0; }\n'
+        start = code.index('{') + 1
+        assert _fim_do_bloco(code, start) == code.index('}\nint g')
+
+    def test_block_end_never_scans_past_the_window(self):
+        code = 'int f(int x){ if (x) {' + ' x++;' * 2000
+        assert _fim_do_bloco(code, code.index('{') + 1) == code.index('{') + 1 + JANELA_CORPO_FUNCAO
+
+    def test_unterminated_block_does_not_absorb_later_functions(self):
+        code = ('int h(void){ int n = 1\'000;\n#ifdef A\n if (n) {\n#else\n if (!n) {\n#endif\n }\n'
+                + 'int pad(void){ return 0; }\n' * 200
+                + 'int g(int x){ if (x) assert(x > 0); if (x > 1) assert(x > 1); return x; }\n')
+        assert descobrir_funcao_alvo_principal(code, 'c')[0] == 'g'
 
     def test_c_skips_main(self):
         assert descobrir_funcao_alvo_principal('int main(void){return 0;}\n', 'c') == (None, 0)
