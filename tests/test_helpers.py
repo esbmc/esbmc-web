@@ -79,7 +79,7 @@ class TestOracleComparison:
         assert avaliar_status_teste('VIOLATION [CONTRACT] (k=1)', 'VERIFICATION SUCCESSFUL')[0] == 'REGRESSION_FAILED'
 
     def test_run_without_verdict_never_passes_an_oracle(self):
-        for obtained in ('TIMEOUT (NO VERDICT)', 'ERROR (NO VERDICT)', 'MODEL_ONLY (NO VERDICT)',
+        for obtained in ('TIMEOUT (NO VERDICT)', 'ERROR (NO VERDICT)', 'BOUND_REACHED (NO VERDICT)',
                          'STOPPED (NO VERDICT)', 'RAW ERROR (Unresolved Deps)'):
             for oracle in ('VERIFICATION SUCCESSFUL', 'VERIFICATION FAILED', 'VERIFICATION TIMEOUT', 'UNKNOWN'):
                 assert avaliar_status_teste(obtained, oracle)[0] == 'INCONCLUSIVE', (obtained, oracle)

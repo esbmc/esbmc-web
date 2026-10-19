@@ -2,7 +2,7 @@ import subprocess
 
 import pytest
 
-from conftest import known_defect, requires_esbmc
+from conftest import requires_esbmc
 from sanitizers.caminhos import contido_em, remover_links_externos
 from sanitizers.c_sanitizer import sanitizar_c
 from sanitizers import cpp_sanitizer
@@ -42,7 +42,7 @@ class TestPythonHarness:
         code = 'def f(n: int, s: str, b: bool, x: float) -> int:\n    return n\n\ndef g(a):\n    return a\n'
         out, called, skipped = gerar_harness_python(code)
         assert out.startswith(code)
-        assert called == ['f', 'g'] and skipped == []
+        assert called == ['f', 'g'] and not skipped
         assert 'f(_esbmc_f_n, _esbmc_f_s, _esbmc_f_b, _esbmc_f_x)' in out
         for decl in ('_esbmc_f_n: int = nondet_int()', '_esbmc_f_s: str = nondet_str()',
                      '_esbmc_f_b: bool = nondet_bool()', '_esbmc_f_x: float = nondet_float()',

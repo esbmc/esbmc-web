@@ -1,7 +1,6 @@
 import ast
 import os
 from typing import List, Tuple
-from sanitizers.esbmc_homogenizer_v2 import processar_codigo_fonte_v2, processar_arquivo_v2
 
 
 MODULOS_PADRAO_ESBMC = {
@@ -200,8 +199,7 @@ def sanitizar_python(
     temp_dir: str = "",
     is_git: bool = False,
     is_harness: bool = False,
-    forcar_homogenizer: bool = False,
-    strict_null: bool = False
+    forcar_homogenizer: bool = False
 ) -> dict:
     """Executa a sanitização/homogeneização Python de forma inteligente.
 

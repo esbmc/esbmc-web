@@ -9,7 +9,7 @@ import os
 import pytest
 
 import app as backend_app
-from conftest import analyse, commit, known_defect, requires_esbmc, wait_for_task
+from conftest import analyse, commit, requires_esbmc, wait_for_task
 
 pytestmark = requires_esbmc
 
@@ -170,6 +170,11 @@ class TestSingleFilePython:
         res = result(analyse(client, {'language': 'python', 'codigo': code, 'flags': []}))
         assert res['codigo_analisado'].startswith(code)
         assert res['verdict'] != 'SUCCESSFUL'
+
+    def test_harnessed_safe_function_is_successful(self, client):
+        code = 'import os\n\ndef f(n: int) -> int:\n    if n > 0:\n        return n\n    return -n\n'
+        res = result(analyse(client, {'language': 'python', 'codigo': code, 'flags': []}))
+        assert res['verdict'] == 'SUCCESSFUL'
 
     def test_harness_explores_negative_inputs(self, client):
         code = 'import os\n\ndef f(n: int) -> int:\n    assert n >= 0\n    return n\n'

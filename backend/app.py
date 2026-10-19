@@ -578,7 +578,7 @@ def iniciar_analise():
                     f.write(codigo_para_dashboard)
 
             # --- 1.5 AUXILIAR DE EXTRAÇÃO DE MÉTRICAS FORMAIS E CONTRAEXEMPLO Z3 ---
-            def extrair_metricas_e_contraexemplo_esbmc(texto_esbmc: str, rel_path: str, usou_homogenizer: bool = False):
+            def extrair_metricas_e_contraexemplo_esbmc(texto_esbmc: str, rel_path: str):
                 goto_times = re.findall(r'GOTO program creation time:\s*([0-9.]+)s', texto_esbmc)
                 ssa_assigns = (
                     re.findall(r'size of program expression:\s*(\d+)\s*assignments', texto_esbmc)
@@ -628,19 +628,7 @@ def iniciar_analise():
                             vistos_v.add(v_nome)
                             z3_vars.append(par_str)
 
-                # Melhoria 5 de Fidelidade ESBMC: Classificador de Origem da Propriedade Violada
-                prop_lower = (viol_prop + " " + viol_loc).lower()
-                is_runtime_safety_bug = any(
-                    kw in prop_lower for kw in (
-                        "dereference", "null", "none", "bounds", "overflow", "underflow",
-                        "division by zero", "divide by zero", "memory leak", "free", "align",
-                        "data race", "deadlock", "out of bounds"
-                    )
-                )
-                if not usou_homogenizer or is_runtime_safety_bug:
-                    violation_origin = "[NATIVE CODE BUG]"
-                else:
-                    violation_origin = "[SYMBOLIC CONTRACT]"
+                violation_origin = "[NATIVE CODE BUG]"
 
                 z3_witness_summary = ""
                 if "VERIFICATION FAILED" in texto_esbmc:
@@ -1161,7 +1149,7 @@ def iniciar_analise():
                         )
                         arq_exec = nome_sanit_mod
                         usou_homog_mod = info_s['usou_homogenizer_v2']
-                        modo_verif_mod = "Python AST Slice (v2.0)" if usou_homog_mod else ("Harness Native Python" if alvo_info.get('is_harness') else "Native Python")
+                        modo_verif_mod = "Python + Entry Harness" if usou_homog_mod else ("Harness Native Python" if alvo_info.get('is_harness') else "Native Python")
                         cod_exibido = info_s['codigo_final']
                     elif lang_mod == 'cpp':
                         with open(caminho_temp_mod, 'w', encoding='utf-8') as f:
@@ -1260,7 +1248,7 @@ def iniciar_analise():
                     if TAREFAS_ATIVAS[task_id].get("cancel_requested") and ("VERIFICATION SUCCESSFUL" not in txt_mod and "VERIFICATION FAILED" not in txt_mod):
                         if not repo_exploration_summary:
                             dur_parcial = time.time() - t_mod_start
-                            met_parcial = extrair_metricas_e_contraexemplo_esbmc(txt_mod, rel_path, usou_homog_mod)
+                            met_parcial = extrair_metricas_e_contraexemplo_esbmc(txt_mod, rel_path)
                             repo_exploration_summary.append({
                                 "index": idx_a,
                                 "lang": lang_mod.upper(),
@@ -1295,14 +1283,14 @@ def iniciar_analise():
                                 caminho_temp_mod, caminho_sanit_mod, temp_dir=temp_dir, is_git=True, forcar_homogenizer=True
                             )
                             usou_homog_mod = True
-                            modo_verif_mod = "Python Homogenizer v2.0"
+                            modo_verif_mod = "Python + Entry Harness"
                             txt_fb, rc_mod = rodar_esbmc(
                                 arq_exec, usou_homogenizer=True, is_fallback=True, caminho_rel_repo=rel_path, timeout_por_modulo=14, lang_override=lang_mod
                             )
                             txt_mod += "\n" + txt_fb
                             tem_rep_j = (_obter_relatorio_esbmc_json(temp_dir)[0] is not None)
 
-                    metricas_mod = extrair_metricas_e_contraexemplo_esbmc(txt_mod, rel_path, usou_homog_mod)
+                    metricas_mod = extrair_metricas_e_contraexemplo_esbmc(txt_mod, rel_path)
 
                     # Melhoria 1 de Fidelidade ESBMC: Detector Anti-Vacuidade (0 VCCs) + Auto-Entrypoint (--function)
                     if (
@@ -1333,7 +1321,7 @@ def iniciar_analise():
                                     txt_mod += "\n" + txt_av
                                     rc_mod = rc_av
                                     modo_verif_mod = f"Native {lang_mod.upper()} (--function {fn_alvo_auto})"
-                                    metricas_mod = extrair_metricas_e_contraexemplo_esbmc(txt_mod, rel_path, usou_homog_mod)
+                                    metricas_mod = extrair_metricas_e_contraexemplo_esbmc(txt_mod, rel_path)
                                     jsons_mod = glob.glob(os.path.join(temp_dir, '*.json'))
                             elif lang_mod == 'python':
                                 TAREFAS_ATIVAS[task_id]["logs"] += (
@@ -1369,7 +1357,7 @@ def iniciar_analise():
                                         txt_mod += "\n" + txt_av
                                         rc_mod = rc_av
                                         modo_verif_mod = f"{modo_verif_mod} [Entry: {fn_alvo_auto}]"
-                                        metricas_mod = extrair_metricas_e_contraexemplo_esbmc(txt_mod, rel_path, usou_homog_mod)
+                                        metricas_mod = extrair_metricas_e_contraexemplo_esbmc(txt_mod, rel_path)
                                         jsons_mod = glob.glob(os.path.join(temp_dir, '*.json'))
                                 except Exception:
                                     pass
@@ -1434,8 +1422,6 @@ def iniciar_analise():
                     veredito_mod = classificar_veredito(
                         txt_mod, rc_mod, bool(TAREFAS_ATIVAS[task_id].get("cancel_requested"))
                     )
-                    if usou_homog_mod and veredito_mod == "SUCCESSFUL":
-                        veredito_mod = "MODEL_ONLY"  # the homogenized model is not the user's code (#14)
                     if teve_erro_bruto:
                         any_inconclusive_overall = True
                         status_mod = "RAW ERROR (Unresolved Deps)"
@@ -1445,7 +1431,7 @@ def iniciar_analise():
                         status_mod = "BOUND_REACHED (NO VERDICT)"
                     elif mod_violations > 0:
                         any_violation_overall = True
-                        tag_orig = "NATIVE BUG" if metricas_mod["violation_origin"] == "[NATIVE CODE BUG]" else "CONTRACT"
+                        tag_orig = "NATIVE BUG"
                         status_mod = f"VIOLATION [{tag_orig}] (k={metricas_mod['k_depth']})"
                     elif veredito_mod != "SUCCESSFUL":
                         any_inconclusive_overall = True
@@ -1778,8 +1764,6 @@ def iniciar_analise():
             veredito = classificar_veredito(
                 texto_final, returncode, bool(TAREFAS_ATIVAS[task_id].get("cancel_requested"))
             )
-            if usou_homogenizer_v2 and veredito == "SUCCESSFUL":
-                veredito = "MODEL_ONLY"  # the homogenized model is not the user's code (#14)
             verificacao_sucesso = veredito == "SUCCESSFUL"
 
             # Garante que quando o ESBMC tiver sucesso sem vulnerabilidades, o Dashboard receba o status OK!
@@ -1824,9 +1808,7 @@ def iniciar_analise():
 
             repo_single_summary = None
             if is_git and main_file_path_in_repo:
-                metricas_single = extrair_metricas_e_contraexemplo_esbmc(
-                    texto_final, main_file_path_in_repo, usou_homogenizer=usou_homogenizer_v2
-                )
+                metricas_single = extrair_metricas_e_contraexemplo_esbmc(texto_final, main_file_path_in_repo)
                 viol_count = sum(
                     1 for r in dashboard_data if isinstance(r, dict) and r.get("status") == "violation"
                     for s in r.get("steps", []) if s.get("type") == "violation"
@@ -1855,7 +1837,7 @@ def iniciar_analise():
                 elif veredito == "BOUND_REACHED":
                     status_single = "BOUND_REACHED (NO VERDICT)"
                 elif viol_count > 0:
-                    tag_orig = "NATIVE BUG" if metricas_single["violation_origin"] == "[NATIVE CODE BUG]" else "CONTRACT"
+                    tag_orig = "NATIVE BUG"
                     status_single = f"VIOLATION [{tag_orig}] (k={metricas_single['k_depth']})"
                 elif veredito != "SUCCESSFUL":
                     status_single = f"{veredito} (NO VERDICT)"
@@ -1867,7 +1849,7 @@ def iniciar_analise():
                 modo_single = (
                     "Strict Pure ESBMC (Raw)"
                     if is_raw_esbmc
-                    else ("Homogenizer v2.0 (Symbolic Slice)" if usou_homogenizer_v2 else "Direct Native BMC")
+                    else ("Python + Entry Harness" if usou_homogenizer_v2 else "Direct Native BMC")
                 )
                 ultimo_cli_single = TAREFAS_ATIVAS[task_id].get("last_cli", f"esbmc {arquivo_alvo}")
 
