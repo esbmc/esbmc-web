@@ -187,6 +187,26 @@ def sanitizar_python(
     )
 
     if forcar_homogenizer or usar_v2:
+        if temp_dir and os.path.isdir(temp_dir):
+            try:
+                tree_chk = ast.parse(codigo_fonte)
+                for node_imp in ast.walk(tree_chk):
+                    mod_names = []
+                    if isinstance(node_imp, ast.Import):
+                        for al in node_imp.names:
+                            mod_names.append(al.name.split('.')[0])
+                    elif isinstance(node_imp, ast.ImportFrom):
+                        if node_imp.module:
+                            mod_names.append(node_imp.module.split('.')[0])
+                    for m_root in mod_names:
+                        if m_root and m_root not in MODULOS_PADRAO_ESBMC:
+                            stub_file = os.path.join(temp_dir, f"{m_root}.py")
+                            if not os.path.exists(stub_file):
+                                with open(stub_file, 'w', encoding='utf-8') as f_stub:
+                                    f_stub.write(f"# Auto-generated stub for {m_root}\n")
+            except Exception:
+                pass
+
         alvos = processar_codigo_fonte_v2(
             codigo_fonte=codigo_fonte,
             nome_origem=os.path.basename(caminho_arquivo),

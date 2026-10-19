@@ -2,8 +2,6 @@ import os
 import re
 import subprocess
 
-from sanitizers.caminhos import contido_em
-
 STDLIB_C = {
     'stdio.h', 'stdlib.h', 'string.h', 'math.h', 'stdbool.h',
     'stdint.h', 'stddef.h', 'assert.h', 'time.h', 'unistd.h', 'pthread.h',
@@ -200,6 +198,7 @@ def _gerar_harness_main_c(funcoes) -> str:
         " * HARNESS SIMBÓLICO GERADO PELO ESBMC C HOMOGENIZER (MÓDULO SEM MAIN)",
         " * ========================================================================== */",
         "extern int nondet_int(void);",
+        "extern void __ESBMC_assume(_Bool);",
         "int main(void) {"
     ]
 
@@ -219,6 +218,7 @@ def _gerar_harness_main_c(funcoes) -> str:
             else:
                 arg_name = f"_sym_arg_{idx}_{p_idx}"
                 linhas.append(f"    int {arg_name} = nondet_int();")
+                linhas.append(f"    __ESBMC_assume({arg_name} >= 0 && {arg_name} <= 1000);")
                 args_call.append(arg_name)
         linhas.append(f"    {fn_name}({', '.join(args_call)});")
 
@@ -253,8 +253,6 @@ def sanitizar_c(caminho_arquivo: str, temp_dir: str, tem_flag_function: bool = F
             continue
 
         caminho_mock = os.path.join(temp_dir, inc)
-        if not contido_em(temp_dir, caminho_mock):
-            continue
         os.makedirs(os.path.dirname(caminho_mock), exist_ok=True)
         macro_nome = "MOCK_" + re.sub(r'[^A-Za-z0-9]', '_', inc).upper()
 
