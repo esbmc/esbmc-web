@@ -176,6 +176,11 @@ class TestSingleFilePython:
         res = result(analyse(client, {'language': 'python', 'codigo': code, 'flags': []}))
         assert res['verdict'] == 'SUCCESSFUL'
 
+    def test_unsupported_library_call_is_not_reported_as_a_bug(self, client):
+        code = 'import os\n\ndef f(p: str) -> str:\n    return os.path.join(p, "x")\n'
+        res = result(analyse(client, {'language': 'python', 'codigo': code, 'flags': []}))
+        assert res['verdict'] == 'UNSUPPORTED'
+
     def test_harness_explores_negative_inputs(self, client):
         code = 'import os\n\ndef f(n: int) -> int:\n    assert n >= 0\n    return n\n'
         res = result(analyse(client, {'language': 'python', 'codigo': code, 'flags': []}))
@@ -338,6 +343,14 @@ class TestRepository:
                                   'codigo': 'int main(){ return 0; }\n', 'flags': []})
         assert status['status'] == 'error'
         assert header.read_text() == 'consteval int f(){ return 1; }\n'
+
+    def test_exploration_marks_unsupported_library_call_as_no_verdict(self, client, local_repo):
+        repo = local_repo({'pkg/p.py': 'import os\n\ndef f(p: str) -> str:\n    return os.path.join(p, "x")\n'})
+        res = result(analyse(client, {'language': 'python', 'git_url': repo, 'explore_repo': True, 'flags': []}))
+        row = res['repo_exploration_summary'][0]
+        assert row['status'] == 'UNSUPPORTED (NO VERDICT)'
+        assert row['violations'] == 0
+        assert res['verdict'] == 'UNKNOWN'
 
     def test_single_repo_file_parse_error_is_not_labelled_safe(self, client, local_repo):
         repo = local_repo({'src/broken.c': C_PARSE_ERROR})

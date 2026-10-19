@@ -185,8 +185,11 @@ def classificar_veredito(texto_esbmc: str, returncode: Optional[int], cancelado:
     """Only ESBMC's own verdict line counts as SUCCESSFUL; anything else is FAILED or inconclusive."""
     if "VERIFICATION FAILED" in texto_esbmc:
         props = _propriedades_violadas(texto_esbmc)
-        if props and all(re.fullmatch(r'unwinding assertion loop \d+', p) for p in props):
-            return "BOUND_REACHED"  # the loop bound was too small; no verdict on the program itself
+        limite = [bool(re.fullmatch(r'unwinding assertion loop \d+', p)) for p in props]
+        nao_suportado = [bool(re.fullmatch(r"Unsupported function '.+' is reached", p)) for p in props]
+        if props and all(a or b for a, b in zip(limite, nao_suportado)):
+            # ESBMC hit its loop bound or a library call it does not model: no verdict on the program
+            return "UNSUPPORTED" if any(nao_suportado) else "BOUND_REACHED"
         return "FAILED"
     if "VERIFICATION SUCCESSFUL" in texto_esbmc:
         return "SUCCESSFUL"
@@ -1425,10 +1428,10 @@ def iniciar_analise():
                     if teve_erro_bruto:
                         any_inconclusive_overall = True
                         status_mod = "RAW ERROR (Unresolved Deps)"
-                    elif veredito_mod == "BOUND_REACHED":
+                    elif veredito_mod in ("BOUND_REACHED", "UNSUPPORTED"):
                         any_inconclusive_overall = True
                         mod_violations = 0
-                        status_mod = "BOUND_REACHED (NO VERDICT)"
+                        status_mod = f"{veredito_mod} (NO VERDICT)"
                     elif mod_violations > 0:
                         any_violation_overall = True
                         tag_orig = "NATIVE BUG"
@@ -1834,8 +1837,8 @@ def iniciar_analise():
                                 "location": {"file": main_file_path_in_repo, "line": 1, "function": "module_load"}
                             }]
                         }]
-                elif veredito == "BOUND_REACHED":
-                    status_single = "BOUND_REACHED (NO VERDICT)"
+                elif veredito in ("BOUND_REACHED", "UNSUPPORTED"):
+                    status_single = f"{veredito} (NO VERDICT)"
                 elif viol_count > 0:
                     tag_orig = "NATIVE BUG"
                     status_single = f"VIOLATION [{tag_orig}] (k={metricas_single['k_depth']})"

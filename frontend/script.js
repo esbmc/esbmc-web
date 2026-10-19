@@ -1183,6 +1183,7 @@ document.addEventListener('DOMContentLoaded', () => {
         ERROR: '⚠ ESBMC ERROR — NO VERDICT (see Terminal Output)',
         UNKNOWN: '⚠ INCONCLUSIVE — ESBMC REPORTED NO VERDICT',
         BOUND_REACHED: '⚠ LOOP BOUND REACHED — NO VERDICT (increase --unwind or use --k-induction)',
+        UNSUPPORTED: '⚠ ESBMC DOES NOT MODEL A LIBRARY CALL THAT WAS REACHED — NO VERDICT',
     };
 
     function renderDashboard(resultsArray, codigoFonte, repoExplorationSummary = null, verdict = 'UNKNOWN') {
