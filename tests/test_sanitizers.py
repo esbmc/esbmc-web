@@ -74,6 +74,17 @@ class TestCppSanitizer:
         sanitizar_cpp(str(f), str(tmp_path))
         assert expression in f.read_text()
 
+    @pytest.mark.parametrize('source, kept', [
+        ('#include <string>\nchar f(const std::string &s, int i){ return s[i]; }\nint main(){ return f("ab", 10); }\n', 's[i]'),
+        ('#include <string>\nint main(){ const std::string s = "ab"; return s[5]; }\n', 's[5]'),
+        ('#define CFG "cfg.h"\n#include CFG\nint main(){ return 0; }\n', '#include CFG'),
+    ])
+    def test_rewrite_keeps_bounds_checked_indexing_and_macro_includes(self, tmp_path, source, kept):
+        f = tmp_path / 'codigo.cpp'
+        f.write_text(source)
+        sanitizar_cpp(str(f), str(tmp_path))
+        assert kept in f.read_text()
+
     @requires_esbmc
     def test_rewrite_preserves_virtual_dispatch_verdict(self, tmp_path):
         code = ('#include <cassert>\nstruct B{ virtual int f(){return 1;} };\n'

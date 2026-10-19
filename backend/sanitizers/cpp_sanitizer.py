@@ -295,16 +295,10 @@ def _remover_clausulas_requires_cpp20(codigo: str) -> str:
 
 
 def _sanitizar_constructos_rtti_e_headers_padrao(codigo: str, eh_header: bool = False) -> str:
-    """Transpila constructos C++17/C++20 (`requires(...)`, `if constexpr`, `consteval`, `std::is_*_v`
-    e diretivas `#include MACRO_IDENT`) para C++14 compatível com ESBMC. Nunca substitui valores nem
-    remove expressões do usuário: isso altera o veredito (#17)."""
+    """Transpila constructos C++17/C++20 (`requires(...)`, `if constexpr`, `consteval`, `std::is_*_v`)
+    para C++14 compatível com ESBMC. Não substitui valores, não remove expressões nem includes e não
+    contorna verificações de limites do usuário: isso altera o veredito (#17)."""
     codigo_limpo = codigo
-    codigo_limpo = re.sub(
-        r'^(\s*)#include\s+([A-Za-z_][A-Za-z0-9_]*)\s*$',
-        r'\1// [ESBMC Auto-Healer] Neutralized macro include: \2',
-        codigo_limpo,
-        flags=re.MULTILINE
-    )
     # Transpilação Sintática C++20 / C++17 -> C++14:
     if 'requires' in codigo_limpo:
         codigo_limpo = _remover_clausulas_requires_cpp20(codigo_limpo)
@@ -336,17 +330,6 @@ def _sanitizar_constructos_rtti_e_headers_padrao(codigo: str, eh_header: bool = 
     codigo_limpo = re.sub(r'(\bas_string\s*\(\s*\))\s*>=\s*([A-Za-z0-9_.]+)', r'\1.compare(\2) >= 0', codigo_limpo)
     codigo_limpo = re.sub(r'(\bas_string\s*\(\s*\))\s*<\s*([A-Za-z0-9_.]+)', r'\1.compare(\2) < 0', codigo_limpo)
     codigo_limpo = re.sub(r'(\bas_string\s*\(\s*\))\s*>\s*([A-Za-z0-9_.]+)', r'\1.compare(\2) > 0', codigo_limpo)
-
-    # Transpilação de as_string()[i] -> as_string().c_str()[i]
-    codigo_limpo = re.sub(r'(\bas_string\s*\(\s*\))\[([0-9A-Za-z_]+)\]', r'\1.c_str()[\2]', codigo_limpo)
-
-    # Transpilação de indexação em const std::string: const std::string &var ... var[i] -> var.c_str()[i]
-    for m_param in re.finditer(r'\bconst\s+(?:std::)?(?:basic_)?string(?:<[^>]+>)?\s*&\s*([A-Za-z_][A-Za-z0-9_]*)', codigo_limpo):
-        var_name = m_param.group(1)
-        codigo_limpo = re.sub(rf'\b{var_name}\s*\[([^\[\]]+)\]', rf'{var_name}.c_str()[\1]', codigo_limpo)
-    for m_local in re.finditer(r'\bconst\s+(?:std::)?(?:basic_)?string(?:<[^>]+>)?\s+([A-Za-z_][A-Za-z0-9_]*)\s*=', codigo_limpo):
-        var_name = m_local.group(1)
-        codigo_limpo = re.sub(rf'\b{var_name}\s*\[([^\[\]]+)\]', rf'{var_name}.c_str()[\1]', codigo_limpo)
 
     # Substituição de std::addressof(...) -> (&(...))
     codigo_limpo = re.sub(r'\bstd::addressof\s*\(([^()]+)\)', r'(&(\1))', codigo_limpo)
