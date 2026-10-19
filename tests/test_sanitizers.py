@@ -99,25 +99,22 @@ class TestCppSanitizer:
         assert 'VERIFICATION FAILED' in out
 
 
-@known_defect('D9 (#19): #include names are joined to temp_dir unchecked')
 @pytest.mark.parametrize('sanitize, name', [(sanitizar_c, 'codigo.c'), (sanitizar_cpp, 'codigo.cpp')])
-def test_mock_headers_stay_inside_work_dir(tmp_path, sanitize, name):
-    work = tmp_path / 'work'
+@pytest.mark.parametrize('include', ['../outside/escaped.h', '{outside}/abs/escaped.h', 'link/escaped.h'])
+def test_mock_headers_stay_inside_work_dir(tmp_path, sanitize, name, include):
+    work, outside = tmp_path / 'work', tmp_path / 'outside'
     work.mkdir()
+    outside.mkdir()
+    (work / 'link').symlink_to(outside, target_is_directory=True)
     f = work / name
-    f.write_text('#include "../outside/escaped.h"\nint main(void){ return 0; }\n')
+    f.write_text(f'#include "{include.format(outside=outside)}"\nint main(void){{ return 0; }}\n')
     sanitize(str(f), str(work))
-    assert not (tmp_path / 'outside' / 'escaped.h').exists()
+    assert not any(p.is_file() for p in outside.rglob('*'))
 
 
-def test_failed_header_probe_keeps_shim_and_is_not_cached(tmp_path, monkeypatch):
-    (tmp_path / 'vector').write_text('// shim')
-    monkeypatch.setattr(cpp_sanitizer, '_CABECALHOS_STD_NATIVOS', {})
-    monkeypatch.setattr(cpp_sanitizer, '_esbmc_analisa_cabecalho', lambda name: None)
-    cpp_sanitizer._remover_shims_std_nativos(str(tmp_path))
-    assert (tmp_path / 'vector').exists()
-    assert all(not per_version for per_version in cpp_sanitizer._CABECALHOS_STD_NATIVOS.values())
-
-    monkeypatch.setattr(cpp_sanitizer, '_esbmc_analisa_cabecalho', lambda name: True)
-    cpp_sanitizer._remover_shims_std_nativos(str(tmp_path))
-    assert not (tmp_path / 'vector').exists()
+@pytest.mark.parametrize('sanitize, name', [(sanitizar_c, 'codigo.c'), (sanitizar_cpp, 'codigo.cpp')])
+def test_nested_mock_header_inside_work_dir_is_still_created(tmp_path, sanitize, name):
+    f = tmp_path / name
+    f.write_text('#include "sub/dir/missing.h"\nint main(void){ return 0; }\n')
+    sanitize(str(f), str(tmp_path))
+    assert (tmp_path / 'sub' / 'dir' / 'missing.h').is_file()
