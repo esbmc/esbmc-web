@@ -165,19 +165,17 @@ class TestSingleFilePython:
         res = result(analyse(client, {'language': 'python', 'codigo': code, 'flags': []}))
         assert res['verificacao_sucesso'] is False
 
-    @known_defect('D4 (#14): homogenizer replaces the body of div() with "return 200"')
-    def test_homogenized_function_keeps_original_body(self, client):
+    def test_harness_keeps_original_function_body(self, client):
         code = 'def div(a: int, b: int) -> int:\n    return a // b\n'
         res = result(analyse(client, {'language': 'python', 'codigo': code, 'flags': []}))
-        assert 'a // b' in res['codigo_analisado']
+        assert res['codigo_analisado'].startswith(code)
+        assert res['verdict'] != 'SUCCESSFUL'
 
-    def test_homogenized_run_is_never_reported_successful(self, client):
+    def test_harness_explores_negative_inputs(self, client):
         code = 'import os\n\ndef f(n: int) -> int:\n    assert n >= 0\n    return n\n'
         res = result(analyse(client, {'language': 'python', 'codigo': code, 'flags': []}))
-        assert res['verdict'] == 'MODEL_ONLY'
-        assert res['verificacao_sucesso'] is False
-        assert not any(r.get('status') == 'successful' for r in res['dashboard_data'])
-
+        assert res['verdict'] == 'FAILED'
+        assert res['codigo_analisado'].startswith(code)
 
 class TestRepository:
     def test_single_file_from_repo_finds_bug(self, client, local_repo):
@@ -220,11 +218,11 @@ class TestRepository:
         res = result(analyse(client, {'language': 'c', 'git_url': repo, 'explore_repo': True, 'flags': []}))
         assert res['verdict'] == 'SUCCESSFUL'
 
-    def test_exploration_does_not_report_homogenized_python_as_safe(self, client, local_repo):
-        repo = local_repo({'pkg/m.py': 'import os\n\ndef f(n: int) -> int:\n    return 10 // n\n'})
+    def test_exploration_harness_finds_bug_in_uncalled_python_function(self, client, local_repo):
+        repo = local_repo({'pkg/m.py': 'import os\n\ndef f(n: int) -> int:\n    assert n != 3\n    return n\n'})
         res = result(analyse(client, {'language': 'python', 'git_url': repo, 'explore_repo': True, 'flags': []}))
-        assert res['repo_exploration_summary'][0]['status'] == 'MODEL_ONLY (NO VERDICT)'
-        assert res['verificacao_sucesso'] is False
+        assert res['repo_exploration_summary'][0]['status'].startswith('VIOLATION')
+        assert res['verdict'] == 'FAILED'
 
     def test_repository_directive_cannot_smuggle_flag_as_value(self, client, local_repo):
         code = '// esbmc-flags: --unwind 3 --unwind --no-assertions\n#include <assert.h>\nint main(){ assert(0); return 0; }\n'

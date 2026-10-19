@@ -1,6 +1,6 @@
 import ast
 import os
-from typing import Tuple
+from typing import List, Tuple
 from sanitizers.esbmc_homogenizer_v2 import processar_codigo_fonte_v2, processar_arquivo_v2
 
 
@@ -156,6 +156,44 @@ def precisa_homogeneizar_v2(
     return False, "Código Python autossuficiente ou com stubs fornecidos"
 
 
+NONDET_POR_TIPO = {
+    None: 'nondet_int()', 'int': 'nondet_int()', 'bool': 'nondet_bool()',
+    'float': 'nondet_float()', 'str': 'nondet_str()',
+}
+
+
+def gerar_harness_python(codigo_fonte: str) -> Tuple[str, List[str], List[str]]:
+    """Append calls to every top-level function with unconstrained nondet arguments (#14).
+
+    The user's source is kept verbatim, so line numbers in counterexamples still match. A function
+    is skipped (and listed) when a parameter's type has no nondet constructor in ESBMC-Python."""
+    arvore = ast.parse(codigo_fonte)
+    chamadas, ignoradas, linhas = [], [], []
+    for no in arvore.body:
+        if not isinstance(no, ast.FunctionDef) or no.name.startswith('__'):
+            continue
+        args = no.args
+        if args.vararg or args.kwarg or args.posonlyargs or any(d is None for d in args.kw_defaults):
+            ignoradas.append(no.name)
+            continue
+        tipos = [a.annotation.id if isinstance(a.annotation, ast.Name) else (None if a.annotation is None else '?')
+                 for a in args.args]
+        if any(t not in NONDET_POR_TIPO for t in tipos):
+            ignoradas.append(no.name)
+            continue
+        nomes = []
+        for arg, tipo in zip(args.args, tipos):
+            var = f"_esbmc_{no.name}_{arg.arg}"
+            linhas.append(f"{var}: {tipo or 'int'} = {NONDET_POR_TIPO[tipo]}")
+            nomes.append(var)
+        linhas.append(f"{no.name}({', '.join(nomes)})")
+        chamadas.append(no.name)
+    if not linhas:
+        return codigo_fonte, chamadas, ignoradas
+    cabecalho = "\n\n# --- ESBMC-Web harness: each function called with unconstrained inputs ---\n"
+    return codigo_fonte.rstrip('\n') + cabecalho + "\n".join(linhas) + "\n", chamadas, ignoradas
+
+
 def sanitizar_python(
     caminho_arquivo: str,
     caminho_saida: str,
@@ -187,18 +225,14 @@ def sanitizar_python(
     )
 
     if forcar_homogenizer or usar_v2:
-        alvos = processar_codigo_fonte_v2(
-            codigo_fonte=codigo_fonte,
-            nome_origem=os.path.basename(caminho_arquivo),
-            caminho_saida=caminho_saida,
-            strict_null=strict_null
-        )
-        with open(caminho_saida, 'r', encoding='utf-8') as f:
-            codigo_final = f.read()
+        codigo_final, chamadas, ignoradas = gerar_harness_python(codigo_fonte)
+        with open(caminho_saida, 'w', encoding='utf-8') as f:
+            f.write(codigo_final)
         return {
             'usou_homogenizer_v2': True,
-            'motivo': motivo if not forcar_homogenizer else "Fallback automático para ESBMC Homogenizer v2.0",
-            'alvos_extraidos': alvos,
+            'motivo': motivo if not forcar_homogenizer else "Fallback automático para harness de entrada",
+            'alvos_extraidos': len(chamadas),
+            'funcoes_ignoradas': ignoradas,
             'caminho_saida': caminho_saida,
             'codigo_final': codigo_final
         }
