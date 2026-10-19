@@ -40,6 +40,9 @@ class TestVerdictClassification:
         assert classificar_veredito(mixed, 1, False) == 'FAILED'
         real = 'Violated property:\n  file x.c line 2 function main\n  assertion x==6\n  !(x == 6)\n\nVERIFICATION FAILED\n'
         assert classificar_veredito(real, 1, False) == 'FAILED'
+        user_text = ('Violated property:\n  file x.c line 2 function main\n'
+                     '  assertion x==2 && "unwinding assertion"\n  !(x == 2)\n\nVERIFICATION FAILED\n')
+        assert classificar_veredito(user_text, 1, False) == 'FAILED'
 
     def test_completed_verdict_survives_late_cancel(self):
         assert classificar_veredito('VERIFICATION SUCCESSFUL\n', 0, True) == 'SUCCESSFUL'

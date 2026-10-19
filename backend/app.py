@@ -146,7 +146,7 @@ def classificar_veredito(texto_esbmc: str, returncode: Optional[int], cancelado:
     """Only ESBMC's own verdict line counts as SUCCESSFUL; anything else is FAILED or inconclusive."""
     if "VERIFICATION FAILED" in texto_esbmc:
         props = _propriedades_violadas(texto_esbmc)
-        if props and all("unwinding assertion" in p for p in props):
+        if props and all(re.fullmatch(r'unwinding assertion loop \d+', p) for p in props):
             return "BOUND_REACHED"  # the loop bound was too small; no verdict on the program itself
         return "FAILED"
     if "VERIFICATION SUCCESSFUL" in texto_esbmc:
