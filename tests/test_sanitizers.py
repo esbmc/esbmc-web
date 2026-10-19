@@ -14,8 +14,12 @@ class TestPythonHomogenizerDecision:
     def test_self_contained_script_runs_natively(self):
         assert precisa_homogeneizar_v2('x = 1\nassert x == 1\n')[0] is False
 
-    def test_harness_is_never_homogenized(self):
-        assert precisa_homogeneizar_v2('import torch\n', is_harness=True)[0] is False
+    def test_harness_with_entry_code_is_kept_as_is(self):
+        assert precisa_homogeneizar_v2('import torch\nassert 1 == 1\n', is_harness=True)[0] is False
+        assert precisa_homogeneizar_v2('def t(x: int):\n    assert x\n\nt(1)\n', is_harness=True)[0] is False
+
+    def test_harness_that_only_defines_functions_gets_calls(self):
+        assert precisa_homogeneizar_v2('def t(x: int):\n    assert x != 3\n', is_harness=True)[0] is True
 
     def test_external_import_triggers_homogenizer(self):
         assert precisa_homogeneizar_v2('import requests\n')[0] is True

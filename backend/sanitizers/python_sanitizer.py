@@ -82,10 +82,6 @@ def precisa_homogeneizar_v2(
     if "_esbmc_get_int_arg" in codigo_fonte or "verify_security_contracts" in codigo_fonte:
         return False, "Código já homogeneizado pelo VeriBee v2.0"
 
-    # Se é explicitamente um harness de teste formal do repositório, preserva nativo
-    if is_harness:
-        return False, "Harness formal de teste profissional (preservando asserções e stubs nativos)"
-
     imports_faltantes = []
     tem_assert = False
     tem_classe_ou_funcao = False
@@ -104,10 +100,13 @@ def precisa_homogeneizar_v2(
                 if isinstance(sub, (ast.Assert, ast.Call)):
                     tem_chamada_toplevel = True
 
+    # A repository test harness that runs its own entry code is kept as is; one that only defines
+    # functions still gets calls appended, otherwise nothing in it would execute.
+    if is_harness and (tem_assert or tem_chamada_toplevel):
+        return False, "Harness formal de teste profissional (preservando asserções e stubs nativos)"
+
     for sub in ast.walk(tree):
-        if isinstance(sub, ast.Assert):
-            tem_assert = True
-        elif isinstance(sub, ast.Import):
+        if isinstance(sub, ast.Import):
             for alias in sub.names:
                 mod_root = alias.name.split('.')[0]
                 if mod_root not in MODULOS_PADRAO_ESBMC:
