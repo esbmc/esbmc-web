@@ -92,11 +92,19 @@ E2E-01..E2E-10 PASS                       # E2E-06..10 stub the backend to pin b
 ```
 Each fix was mutation-checked: its new or promoted tests fail when the fix is reverted.
 
+After `fix/cpp-parse-macos` (#17, #18):
+```
+$ venv/bin/python -m pytest -q -p no:cacheprovider
+91 passed, 5 xfailed                       # remaining xfails: #14 (body preservation), #19 x2, #20
+$ node tests/e2e/ui_verdicts.mjs
+E2E-01..E2E-11 PASS
+```
+
 There were no pre-existing tests in the repository. A mutation check (forcing `verificacao_sucesso = True` in `app.py`) made 10 verdict tests fail, so the passing tests do detect a verdict regression. Every xfail was also run with `--runxfail` to confirm it fails on the documented assertion rather than an incidental error.
 
 ## 5. Defects
 
-| ID | Severity | Summary | Issue | Status on `fix/verdict-soundness` |
+| ID | Severity | Summary | Issue | Status |
 |---|---|---|---|---|
 | D1 | Critical | default `--unwind N --no-unwinding-assertions` → false SUCCESSFUL | [#11](https://github.com/esbmc/esbmc-web/issues/11) (new) | fixed |
 | D2 | Critical | cancelled run reported as SUCCESSFUL (backend) | [#12](https://github.com/esbmc/esbmc-web/issues/12) (new) | fixed |
@@ -104,8 +112,8 @@ There were no pre-existing tests in the repository. A mutation check (forcing `v
 | D4 | Critical | Python homogenizer replaces function bodies, restricts inputs | [#14](https://github.com/esbmc/esbmc-web/issues/14) (new) | mitigated: never reported SUCCESSFUL (MODEL_ONLY); bodies still replaced |
 | D5 | Critical | unparseable repo modules replaced by template, reported SAFE | [#15](https://github.com/esbmc/esbmc-web/issues/15) (new) | fixed |
 | D6 | Critical | repo `// esbmc-flags:` can disable checks | [#16](https://github.com/esbmc/esbmc-web/issues/16) (new) | fixed |
-| D7 | Critical | C++ sanitizer strips `virtual` (and other semantic rewrites) | [#17](https://github.com/esbmc/esbmc-web/issues/17) (new) | open |
-| D8 | High | C++ and `<stdint.h>` C fail to parse on macOS | [#18](https://github.com/esbmc/esbmc-web/issues/18) (new) | open |
+| D7 | Critical | C++ sanitizer strips `virtual` (and other semantic rewrites) | [#17](https://github.com/esbmc/esbmc-web/issues/17) (new) | fixed (`fix/cpp-parse-macos`) |
+| D8 | High | C++ and `<stdint.h>` C fail to parse on macOS | [#18](https://github.com/esbmc/esbmc-web/issues/18) (new) | fixed (`fix/cpp-parse-macos`) |
 | D9 | Medium | `#include`-driven file creation outside temp dir | [#19](https://github.com/esbmc/esbmc-web/issues/19) (new) | open |
 | D10 | Low | anti-vacuity `--function` target scoring window | [#20](https://github.com/esbmc/esbmc-web/issues/20) (new) | open |
 
@@ -131,10 +139,12 @@ Further defects found and fixed while fixing the above:
   - `innerHTML` rendering of ESBMC messages derived from analysed source
   - `TAREFAS_ATIVAS`/`CLONE_TASKS` are never evicted (unbounded memory)
   - there is no file-size or count limit on cloned repositories
+- The C++ sanitizer still applies syntax-level rewrites: `begin(c)`/`end(c)` const_cast, `.data()` to `&x[0]`, `emplace_back` to `push_back`, `std::addressof` to `&`, removal of `requires` clauses, `if constexpr` to `if`, and `#define final`/`#define override` in the forced compat header. In review probes they caused parse errors or false alarms, but no false SAFE. It is not proven that removing `requires` can never change overload resolution.
+- With unwinding assertions kept, the default `--unwind 3` makes many C++ programs end as `BOUND_REACHED` because of loops inside ESBMC's own library models. The result is sound, but users need a larger `--unwind` or `--k-induction` to get a verdict.
 - `/health` hard-codes `"solver": "Z3 v4.8.12 + Bitwuzla"` regardless of what is installed.
 
 ## 7. Conclusion
 
 **Baseline: not ready for release.** At `d17af99` the tool reports `VERIFICATION SUCCESSFUL` for programs that ESBMC itself proves buggy in its default (assisted) mode: bugs beyond the silent unwind bound, homogenized Python, unparseable repository modules, and repository-disabled assertions. It also reports success for cancelled runs, and in the UI for parse errors and timeouts.
 
-**After `fix/verdict-soundness`:** none of the false-success paths found in testing remain for C and Python. Success now requires ESBMC's own `VERIFICATION SUCCESSFUL` line on the user's code, and every other outcome is shown as FAILED or as a named no-verdict state. Still open before release: C++ is unusable on macOS (#18), and once it parses, the C++ sanitizer's semantic rewrites can produce false SAFE results (#17). The Python homogenizer still verifies a model rather than the user's code; this is now reported honestly as `MODEL_ONLY` (#14). The header-mock path containment (#19) is also unfixed.
+**After `fix/verdict-soundness`:** none of the false-success paths found in testing remain for C and Python. Success now requires ESBMC's own `VERIFICATION SUCCESSFUL` line on the user's code, and every other outcome is shown as FAILED or as a named no-verdict state. C++ now parses on macOS (#18), and the C++ sanitizer's value-changing rewrites are gone (#17). The Python homogenizer still verifies a model rather than the user's code; this is now reported honestly as `MODEL_ONLY` (#14). The header-mock path containment (#19) is also unfixed.
