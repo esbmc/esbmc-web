@@ -45,6 +45,21 @@ It empowers researchers, software engineers, and students to formally verify C, 
 
 ---
 
+## ESBMC Ecosystem & Cross-Tool Integrations
+
+The ESBMC formal verification suite provides multiple complementary interfaces tailored for different developer workflows:
+
+| Tool / Environment | Purpose | Repository & Links |
+|---|---|---|
+| **ESBMC-Web (This Repository)** | **Zero-friction browser workbench**: In-browser code editor, multi-directory Git repository exploration, visual counterexample traces, and scientific reports without local installation. | [esbmc/esbmc-web](https://github.com/esbmc/esbmc-web) |
+| **VS Code Extension** | **In-editor formal verification**: Integrates ESBMC into Visual Studio Code with live diagnostic markers, inline counterexample inspection, and one-click verification of active files and functions. | [esbmc/vscode-esbmc](https://github.com/esbmc/vscode-esbmc) |
+| **AI Agents & Claude Code Plugin** | **Autonomous agentic verification**: Verification plugins and skills for AI coding agents (Claude Code, Google Antigravity, Agent Marketplace) to formally prove and repair code automatically. | [esbmc/agent-marketplace](https://github.com/esbmc/agent-marketplace) |
+| **ESBMC Core Engine** | **High-performance CLI solver**: The state-of-the-art SMT-based context-bounded model checker for C, C++, and Python software. | [esbmc/esbmc](https://github.com/esbmc/esbmc) |
+
+> 💡 **Workflow tip:** After trying ESBMC in the browser with **ESBMC-Web**, install the [VS Code Extension](https://github.com/esbmc/vscode-esbmc) to integrate formal verification directly into your local IDE development loop!
+
+---
+
 ## System Architecture
 
 The architecture of **ESBMC-Web** is structured into five cohesive, decoupled layers designed for modularity, safety, and high-performance formal verification:
@@ -243,21 +258,6 @@ sequenceDiagram
 
 5. **Open the Frontend**:
    Open `frontend/index.html` directly in any modern browser.
-
----
-
-## Running the Tests
-
-```bash
-source venv/bin/activate
-pip install -r backend/requirements.txt -r requirements-dev.txt
-python3 -m pytest                       # unit, API and ESBMC-backed verdict tests (ESBMC tests skip if esbmc is not on PATH)
-
-(cd backend && python3 app.py) &        # the UI test drives the real backend on :5000
-node tests/e2e/ui_verdicts.mjs          # needs Google Chrome (or CHROME_BIN), Node >= 22 and esbmc on PATH
-```
-
-Tests marked as known defects (strict `xfail` in pytest, `knownDefect` in the UI script) assert the correct behaviour: they are expected to fail today, and an unexpected pass fails the run so the marker is removed once the defect is fixed.
 
 ---
 
