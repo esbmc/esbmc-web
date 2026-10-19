@@ -1,6 +1,7 @@
+import pytest
+
 import app as backend_app
-from conftest import known_defect
-from app import (avaliar_status_teste, classificar_veredito, descobrir_funcao_alvo_principal,
+from app import (_fim_do_bloco, avaliar_status_teste, classificar_veredito, descobrir_funcao_alvo_principal,
                  filtrar_flags_do_repositorio, normalizar_url_e_subpasta_git)
 
 
@@ -85,10 +86,21 @@ class TestOracleComparison:
 
 
 class TestTargetFunctionDiscovery:
-    @known_defect('D10 (#20): scoring window spills past the function body into later functions')
     def test_c_prefers_function_with_asserts_and_branches(self):
         code = 'int a(int x){return x;}\nint b(int x){ if(x) assert(x>0); return x; }\n'
         assert descobrir_funcao_alvo_principal(code, 'c') == ('b', 1)
+
+    @pytest.mark.parametrize('body', [
+        ' { int y = x; } return x; ',
+        ' /* } */ return x; ',
+        ' // }\n return x; ',
+        ' const char *s = "}\\"}"; return x; ',
+        " char c = '}'; char d = '\\''; return x; ",
+    ])
+    def test_block_end_skips_nested_blocks_comments_and_literals(self, body):
+        code = 'int f(int x){' + body + '}\nint g(void){ return 0; }\n'
+        start = code.index('{') + 1
+        assert _fim_do_bloco(code, start) == code.index('}\nint g')
 
     def test_c_skips_main(self):
         assert descobrir_funcao_alvo_principal('int main(void){return 0;}\n', 'c') == (None, 0)
