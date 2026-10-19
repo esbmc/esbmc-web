@@ -295,9 +295,10 @@ def _remover_clausulas_requires_cpp20(codigo: str) -> str:
 
 
 def _sanitizar_constructos_rtti_e_headers_padrao(codigo: str, eh_header: bool = False) -> str:
-    """Transpila constructos C++17/C++20 (`requires(...)`, `if constexpr`, `consteval`, `std::is_*_v`,
-    `typeid(T).name()` sem `<typeinfo>` e diretivas `#include MACRO_IDENT`) para C++14 compatível com ESBMC."""
-    codigo_limpo = re.sub(r'\btypeid\s*\([^()]*\)\s*\.name\s*\(\s*\)', '"type"', codigo)
+    """Transpila constructos C++17/C++20 (`requires(...)`, `if constexpr`, `consteval`, `std::is_*_v`
+    e diretivas `#include MACRO_IDENT`) para C++14 compatível com ESBMC. Nunca substitui valores nem
+    remove expressões do usuário: isso altera o veredito (#17)."""
+    codigo_limpo = codigo
     codigo_limpo = re.sub(
         r'^(\s*)#include\s+([A-Za-z_][A-Za-z0-9_]*)\s*$',
         r'\1// [ESBMC Auto-Healer] Neutralized macro include: \2',
@@ -362,33 +363,8 @@ def _sanitizar_constructos_rtti_e_headers_padrao(codigo: str, eh_header: bool = 
         codigo_limpo
     )
 
-    # Transpilação de hash<std::thread::id> e system_clock
     codigo_limpo = re.sub(r'\bstd::time_t\b', 'time_t', codigo_limpo)
-    codigo_limpo = re.sub(r'\bstd::chrono::system_clock::to_time_t\s*\([^()]+\)', '0', codigo_limpo)
-    codigo_limpo = re.sub(r'\bstd::chrono::system_clock::now\s*\(\s*\)', '0', codigo_limpo)
-    codigo_limpo = re.sub(r'\bstd::hash<\s*std::thread::id\s*>\s*\{\s*\}\s*\([^()]+\)', '0', codigo_limpo)
-    # Transpilação de std::hash para string / string_view (usa .size() ao invés de cast direto)
-    codigo_limpo = re.sub(
-        r'\bstd::hash\s*<\s*(?:std::)?(?:basic_)?string(?:_view)?(?:<[^>]+>)?\s*>\s*\{\s*\}\s*\(\s*([^()]+)\s*\)',
-        r'((unsigned long)((\1).size()))',
-        codigo_limpo
-    )
-    codigo_limpo = re.sub(r'\bstd::hash\s*<\s*[^<>]+\s*>\s*\{\s*\}\s*\(\s*([^()]+)\s*\)', r'((unsigned long)(\1))', codigo_limpo)
-    codigo_limpo = re.sub(r'\b(?:std::)?time_t\s+[A-Za-z0-9_]+\s*=\s*std::chrono::system_clock::to_time_t\s*\([^;]+;', 'time_t currentTime = 0;', codigo_limpo)
-    codigo_limpo = re.sub(r'\bstd::put_time\s*\([^()]*(?:\([^()]*\)[^()]*)*\)', '""', codigo_limpo)
-    # Transpilação do idiom de log com rvalue stringstream/ostringstream: (std::ostringstream{} << ...).str() -> std::string("")
-    codigo_limpo = re.sub(
-        r'\(\s*(?:std::)?(?:o)?stringstream\s*(?:\{\s*\}|\(\s*\))\s*<<\s*.*?\)\s*\.str\s*\(\s*\)',
-        'std::string("")',
-        codigo_limpo,
-        flags=re.DOTALL
-    )
-    codigo_limpo = re.sub(r'\bstd::unreachable\s*\(\s*\)', '((void)0)', codigo_limpo)
     codigo_limpo = re.sub(r'(\b[A-Za-z0-9_]+)\.data\s*\(\s*\)', r'(&\1[0])', codigo_limpo)
-    # Transpilação de métodos virtuais para evitar bugs de vtable duplicada / thunk collisions no frontend do ESBMC 8.4.0
-    codigo_limpo = re.sub(r'\bvirtual\s+~([A-Za-z0-9_]+)\s*\([^)]*\)\s*=\s*default\s*;', r'~\1() = default;', codigo_limpo)
-    codigo_limpo = re.sub(r'\bvirtual\s+~([A-Za-z0-9_]+)\s*\(\s*\)', r'~\1()', codigo_limpo)
-    codigo_limpo = re.sub(r'\bvirtual\s+(?![a-z_]*\s*=[^;]*0)([^;=]+;)', r'\1', codigo_limpo)
     # Transpilação de begin(c) e end(c) em containers
     codigo_limpo = re.sub(r'\bbegin\s*\(\s*([A-Za-z0-9_]+)\s*\)', r'(const_cast<decltype(\1)&>(\1)).begin()', codigo_limpo)
     codigo_limpo = re.sub(r'\bend\s*\(\s*([A-Za-z0-9_]+)\s*\)', r'(const_cast<decltype(\1)&>(\1)).end()', codigo_limpo)
@@ -3235,7 +3211,7 @@ def sanitizar_cpp(caminho_arquivo: str, temp_dir: str, tem_flag_function: bool =
     with open(caminho_arquivo, 'r', encoding='utf-8', errors='replace') as f:
         codigo_original = f.read()
 
-    # Sanitiza typeid(...).name() no arquivo principal
+    # Rebaixa constructos C++20 no arquivo principal
     codigo_sanitizado = _sanitizar_constructos_rtti_e_headers_padrao(codigo_original)
     if codigo_sanitizado != codigo_original:
         codigo_original = codigo_sanitizado
@@ -3258,7 +3234,7 @@ def sanitizar_cpp(caminho_arquivo: str, temp_dir: str, tem_flag_function: bool =
     if mock_boost_dir and os.path.isdir(mock_boost_dir) and mock_boost_dir not in include_dirs:
         include_dirs.insert(0, mock_boost_dir)
 
-    # Lê e também sanitiza `typeid(...).name()` e constructos nos headers reais do repositório (ex: dyad.h ou string_pool.h)
+    # Lê e também rebaixa constructos C++20 nos headers reais do repositório (ex: dyad.h ou string_pool.h)
     codigo_headers_locais = ""
     arquivos_headers_processados = set()
     for inc_dir in include_dirs:

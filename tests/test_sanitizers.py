@@ -61,8 +61,20 @@ class TestCSanitizer:
 
 class TestCppSanitizer:
 
+    @pytest.mark.parametrize('expression', [
+        '(std::ostringstream{} << a[i]).str()',
+        'std::unreachable()',
+        'std::chrono::system_clock::now()',
+        'std::hash<int>{}(i)',
+        'typeid(i).name()',
+    ])
+    def test_rewrite_keeps_user_expressions(self, tmp_path, expression):
+        f = tmp_path / 'codigo.cpp'
+        f.write_text(f'int main(){{ int a[2]; int i = 5; auto r = {expression}; return 0; }}\n')
+        sanitizar_cpp(str(f), str(tmp_path))
+        assert expression in f.read_text()
+
     @requires_esbmc
-    @known_defect('D7 (#17): sanitizer strips "virtual", turning dynamic dispatch static')
     def test_rewrite_preserves_virtual_dispatch_verdict(self, tmp_path):
         code = ('#include <cassert>\nstruct B{ virtual int f(){return 1;} };\n'
                 'struct D : B { int f(){return 0;} };\n'
