@@ -1,7 +1,6 @@
 import ast
 import os
-from typing import Tuple
-from sanitizers.esbmc_homogenizer_v2 import processar_codigo_fonte_v2, processar_arquivo_v2
+from typing import List, Tuple
 
 
 MODULOS_PADRAO_ESBMC = {
@@ -83,10 +82,6 @@ def precisa_homogeneizar_v2(
     if "_esbmc_get_int_arg" in codigo_fonte or "verify_security_contracts" in codigo_fonte:
         return False, "Código já homogeneizado pelo VeriBee v2.0"
 
-    # Se é explicitamente um harness de teste formal do repositório, preserva nativo
-    if is_harness:
-        return False, "Harness formal de teste profissional (preservando asserções e stubs nativos)"
-
     imports_faltantes = []
     tem_assert = False
     tem_classe_ou_funcao = False
@@ -105,10 +100,13 @@ def precisa_homogeneizar_v2(
                 if isinstance(sub, (ast.Assert, ast.Call)):
                     tem_chamada_toplevel = True
 
+    # A repository test harness that runs its own entry code is kept as is; one that only defines
+    # functions still gets calls appended, otherwise nothing in it would execute.
+    if is_harness and (tem_assert or tem_chamada_toplevel):
+        return False, "Harness formal de teste profissional (preservando asserções e stubs nativos)"
+
     for sub in ast.walk(tree):
-        if isinstance(sub, ast.Assert):
-            tem_assert = True
-        elif isinstance(sub, ast.Import):
+        if isinstance(sub, ast.Import):
             for alias in sub.names:
                 mod_root = alias.name.split('.')[0]
                 if mod_root not in MODULOS_PADRAO_ESBMC:
@@ -156,14 +154,58 @@ def precisa_homogeneizar_v2(
     return False, "Código Python autossuficiente ou com stubs fornecidos"
 
 
+NONDET_POR_TIPO = {
+    None: 'nondet_int()', 'int': 'nondet_int()', 'bool': 'nondet_bool()',
+    'float': 'nondet_float()', 'str': 'nondet_str()',
+}
+
+
+def gerar_harness_python(codigo_fonte: str) -> Tuple[str, List[str], List[str]]:
+    """Append calls to every top-level function with unconstrained nondet arguments (#14).
+
+    The user's source is kept verbatim, so line numbers in counterexamples still match. Functions it
+    cannot call (unsupported parameter types, async functions, class methods) are returned as skipped,
+    so a run that does not exercise them is never reported as fully SUCCESSFUL."""
+    arvore = ast.parse(codigo_fonte)
+    chamadas, ignoradas, linhas = [], [], []
+    for no in arvore.body:
+        if isinstance(no, ast.ClassDef):
+            ignoradas.extend(f"{no.name}.{m.name}" for m in no.body
+                             if isinstance(m, (ast.FunctionDef, ast.AsyncFunctionDef)))
+            continue
+        if isinstance(no, ast.AsyncFunctionDef):
+            ignoradas.append(no.name)
+            continue
+        if not isinstance(no, ast.FunctionDef) or no.name.startswith('__'):
+            continue
+        args = no.args
+        if args.vararg or args.kwarg or args.posonlyargs or any(d is None for d in args.kw_defaults):
+            ignoradas.append(no.name)
+            continue
+        tipos = [a.annotation.id if isinstance(a.annotation, ast.Name) else (None if a.annotation is None else '?')
+                 for a in args.args]
+        if any(t not in NONDET_POR_TIPO for t in tipos):
+            ignoradas.append(no.name)
+            continue
+        nomes = []
+        for arg, tipo in zip(args.args, tipos):
+            var = f"_esbmc_{no.name}_{arg.arg}"
+            linhas.append(f"{var}: {tipo or 'int'} = {NONDET_POR_TIPO[tipo]}")
+            nomes.append(var)
+        linhas.append(f"{no.name}({', '.join(nomes)})")
+        chamadas.append(no.name)
+    if not linhas:
+        return codigo_fonte, chamadas, ignoradas
+    cabecalho = "\n\n# --- ESBMC-Web harness: each function called with unconstrained inputs ---\n"
+    return codigo_fonte.rstrip('\n') + cabecalho + "\n".join(linhas) + "\n", chamadas, ignoradas
+
+
 def sanitizar_python(
     caminho_arquivo: str,
     caminho_saida: str,
     temp_dir: str = "",
     is_git: bool = False,
-    is_harness: bool = False,
-    forcar_homogenizer: bool = False,
-    strict_null: bool = False
+    is_harness: bool = False
 ) -> dict:
     """Executa a sanitização/homogeneização Python de forma inteligente.
 
@@ -186,39 +228,15 @@ def sanitizar_python(
         codigo_fonte, temp_dir=temp_dir, is_git=is_git, is_harness=is_harness
     )
 
-    if forcar_homogenizer or usar_v2:
-        if temp_dir and os.path.isdir(temp_dir):
-            try:
-                tree_chk = ast.parse(codigo_fonte)
-                for node_imp in ast.walk(tree_chk):
-                    mod_names = []
-                    if isinstance(node_imp, ast.Import):
-                        for al in node_imp.names:
-                            mod_names.append(al.name.split('.')[0])
-                    elif isinstance(node_imp, ast.ImportFrom):
-                        if node_imp.module:
-                            mod_names.append(node_imp.module.split('.')[0])
-                    for m_root in mod_names:
-                        if m_root and m_root not in MODULOS_PADRAO_ESBMC:
-                            stub_file = os.path.join(temp_dir, f"{m_root}.py")
-                            if not os.path.exists(stub_file):
-                                with open(stub_file, 'w', encoding='utf-8') as f_stub:
-                                    f_stub.write(f"# Auto-generated stub for {m_root}\n")
-            except Exception:
-                pass
-
-        alvos = processar_codigo_fonte_v2(
-            codigo_fonte=codigo_fonte,
-            nome_origem=os.path.basename(caminho_arquivo),
-            caminho_saida=caminho_saida,
-            strict_null=strict_null
-        )
-        with open(caminho_saida, 'r', encoding='utf-8') as f:
-            codigo_final = f.read()
+    if usar_v2:
+        codigo_final, chamadas, ignoradas = gerar_harness_python(codigo_fonte)
+        with open(caminho_saida, 'w', encoding='utf-8') as f:
+            f.write(codigo_final)
         return {
             'usou_homogenizer_v2': True,
-            'motivo': motivo if not forcar_homogenizer else "Fallback automático para ESBMC Homogenizer v2.0",
-            'alvos_extraidos': alvos,
+            'motivo': motivo,
+            'alvos_extraidos': len(chamadas),
+            'funcoes_ignoradas': ignoradas,
             'caminho_saida': caminho_saida,
             'codigo_final': codigo_final
         }
