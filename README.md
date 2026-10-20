@@ -261,6 +261,21 @@ sequenceDiagram
 
 ---
 
+## Running the Tests
+
+```bash
+source venv/bin/activate
+pip install -r backend/requirements.txt -r requirements-dev.txt
+python3 -m pytest                       # unit, API and ESBMC-backed verdict tests (ESBMC tests skip if esbmc is not on PATH)
+
+(cd backend && python3 app.py) &        # the UI test drives the real backend on :5000
+node tests/e2e/ui_verdicts.mjs          # needs Google Chrome (or CHROME_BIN), Node >= 22 and esbmc on PATH
+```
+
+Tests marked as known defects (strict `xfail` in pytest, `knownDefect` in the UI script) assert the correct behaviour: they are expected to fail today, and an unexpected pass fails the run so the marker is removed once the defect is fixed.
+
+---
+
 ## Research & Academic Attribution
 
 If you use **ESBMC-Web** or its **RepoSlice-BMC / Homogenizer** pipeline in academic research, please cite:
