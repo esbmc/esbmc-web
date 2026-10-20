@@ -1679,7 +1679,9 @@ document.addEventListener('DOMContentLoaded', () => {
         TIMEOUT: '⏱ TIMED OUT — NO VERDICT',
         ERROR: '⚠ ESBMC ERROR — NO VERDICT (see Terminal Output)',
         UNKNOWN: '⚠ INCONCLUSIVE — ESBMC REPORTED NO VERDICT',
-        MODEL_ONLY: '⚠ ONLY AN ABSTRACTED MODEL WAS VERIFIED — NO VERDICT ON YOUR CODE',
+        BOUND_REACHED: '⚠ LOOP BOUND REACHED — NO VERDICT (increase --unwind or use --k-induction)',
+        UNSUPPORTED: '⚠ ESBMC DOES NOT MODEL A LIBRARY CALL THAT WAS REACHED — NO VERDICT',
+        PARTIAL: '⚠ PARTIAL — NO BUG FOUND, BUT SOME FUNCTIONS WERE NOT EXERCISED (see Terminal Output)',
     };
 
     function renderDashboard(resultsArray, codigoFonte, repoExplorationSummary = null, verdict = 'UNKNOWN', skipHistoryRecord = false) {
@@ -1905,8 +1907,13 @@ document.addEventListener('DOMContentLoaded', () => {
 
         if (hasViolations) {
             const firstResultWithViolation = resultsArray.find(res => res.status === 'violation');
-            statusBanner.className = 'status-banner failed';
-            statusBanner.textContent = `❌ VERIFICATION FAILED (${violationDetails.length} VIOLATION(S))`;
+            if (verdict === 'FAILED') {
+                statusBanner.className = 'status-banner failed';
+                statusBanner.textContent = `❌ VERIFICATION FAILED (${violationDetails.length} VIOLATION(S))`;
+            } else {
+                statusBanner.className = 'status-banner inconclusive';
+                statusBanner.textContent = INCONCLUSIVE_BANNERS[verdict] || INCONCLUSIVE_BANNERS.UNKNOWN;
+            }
             cardViolacoes.className = 'value red';
             cardViolacoes.style.color = '';
             document.getElementById('violacoes-section').style.display = 'block';
