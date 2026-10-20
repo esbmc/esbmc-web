@@ -72,6 +72,45 @@ def normalizar_url_e_subpasta_git(git_url: str, repo_subdir_filter: str = "", ma
     return url_limpa.rstrip('/'), repo_subdir_filter, main_file_path
 
 
+JANELA_CORPO_FUNCAO = 1500
+
+
+def _fim_do_bloco(codigo: str, inicio: int, limite: int = JANELA_CORPO_FUNCAO) -> int:
+    """Index of the '}' closing the block whose '{' ends just before `inicio`, scanning at most
+    `limite` characters so a mis-scan never costs more, or reaches further, than the old window.
+    Skips comments, string/char/raw-string literals, digit separators and preprocessor lines."""
+    profundidade, i, n = 1, inicio, min(len(codigo), inicio + limite)
+    while i < n:
+        c = codigo[i]
+        if codigo.startswith('//', i) or (c == '#' and codigo[codigo.rfind('\n', 0, i) + 1:i].strip() == ''):
+            while i < n and codigo[i] != '\n':
+                i += 2 if codigo[i] == '\\' else 1
+        elif codigo.startswith('/*', i):
+            fim = codigo.find('*/', i + 2, n)
+            i = n if fim < 0 else fim + 2
+            continue
+        elif codigo.startswith('R"', i) and not (codigo[i - 1].isalnum() or codigo[i - 1] == '_'):
+            abre = codigo.find('(', i + 2, n)
+            delim = codigo[i + 2:abre] if abre >= 0 else ''
+            fim = codigo.find(')' + delim + '"', abre, n) if abre >= 0 else -1
+            i = n if fim < 0 else fim + len(delim) + 2
+            continue
+        elif c == "'" and codigo[i - 1].isalnum() and i + 1 < n and codigo[i + 1].isalnum():
+            pass  # C++14 digit separator, e.g. 1'000
+        elif c in '"\'':
+            i += 1
+            while i < n and codigo[i] != c:
+                i += 2 if codigo[i] == '\\' else 1
+        elif c == '{':
+            profundidade += 1
+        elif c == '}':
+            profundidade -= 1
+            if profundidade == 0:
+                return i
+        i += 1
+    return n
+
+
 def descobrir_funcao_alvo_principal(codigo: str, linguagem: str):
     """Descobre automaticamente a função pública de maior complexidade lógica (CFG/branches/ponteiros)
     em um módulo C, C++ ou Python quando o ESBMC gera 0 VCCs (prova vazia / ausência de main()),
@@ -120,7 +159,7 @@ def descobrir_funcao_alvo_principal(codigo: str, linguagem: str):
         if nome_fn in proibidos or nome_fn.startswith('__'):
             continue
         inicio_corpo = m.end()
-        trecho_corpo = codigo[inicio_corpo:inicio_corpo + 1500]
+        trecho_corpo = codigo[inicio_corpo:_fim_do_bloco(codigo, inicio_corpo)]
         score = 10
         score += 25 * len(re.findall(r'\bassert\s*\(', trecho_corpo))
         score += 10 * len(re.findall(r'\b(?:if|while|for|switch)\s*\(', trecho_corpo))
@@ -134,9 +173,23 @@ def descobrir_funcao_alvo_principal(codigo: str, linguagem: str):
     return None, 0
 
 
+def _propriedades_violadas(texto_esbmc: str) -> List[str]:
+    props = re.findall(r'^\s*FAILED\s+\[[^\]]*\]\s+line\s+\d+\s+(.+)$', texto_esbmc, re.MULTILINE)
+    for bloco in re.findall(r'Violated property:\n((?:[ \t]+\S[^\n]*\n?)+)', texto_esbmc):
+        linhas = [l.strip() for l in bloco.splitlines() if l.strip() and not l.strip().startswith(('file ', 'FAILED'))]
+        props.extend(linhas[:1])
+    return props
+
+
 def classificar_veredito(texto_esbmc: str, returncode: Optional[int], cancelado: bool) -> str:
     """Only ESBMC's own verdict line counts as SUCCESSFUL; anything else is FAILED or inconclusive."""
     if "VERIFICATION FAILED" in texto_esbmc:
+        props = _propriedades_violadas(texto_esbmc)
+        limite = [bool(re.fullmatch(r'unwinding assertion loop \d+', p)) for p in props]
+        nao_suportado = [bool(re.fullmatch(r"Unsupported function '.+' is reached", p)) for p in props]
+        if props and all(a or b for a, b in zip(limite, nao_suportado)):
+            # ESBMC hit its loop bound or a library call it does not model: no verdict on the program
+            return "UNSUPPORTED" if any(nao_suportado) else "BOUND_REACHED"
         return "FAILED"
     if "VERIFICATION SUCCESSFUL" in texto_esbmc:
         return "SUCCESSFUL"
@@ -160,6 +213,13 @@ def _normalizar_veredito(texto: str) -> str:
     return "UNKNOWN"
 
 
+def descrever_harness(info: dict) -> str:
+    """Log line for an appended Python entry harness, naming what it could not exercise (#14)."""
+    nao_exercitadas = info.get('funcoes_ignoradas') or []
+    linha = f"[SYSTEM] [Entry Harness] {info['motivo']}: calls {info['alvos_extraidos']} function(s) with unconstrained inputs"
+    return linha + (f"; not exercised: {', '.join(nao_exercitadas)}\n" if nao_exercitadas else ".\n")
+
+
 def avaliar_status_teste(veredicto_obtido: str, veredicto_esperado: Optional[str]) -> Tuple[str, str]:
     """Avalia o status de um teste comparando o veredito obtido pelo ESBMC contra o oráculo esperado.
     Retorna (codigo_status, rotulo_formatado)."""
@@ -181,8 +241,9 @@ def avaliar_status_teste(veredicto_obtido: str, veredicto_esperado: Optional[str
 
 
 from sanitizers.python_sanitizer import sanitizar_python
-from sanitizers.cpp_sanitizer import sanitizar_cpp, descubrir_headers_e_includes_no_diretorio, gerar_modelo_simbolico_fallback_c_cpp
+from sanitizers.cpp_sanitizer import sanitizar_cpp, descubrir_headers_e_includes_no_diretorio
 from sanitizers.c_sanitizer import sanitizar_c, descubrir_headers_e_includes_c
+from sanitizers.caminhos import contido_em, remover_links_externos
 from sanitizers.repo_explorer import (
     construir_indice_python_repositorio,
     fundir_dependencias_internas_python,
@@ -473,6 +534,13 @@ def iniciar_analise():
                         if tentativa == 2:
                             raise e_cl
                         time.sleep(2)
+                links_externos = remover_links_externos(temp_dir)
+                if links_externos:
+                    TAREFAS_ATIVAS[task_id]["logs"] += (
+                        f"[SYSTEM] [Security] Removed symlink(s) pointing outside the repository: {', '.join(links_externos)}\n"
+                    )
+                if main_file_path_in_repo and not contido_em(temp_dir, os.path.join(temp_dir, main_file_path_in_repo)):
+                    raise Exception(f"Target file '{main_file_path_in_repo}' is outside the repository.")
                 if not explore_repo and main_file_path_in_repo:
                     caminho_arquivo = os.path.join(temp_dir, main_file_path_in_repo)
                     sub_dir_repo = os.path.dirname(caminho_arquivo)
@@ -520,7 +588,7 @@ def iniciar_analise():
                     f.write(codigo_para_dashboard)
 
             # --- 1.5 AUXILIAR DE EXTRAÇÃO DE MÉTRICAS FORMAIS E CONTRAEXEMPLO Z3 ---
-            def extrair_metricas_e_contraexemplo_esbmc(texto_esbmc: str, rel_path: str, usou_homogenizer: bool = False):
+            def extrair_metricas_e_contraexemplo_esbmc(texto_esbmc: str, rel_path: str):
                 goto_times = re.findall(r'GOTO program creation time:\s*([0-9.]+)s', texto_esbmc)
                 ssa_assigns = (
                     re.findall(r'size of program expression:\s*(\d+)\s*assignments', texto_esbmc)
@@ -570,19 +638,7 @@ def iniciar_analise():
                             vistos_v.add(v_nome)
                             z3_vars.append(par_str)
 
-                # Melhoria 5 de Fidelidade ESBMC: Classificador de Origem da Propriedade Violada
-                prop_lower = (viol_prop + " " + viol_loc).lower()
-                is_runtime_safety_bug = any(
-                    kw in prop_lower for kw in (
-                        "dereference", "null", "none", "bounds", "overflow", "underflow",
-                        "division by zero", "divide by zero", "memory leak", "free", "align",
-                        "data race", "deadlock", "out of bounds"
-                    )
-                )
-                if not usou_homogenizer or is_runtime_safety_bug:
-                    violation_origin = "[NATIVE CODE BUG]"
-                else:
-                    violation_origin = "[SYMBOLIC CONTRACT]"
+                violation_origin = "[NATIVE CODE BUG]"
 
                 z3_witness_summary = ""
                 if "VERIFICATION FAILED" in texto_esbmc:
@@ -603,6 +659,23 @@ def iniciar_analise():
                     "z3_vars": z3_vars[:5],
                     "z3_witness": z3_witness_summary
                 }
+
+            def reexecutar_com_multi_property(texto, rc, flags, executar, concatenar=False):
+                """ESBMC stops at the first violated property; when that is only a loop bound or an
+                unmodelled call, re-run once with --multi-property so a later real bug is not lost."""
+                if (
+                    '--multi-property' in flags
+                    or TAREFAS_ATIVAS[task_id].get("cancel_requested")
+                    or classificar_veredito(texto, rc, False) not in ("BOUND_REACHED", "UNSUPPORTED")
+                ):
+                    return texto, rc
+                TAREFAS_ATIVAS[task_id]["logs"] += (
+                    "[SYSTEM] Only a loop bound or unmodelled call was violated; re-running with --multi-property...\n"
+                )
+                texto2, rc2 = executar(list(flags) + ['--multi-property'])
+                if classificar_veredito(texto2, rc2, False) != "FAILED":
+                    return texto, rc
+                return (texto + "\n" + texto2 if concatenar else texto2), rc2
 
             def _obter_relatorio_esbmc_json(diretorio_temp):
                 """Localiza e carrega o arquivo de relatório gerado pelo ESBMC (--generate-json-report).
@@ -640,7 +713,6 @@ def iniciar_analise():
                 caminho_rel_repo=None,
                 timeout_por_modulo=None,
                 lang_override=None,
-                forcar_bounded_unwind=False,
                 funcao_alvo_extra=None,
                 modo_puro_raw=False,
                 pular_fontes_dependentes=False,
@@ -683,7 +755,7 @@ def iniciar_analise():
                                             pass
                                         comando.append(aux_src)
                                         fontes_adicionadas.append(rel_aux)
-                                    if fontes_adicionadas and not forcar_bounded_unwind and not funcao_alvo_extra:
+                                    if fontes_adicionadas and not funcao_alvo_extra:
                                         nomes_fontes = descricoes_vinculos or fontes_adicionadas
                                         TAREFAS_ATIVAS[task_id]["logs"] += (
                                             f"[SYSTEM] [RepoSlice-BMC] Cross-directory C/C++ Linker resolved {len(nomes_fontes)} "
@@ -739,13 +811,6 @@ def iniciar_analise():
                                                 comando.extend(['--function', '__esbmc_main'])
                                 except Exception:
                                     pass
-                        try:
-                            clang_path = subprocess.run(
-                                ['clang', '-print-resource-dir'], capture_output=True, text=True, check=True
-                            ).stdout.strip()
-                            comando.extend(['-I', os.path.join(clang_path, 'include')])
-                        except Exception:
-                            pass
                         if os.path.isdir('/usr/include/x86_64-linux-gnu'):
                             comando.extend(['-I', '/usr/include/x86_64-linux-gnu'])
 
@@ -758,7 +823,7 @@ def iniciar_analise():
 
                 # Se o usuário definiu um --timeout manual nos parâmetros, respeita esse valor no watchdog também
                 timeout_efetivo = timeout_por_modulo
-                if '--timeout' in flags_ativas and not forcar_bounded_unwind:
+                if '--timeout' in flags_ativas:
                     idx_t = flags_ativas.index('--timeout')
                     if idx_t + 1 < len(flags_ativas):
                         try:
@@ -773,12 +838,6 @@ def iniciar_analise():
 
                 while i < len(flags_ativas):
                     flag = flags_ativas[i]
-                    if forcar_bounded_unwind and flag in ('--incremental-bmc', '--k-induction', '--falsification', '--termination', '--unwind'):
-                        if flag == '--unwind':
-                            i += 2
-                        else:
-                            i += 1
-                        continue
                     if flag in FLAGS_PERMITIDAS_SIMPLES:
                         comando.append(flag)
                         i += 1
@@ -794,13 +853,7 @@ def iniciar_analise():
                 if funcao_alvo_extra and '--function' not in comando:
                     comando.extend(['--function', funcao_alvo_extra])
 
-                if forcar_bounded_unwind:
-                    comando.extend(['--unwind', '1', '--partial-loops', '--no-unwinding-assertions'])
-                    TAREFAS_ATIVAS[task_id]["logs"] += (
-                        "[SYSTEM] [Adaptive Protocol Bounder] Applying '--unwind 1 --partial-loops --no-unwinding-assertions' "
-                        "to solve native protocol VCCs without infinite state-machine recursion.\n"
-                    )
-                elif not usuario_escolheu_estrategia and not modo_puro_raw:
+                if not usuario_escolheu_estrategia and not modo_puro_raw:
                     if lang_efetiva in ('c', 'cpp') or timeout_por_modulo:
                         unwind_val = '2' if timeout_por_modulo else '3'
                         comando.extend(['--unwind', unwind_val])
@@ -841,8 +894,6 @@ def iniciar_analise():
 
                 if funcao_alvo_extra:
                     prefixo = f"[ANTI-VACUITY ENTRYPOINT PASS: --function {funcao_alvo_extra}]"
-                elif forcar_bounded_unwind:
-                    prefixo = "[ADAPTIVE PROTOCOL BOUND PASS]"
                 elif is_fallback:
                     prefixo = "[HOMOGENIZER FALLBACK PASS]"
                 elif modo_puro_raw:
@@ -943,7 +994,6 @@ def iniciar_analise():
                         caminho_rel_repo=caminho_rel_repo,
                         timeout_por_modulo=timeout_por_modulo,
                         lang_override=lang_override,
-                        forcar_bounded_unwind=forcar_bounded_unwind,
                         funcao_alvo_extra=funcao_alvo_extra,
                         modo_puro_raw=modo_puro_raw,
                         pular_fontes_dependentes=True,
@@ -1099,6 +1149,7 @@ def iniciar_analise():
 
                     deps_modulo = []
                     usou_homog_mod = False
+                    nao_exercitadas_mod = []
                     nome_temp_mod = f"modulo_{idx_a}" + (".py" if lang_mod == "python" else (".cpp" if lang_mod == "cpp" else ".c"))
                     caminho_temp_mod = os.path.join(temp_dir, nome_temp_mod)
                     nome_sanit_mod = f"modulo_{idx_a}_sanitized.py"
@@ -1122,11 +1173,14 @@ def iniciar_analise():
                         with open(caminho_temp_mod, 'w', encoding='utf-8') as f:
                             f.write(cod_modulo)
                         info_s = sanitizar_python(
-                            caminho_temp_mod, caminho_sanit_mod, temp_dir=temp_dir, is_git=True, is_harness=alvo_info.get('is_harness', False), forcar_homogenizer=False
+                            caminho_temp_mod, caminho_sanit_mod, temp_dir=temp_dir, is_git=True, is_harness=alvo_info.get('is_harness', False)
                         )
                         arq_exec = nome_sanit_mod
                         usou_homog_mod = info_s['usou_homogenizer_v2']
-                        modo_verif_mod = "Python AST Slice (v2.0)" if usou_homog_mod else ("Harness Native Python" if alvo_info.get('is_harness') else "Native Python")
+                        if usou_homog_mod:
+                            nao_exercitadas_mod = info_s['funcoes_ignoradas']
+                            TAREFAS_ATIVAS[task_id]["logs"] += descrever_harness(info_s)
+                        modo_verif_mod = "Python + Entry Harness" if usou_homog_mod else ("Harness Native Python" if alvo_info.get('is_harness') else "Native Python")
                         cod_exibido = info_s['codigo_final']
                     elif lang_mod == 'cpp':
                         with open(caminho_temp_mod, 'w', encoding='utf-8') as f:
@@ -1181,7 +1235,7 @@ def iniciar_analise():
                         flags_custom_override=flags_modulo_base
                     )
 
-                    p1_failed = ("VERIFICATION FAILED" in txt_mod)
+                    p1_failed = classificar_veredito(txt_mod, rc_mod, False) == "FAILED"
                     p1_success = ("VERIFICATION SUCCESSFUL" in txt_mod)
 
                     # FASE 2: Safety & Aritmética (--overflow-check, --memory-leak-check)
@@ -1225,7 +1279,7 @@ def iniciar_analise():
                     if TAREFAS_ATIVAS[task_id].get("cancel_requested") and ("VERIFICATION SUCCESSFUL" not in txt_mod and "VERIFICATION FAILED" not in txt_mod):
                         if not repo_exploration_summary:
                             dur_parcial = time.time() - t_mod_start
-                            met_parcial = extrair_metricas_e_contraexemplo_esbmc(txt_mod, rel_path, usou_homog_mod)
+                            met_parcial = extrair_metricas_e_contraexemplo_esbmc(txt_mod, rel_path)
                             repo_exploration_summary.append({
                                 "index": idx_a,
                                 "lang": lang_mod.upper(),
@@ -1243,7 +1297,7 @@ def iniciar_analise():
                                 "esbmc_cli": TAREFAS_ATIVAS[task_id].get("last_cli", f"esbmc {arq_exec}"),
                                 "z3_witness": "",
                                 "violations": 0,
-                                "status": "BOUNDED SAFE (STOPPED)",
+                                "status": "STOPPED (NO VERDICT)",
                                 "homogenized_code": cod_exibido
                             })
                         TAREFAS_ATIVAS[task_id]["logs"] += (
@@ -1253,59 +1307,14 @@ def iniciar_analise():
                         break
 
                     if not is_raw_esbmc:
-                        # Adaptive Protocol Bounder para módulos C/C++ nativos que compilaram 100% para GOTO mas atingiram timeout
-                        if (
-                            not TAREFAS_ATIVAS[task_id].get("cancel_requested")
-                            and lang_mod in ('c', 'cpp')
-                            and "GOTO program creation time:" in txt_mod
-                            and "reached bound/time limit" in txt_mod
-                            and "VERIFICATION SUCCESSFUL" not in txt_mod
-                            and "VERIFICATION FAILED" not in txt_mod
-                        ):
-                            TAREFAS_ATIVAS[task_id]["logs"] += (
-                                f"[SYSTEM] [Adaptive Protocol Bounder] Native {lang_mod.upper()} module '{rel_path}' compiled 100% to GOTO without syntax errors, "
-                                f"but unbounded state-machine loop exceeded {timeout_primario}s -> Re-running with Bounded Protocol Unwind (--unwind 1 --partial-loops)...\n"
-                            )
-                            txt_bounded, rc_bounded = rodar_esbmc(
-                                arq_exec,
-                                usou_homogenizer=usou_homog_mod,
-                                is_fallback=False,
-                                caminho_rel_repo=rel_path,
-                                timeout_por_modulo=8,
-                                lang_override=lang_mod,
-                                forcar_bounded_unwind=True
-                            )
-                            txt_mod = txt_mod + "\n" + txt_bounded
-                            rc_mod = rc_bounded
-                            modo_verif_mod = f"Native {lang_mod.upper()} (Bounded k=1)"
-
-                        # Fallback Homogenizer v2 para módulo Python ou C/C++ Embarcado se necessário
-                        tem_rep_j = (_obter_relatorio_esbmc_json(temp_dir)[0] is not None)
-                        if not TAREFAS_ATIVAS[task_id].get("cancel_requested") and lang_mod == 'python' and not usou_homog_mod and not tem_rep_j and ("ERROR:" in txt_mod or rc_mod != 0):
-                            info_s = sanitizar_python(
-                                caminho_temp_mod, caminho_sanit_mod, temp_dir=temp_dir, is_git=True, forcar_homogenizer=True
-                            )
-                            usou_homog_mod = True
-                            modo_verif_mod = "Python Homogenizer v2.0"
-                            txt_fb, rc_mod = rodar_esbmc(
-                                arq_exec, usou_homogenizer=True, is_fallback=True, caminho_rel_repo=rel_path, timeout_por_modulo=14, lang_override=lang_mod
-                            )
-                            txt_mod += "\n" + txt_fb
-                            tem_rep_j = (_obter_relatorio_esbmc_json(temp_dir)[0] is not None)
-                        elif not TAREFAS_ATIVAS[task_id].get("cancel_requested") and lang_mod in ('c', 'cpp') and not tem_rep_j and ("ERROR: PARSING ERROR" in txt_mod or "fatal error:" in txt_mod):
-                            TAREFAS_ATIVAS[task_id]["logs"] += (
-                                f"[SYSTEM] [ESBMC {lang_mod.upper()} Homogenizer v2.0] Cross-compiler/SDK hardware dependency in {rel_path} -> "
-                                f"Synthesizing Self-Contained Symbolic AST Slice...\n"
-                            )
-                            gerar_modelo_simbolico_fallback_c_cpp(caminho_temp_mod, linguagem=lang_mod)
-                            usou_homog_mod = True
-                            modo_verif_mod = f"{lang_mod.upper()} Homogenizer v2.0 Slice"
-                            txt_fb, rc_mod = rodar_esbmc(
-                                arq_exec, usou_homogenizer=True, is_fallback=True, caminho_rel_repo=rel_path, timeout_por_modulo=12, lang_override=lang_mod
-                            )
-                            txt_mod += "\n" + txt_fb
-
-                    metricas_mod = extrair_metricas_e_contraexemplo_esbmc(txt_mod, rel_path, usou_homog_mod)
+                        txt_mod, rc_mod = reexecutar_com_multi_property(
+                            txt_mod, rc_mod, flags_modulo_base,
+                            lambda flags: rodar_esbmc(arq_exec, usou_homogenizer=usou_homog_mod, caminho_rel_repo=rel_path,
+                                                      timeout_por_modulo=timeout_primario, lang_override=lang_mod,
+                                                      flags_custom_override=flags),
+                            concatenar=True
+                        )
+                    metricas_mod = extrair_metricas_e_contraexemplo_esbmc(txt_mod, rel_path)
 
                     # Melhoria 1 de Fidelidade ESBMC: Detector Anti-Vacuidade (0 VCCs) + Auto-Entrypoint (--function)
                     if (
@@ -1336,7 +1345,7 @@ def iniciar_analise():
                                     txt_mod += "\n" + txt_av
                                     rc_mod = rc_av
                                     modo_verif_mod = f"Native {lang_mod.upper()} (--function {fn_alvo_auto})"
-                                    metricas_mod = extrair_metricas_e_contraexemplo_esbmc(txt_mod, rel_path, usou_homog_mod)
+                                    metricas_mod = extrair_metricas_e_contraexemplo_esbmc(txt_mod, rel_path)
                                     jsons_mod = glob.glob(os.path.join(temp_dir, '*.json'))
                             elif lang_mod == 'python':
                                 TAREFAS_ATIVAS[task_id]["logs"] += (
@@ -1344,27 +1353,18 @@ def iniciar_analise():
                                     f"Injecting non-deterministic symbolic harness for '{fn_alvo_auto}()' to force Z3 VCC generation!\n"
                                 )
                                 try:
-                                    n_params = max(0, min(n_args_auto, 4))
-                                    param_inits = []
-                                    param_call_args = []
-                                    for _p in range(n_params):
-                                        p_name = f"_sym_arg_{_p}"
-                                        param_inits.append(f"    {p_name} = nondet_int()")
-                                        param_call_args.append(p_name)
-                                    args_sym = ", ".join(param_call_args)
-                                    inits_str = "\n".join(param_inits)
-                                    if inits_str:
-                                        inits_str += "\n"
-
+                                    args_sym = ", ".join(["nondet_int()" for _ in range(max(0, min(n_args_auto, 4)))])
                                     harness_extra = (
-                                        f"\n\n# [Unconstrained Symbolic Entrypoint Injected by RepoSlice-BMC]\n"
+                                        f"\n\n# [Anti-Vacuity Symbolic Entrypoint Injected by RepoSlice-BMC]\n"
                                         f"try:\n"
-                                        f"    _av_dummy = nondet_int()\n"
+                                        f"    _av_x = nondet_int()\n"
                                         f"except NameError:\n"
                                         f"    def nondet_int() -> int:\n"
                                         f"        return 1\n"
-                                        f"{inits_str}"
-                                        f"{fn_alvo_auto}({args_sym})\n"
+                                        f"    _av_x = nondet_int()\n"
+                                        f"if _av_x > 0 and _av_x < 100:\n"
+                                        f"    _res_av = {fn_alvo_auto}({args_sym})\n"
+                                        f"    assert _av_x != -999999\n"
                                     )
                                     caminho_av_py = os.path.join(temp_dir, arq_exec)
                                     with open(caminho_av_py, 'a', encoding='utf-8') as fav:
@@ -1381,7 +1381,7 @@ def iniciar_analise():
                                         txt_mod += "\n" + txt_av
                                         rc_mod = rc_av
                                         modo_verif_mod = f"{modo_verif_mod} [Entry: {fn_alvo_auto}]"
-                                        metricas_mod = extrair_metricas_e_contraexemplo_esbmc(txt_mod, rel_path, usou_homog_mod)
+                                        metricas_mod = extrair_metricas_e_contraexemplo_esbmc(txt_mod, rel_path)
                                         jsons_mod = glob.glob(os.path.join(temp_dir, '*.json'))
                                 except Exception:
                                     pass
@@ -1446,14 +1446,18 @@ def iniciar_analise():
                     veredito_mod = classificar_veredito(
                         txt_mod, rc_mod, bool(TAREFAS_ATIVAS[task_id].get("cancel_requested"))
                     )
-                    if usou_homog_mod and veredito_mod == "SUCCESSFUL":
-                        veredito_mod = "MODEL_ONLY"  # the homogenized model is not the user's code (#14)
+                    if veredito_mod == "SUCCESSFUL" and nao_exercitadas_mod:
+                        veredito_mod = "PARTIAL"
                     if teve_erro_bruto:
                         any_inconclusive_overall = True
                         status_mod = "RAW ERROR (Unresolved Deps)"
+                    elif veredito_mod in ("BOUND_REACHED", "UNSUPPORTED"):
+                        any_inconclusive_overall = True
+                        mod_violations = 0
+                        status_mod = f"{veredito_mod} (NO VERDICT)"
                     elif mod_violations > 0:
                         any_violation_overall = True
-                        tag_orig = "NATIVE BUG" if metricas_mod["violation_origin"] == "[NATIVE CODE BUG]" else "CONTRACT"
+                        tag_orig = "NATIVE BUG"
                         status_mod = f"VIOLATION [{tag_orig}] (k={metricas_mod['k_depth']})"
                     elif veredito_mod != "SUCCESSFUL":
                         any_inconclusive_overall = True
@@ -1533,7 +1537,7 @@ def iniciar_analise():
                 tempo_total_repo = time.time() - tempo_inicio_repo
                 total_safe = sum(1 for r in repo_exploration_summary if "SAFE" in r["status"] or "SOUND" in r["status"])
                 total_viol = sum(1 for r in repo_exploration_summary if r["violations"] > 0)
-                total_raw_err = sum(1 for r in repo_exploration_summary if "RAW ERROR" in r["status"])
+                total_raw_err = sum(1 for r in repo_exploration_summary if "RAW ERROR" in r["status"] or "NO VERDICT" in r["status"])
                 total_vccs_repo = sum(int(r.get("vccs", 0)) for r in repo_exploration_summary)
                 total_ssa_repo = sum(int(r.get("ssa_assigns", 0)) for r in repo_exploration_summary)
                 total_pass = sum(1 for r in repo_exploration_summary if "PASS" in r.get("test_status", ""))
@@ -1620,7 +1624,7 @@ def iniciar_analise():
                     veredito = "UNKNOWN"
                 else:
                     veredito = "SUCCESSFUL"
-                verificacao_sucesso = (veredito == "SUCCESSFUL")
+                verificacao_sucesso = veredito == "SUCCESSFUL"
                 if verificacao_sucesso and not aggregated_dashboard_data:
                     aggregated_dashboard_data = [{
                         "status": "successful",
@@ -1645,7 +1649,6 @@ def iniciar_analise():
                 TAREFAS_ATIVAS[task_id]["resultado"] = {
                     "verificacao_sucesso": verificacao_sucesso,
                     "verdict": veredito,
-                    "veredito": veredito,
                     "dashboard_data": aggregated_dashboard_data,
                     "repo_exploration_summary": repo_exploration_summary,
                     "latex_table": "\n".join(linhas_latex),
@@ -1663,6 +1666,7 @@ def iniciar_analise():
             # ==========================================================
             arquivo_alvo = main_file_path_in_repo if (is_git and main_file_path_in_repo and is_raw_esbmc) else nome_arquivo_principal
             usou_homogenizer_v2 = False
+            nao_exercitadas = []
 
             if is_raw_esbmc:
                 TAREFAS_ATIVAS[task_id]["logs"] += (
@@ -1671,24 +1675,21 @@ def iniciar_analise():
                     f"[SYSTEM] [Strict Pure ESBMC Baseline] Executing native ESBMC directly on unmodified source: {arquivo_alvo}\n"
                 )
             elif linguagem == 'python':
-                TAREFAS_ATIVAS[task_id]["logs"] += "\n[SYSTEM] Analyzing Python AST & Dependencies (ESBMC Homogenizer v2.0)...\n"
+                TAREFAS_ATIVAS[task_id]["logs"] += "\n[SYSTEM] Analyzing Python entry points...\n"
                 caminho_sanitizado = os.path.join(temp_dir, 'codigo_esbmc_sanitized.py')
                 try:
                     info_sanit = sanitizar_python(
                         caminho_original,
                         caminho_sanitizado,
                         temp_dir=temp_dir,
-                        is_git=is_git,
-                        forcar_homogenizer=False
+                        is_git=is_git
                     )
                     arquivo_alvo = 'codigo_esbmc_sanitized.py'
                     usou_homogenizer_v2 = info_sanit['usou_homogenizer_v2']
                     codigo_para_dashboard = info_sanit['codigo_final']
                     if usou_homogenizer_v2:
-                        TAREFAS_ATIVAS[task_id]["logs"] += (
-                            f"[SYSTEM] [ESBMC Homogenizer v2.0] Activated: {info_sanit['motivo']}\n"
-                            f"[SYSTEM] [ESBMC Homogenizer v2.0] Symbolic model generated ({info_sanit['alvos_extraidos']} target(s) + SMT security contracts).\n"
-                        )
+                        nao_exercitadas = info_sanit['funcoes_ignoradas']
+                        TAREFAS_ATIVAS[task_id]["logs"] += descrever_harness(info_sanit)
                     else:
                         TAREFAS_ATIVAS[task_id]["logs"] += (
                             f"[SYSTEM] Direct Python verification mode ({info_sanit['motivo']}).\n"
@@ -1733,36 +1734,11 @@ def iniciar_analise():
                 is_fallback=False,
                 modo_puro_raw=is_raw_esbmc
             )
-
-            lista_json = glob.glob(os.path.join(temp_dir, '*.json'))
-            if (
-                not is_raw_esbmc
-                and not TAREFAS_ATIVAS[task_id].get("cancel_requested")
-                and linguagem == 'python'
-                and not usou_homogenizer_v2
-                and not lista_json
-                and ("ERROR:" in texto_final or "ImportError" in texto_final or "ModuleNotFoundError" in texto_final or returncode != 0)
-            ):
-                TAREFAS_ATIVAS[task_id]["logs"] += (
-                    "\n[SYSTEM] Direct pass encountered unresolved constructs/dependencies. "
-                    "Triggering ESBMC Homogenizer v2.0 (VeriBee) automatic fallback...\n"
+            if not is_raw_esbmc:
+                texto_final, returncode = reexecutar_com_multi_property(
+                    texto_final, returncode, flags_recebidas,
+                    lambda flags: rodar_esbmc(arquivo_alvo, usou_homogenizer=usou_homogenizer_v2, flags_custom_override=flags)
                 )
-                try:
-                    caminho_sanitizado = os.path.join(temp_dir, 'codigo_esbmc_sanitized.py')
-                    info_sanit = sanitizar_python(
-                        caminho_original,
-                        caminho_sanitizado,
-                        temp_dir=temp_dir,
-                        is_git=True,
-                        forcar_homogenizer=True
-                    )
-                    arquivo_alvo = 'codigo_esbmc_sanitized.py'
-                    usou_homogenizer_v2 = True
-                    codigo_para_dashboard = info_sanit['codigo_final']
-                    texto_final, returncode = rodar_esbmc(arquivo_alvo, usou_homogenizer=True, is_fallback=True)
-                    lista_json = glob.glob(os.path.join(temp_dir, '*.json'))
-                except Exception as e:
-                    TAREFAS_ATIVAS[task_id]["logs"] += f"[ERROR] Fallback Homogenizer failed: {str(e)}\n"
 
             # --- 3. PARSING DOS RESULTADOS GERAIS (DASHBOARD) ---
             dashboard_data = []
@@ -1784,11 +1760,12 @@ def iniciar_analise():
                     "steps": []
                 }]
 
-            cancelado = bool(TAREFAS_ATIVAS[task_id].get("cancel_requested"))
-            veredito = classificar_veredito(texto_final, returncode, cancelado)
-            if usou_homogenizer_v2 and veredito == "SUCCESSFUL":
-                veredito = "MODEL_ONLY"
-            verificacao_sucesso = (veredito == "SUCCESSFUL")
+            veredito = classificar_veredito(
+                texto_final, returncode, bool(TAREFAS_ATIVAS[task_id].get("cancel_requested"))
+            )
+            if veredito == "SUCCESSFUL" and nao_exercitadas:
+                veredito = "PARTIAL"
+            verificacao_sucesso = veredito == "SUCCESSFUL"
 
             # Garante que quando o ESBMC tiver sucesso sem vulnerabilidades, o Dashboard receba o status OK!
             if verificacao_sucesso and not any(isinstance(r, dict) and r.get("status") == "violation" for r in dashboard_data):
@@ -1796,13 +1773,6 @@ def iniciar_analise():
                     dashboard_data = [{
                         "status": "successful",
                         "message": "VERIFICATION SUCCESSFUL — Código seguro! Nenhuma vulnerabilidade detectada pelo ESBMC.",
-                        "steps": []
-                    }]
-            elif veredito == "MODEL_ONLY" and not any(isinstance(r, dict) and r.get("status") == "violation" for r in dashboard_data):
-                if not dashboard_data:
-                    dashboard_data = [{
-                        "status": "model_only",
-                        "message": "MODEL VERIFICATION COMPLETED (SLICED SAFE) — Nenhuma violação detectada no modelo abstrato. (Nota: Verificação baseada em modelo/harness simbólico irrestrito, não constitui prova formal do programa não-homogeneizado completo).",
                         "steps": []
                     }]
 
@@ -1839,9 +1809,7 @@ def iniciar_analise():
 
             repo_single_summary = None
             if is_git and main_file_path_in_repo:
-                metricas_single = extrair_metricas_e_contraexemplo_esbmc(
-                    texto_final, main_file_path_in_repo, usou_homogenizer=usou_homogenizer_v2
-                )
+                metricas_single = extrair_metricas_e_contraexemplo_esbmc(texto_final, main_file_path_in_repo)
                 viol_count = sum(
                     1 for r in dashboard_data if isinstance(r, dict) and r.get("status") == "violation"
                     for s in r.get("steps", []) if s.get("type") == "violation"
@@ -1867,8 +1835,10 @@ def iniciar_analise():
                                 "location": {"file": main_file_path_in_repo, "line": 1, "function": "module_load"}
                             }]
                         }]
+                elif veredito in ("BOUND_REACHED", "UNSUPPORTED"):
+                    status_single = f"{veredito} (NO VERDICT)"
                 elif viol_count > 0:
-                    tag_orig = "NATIVE BUG" if metricas_single["violation_origin"] == "[NATIVE CODE BUG]" else "CONTRACT"
+                    tag_orig = "NATIVE BUG"
                     status_single = f"VIOLATION [{tag_orig}] (k={metricas_single['k_depth']})"
                 elif veredito != "SUCCESSFUL":
                     status_single = f"{veredito} (NO VERDICT)"
@@ -1880,7 +1850,7 @@ def iniciar_analise():
                 modo_single = (
                     "Strict Pure ESBMC (Raw)"
                     if is_raw_esbmc
-                    else ("Homogenizer v2.0 (Symbolic Slice)" if usou_homogenizer_v2 else "Direct Native BMC")
+                    else ("Python + Entry Harness" if usou_homogenizer_v2 else "Direct Native BMC")
                 )
                 ultimo_cli_single = TAREFAS_ATIVAS[task_id].get("last_cli", f"esbmc {arquivo_alvo}")
 
@@ -1916,7 +1886,6 @@ def iniciar_analise():
             TAREFAS_ATIVAS[task_id]["resultado"] = {
                 "verificacao_sucesso": verificacao_sucesso,
                 "verdict": veredito,
-                "veredito": veredito,
                 "dashboard_data": dashboard_data,
                 "repo_exploration_summary": repo_single_summary,
                 "html_report_data": html_report,
@@ -1937,20 +1906,16 @@ def iniciar_analise():
     return jsonify({"task_id": task_id})
 
 
-_CACHED_ESBMC_VER = None
-
 @app.route('/health', methods=['GET'])
 def health_check():
-    global _CACHED_ESBMC_VER
-    if not _CACHED_ESBMC_VER:
-        try:
-            proc = subprocess.run(['esbmc', '--version'], capture_output=True, text=True, timeout=5)
-            _CACHED_ESBMC_VER = (proc.stdout + proc.stderr).strip() or "ESBMC 8.4.0"
-        except Exception:
-            _CACHED_ESBMC_VER = "ESBMC 8.4.0 (WSL2)"
+    try:
+        proc = subprocess.run(['esbmc', '--version'], capture_output=True, text=True, timeout=5)
+        ver = (proc.stdout + proc.stderr).strip() or "ESBMC 8.4.0"
+    except Exception:
+        ver = "ESBMC 8.4.0 (WSL2)"
     return jsonify({
         "status": "ready",
-        "esbmc_version": _CACHED_ESBMC_VER,
+        "esbmc_version": ver,
         "solver": "Z3 v4.8.12 + Bitwuzla",
         "engine": "RepoSlice-BMC v2026 (Polyglot C/C++/Python)"
     })
@@ -1992,4 +1957,4 @@ def get_esbmc_help():
 
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000, debug=True, use_reloader=False, threaded=True)
+    app.run(host='127.0.0.1', port=5000, debug=True, use_reloader=False, threaded=True)
