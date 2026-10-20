@@ -13,10 +13,17 @@ def contido_em(base: str, alvo: str) -> bool:
 def remover_links_externos(raiz: str) -> list:
     """Delete symlinks under `raiz` that resolve outside it; returns their relative paths, sorted."""
     removidos = []
+    candidatos = []
     for dirpath, dirnames, filenames in os.walk(raiz):
         for nome in dirnames + filenames:
             caminho = os.path.join(dirpath, nome)
-            if os.path.islink(caminho) and not contido_em(raiz, caminho):
-                os.unlink(caminho)
-                removidos.append(os.path.relpath(caminho, raiz).replace('\\', '/'))
+            if os.path.islink(caminho):
+                candidatos.append(caminho)
+
+    para_remover = [c for c in candidatos if not contido_em(raiz, c)]
+    for caminho in para_remover:
+        if os.path.islink(caminho):
+            os.unlink(caminho)
+            removidos.append(os.path.relpath(caminho, raiz).replace('\\', '/'))
     return sorted(removidos)
+
