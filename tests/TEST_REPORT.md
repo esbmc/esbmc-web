@@ -104,6 +104,8 @@ After `fix/mock-path-containment` (#19): `105 passed, 3 xfailed` (remaining xfai
 
 After `fix/function-target-scoring` (#20): `118 passed, 2 xfailed` (remaining xfails: #14 body preservation).
 
+After `fix/python-harness-preserves-code` (#14): `130 passed`, no expected failures left; UI suite E2E-01..E2E-11 PASS.
+
 There were no pre-existing tests in the repository. A mutation check (forcing `verificacao_sucesso = True` in `app.py`) made 10 verdict tests fail, so the passing tests do detect a verdict regression. Every xfail was also run with `--runxfail` to confirm it fails on the documented assertion rather than an incidental error.
 
 ## 5. Defects
@@ -113,7 +115,7 @@ There were no pre-existing tests in the repository. A mutation check (forcing `v
 | D1 | Critical | default `--unwind N --no-unwinding-assertions` → false SUCCESSFUL | [#11](https://github.com/esbmc/esbmc-web/issues/11) (new) | fixed |
 | D2 | Critical | cancelled run reported as SUCCESSFUL (backend) | [#12](https://github.com/esbmc/esbmc-web/issues/12) (new) | fixed |
 | D3 | Critical | UI shows SUCCESSFUL for parse error / timeout / cancel | [#13](https://github.com/esbmc/esbmc-web/issues/13) (new) | fixed |
-| D4 | Critical | Python homogenizer replaces function bodies, restricts inputs | [#14](https://github.com/esbmc/esbmc-web/issues/14) (new) | mitigated: never reported SUCCESSFUL (MODEL_ONLY); bodies still replaced |
+| D4 | Critical | Python homogenizer replaces function bodies, restricts inputs | [#14](https://github.com/esbmc/esbmc-web/issues/14) (new) | fixed (`fix/python-harness-preserves-code`): original code kept, entry harness appended |
 | D5 | Critical | unparseable repo modules replaced by template, reported SAFE | [#15](https://github.com/esbmc/esbmc-web/issues/15) (new) | fixed |
 | D6 | Critical | repo `// esbmc-flags:` can disable checks | [#16](https://github.com/esbmc/esbmc-web/issues/16) (new) | fixed |
 | D7 | Critical | C++ sanitizer strips `virtual` (and other semantic rewrites) | [#17](https://github.com/esbmc/esbmc-web/issues/17) (new) | fixed (`fix/cpp-parse-macos`) |
@@ -145,6 +147,10 @@ Further defects found and fixed while fixing the above:
   - there is no file-size or count limit on cloned repositories
 - The C++ sanitizer still applies syntax-level rewrites: `begin(c)`/`end(c)` const_cast, `.data()` to `&x[0]`, `emplace_back` to `push_back`, `std::addressof` to `&`, removal of `requires` clauses, `if constexpr` to `if`, and `#define final`/`#define override` in the forced compat header. In review probes they caused parse errors or false alarms, but no false SAFE. It is not proven that removing `requires` can never change overload resolution.
 - With unwinding assertions kept, the default `--unwind 3` makes many C++ programs end as `BOUND_REACHED` because of loops inside ESBMC's own library models. The result is sound, but users need a larger `--unwind` or `--k-induction` to get a verdict.
+- **ESBMC 8.6 crash (upstream):** with `--generate-json-report`, which the backend always passes, ESBMC throws `uncaught exception [St16invalid_argument]` while building the trace for a Python counterexample that is an uncaught exception, e.g. `ZeroDivisionError`. The run is reported as ERROR, not SUCCESSFUL, but the bug is lost. Without the JSON report ESBMC reports FAILED.
+- **Python harness scope:** the harness is appended only when a module has no module-level code of its own (program mode otherwise). A buggy function the program never calls is therefore not checked in that case.
+  - Harness calls run sequentially, so a function that always raises hides the checks on the functions called after it.
+  - `nondet_str()` combined with string methods tends to time out.
 - `/health` hard-codes `"solver": "Z3 v4.8.12 + Bitwuzla"` regardless of what is installed.
 
 ## 7. Conclusion
