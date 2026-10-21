@@ -2,20 +2,24 @@ import subprocess
 
 import pytest
 
-from conftest import known_defect, requires_esbmc
+from conftest import requires_esbmc
 from sanitizers.caminhos import contido_em, remover_links_externos
 from sanitizers.c_sanitizer import sanitizar_c
 from sanitizers import cpp_sanitizer
 from sanitizers.cpp_sanitizer import sanitizar_cpp
-from sanitizers.python_sanitizer import precisa_homogeneizar_v2, sanitizar_python
+from sanitizers.python_sanitizer import gerar_harness_python, precisa_homogeneizar_v2, sanitizar_python
 
 
 class TestPythonHomogenizerDecision:
     def test_self_contained_script_runs_natively(self):
         assert precisa_homogeneizar_v2('x = 1\nassert x == 1\n')[0] is False
 
-    def test_harness_is_never_homogenized(self):
-        assert precisa_homogeneizar_v2('import torch\n', is_harness=True)[0] is False
+    def test_harness_with_entry_code_is_kept_as_is(self):
+        assert precisa_homogeneizar_v2('import torch\nassert 1 == 1\n', is_harness=True)[0] is False
+        assert precisa_homogeneizar_v2('def t(x: int):\n    assert x\n\nt(1)\n', is_harness=True)[0] is False
+
+    def test_harness_that_only_defines_functions_gets_calls(self):
+        assert precisa_homogeneizar_v2('def t(x: int):\n    assert x != 3\n', is_harness=True)[0] is True
 
     def test_external_import_triggers_homogenizer(self):
         assert precisa_homogeneizar_v2('import requests\n')[0] is True
@@ -31,12 +35,32 @@ class TestPythonHomogenizerDecision:
         assert info['usou_homogenizer_v2'] is False
         assert '10 // x' in out.read_text()
 
-    @known_defect('D4 (#14): homogenizer drops the original function body')
     def test_homogenized_output_preserves_function_body(self, tmp_path):
         src, out = tmp_path / 'm.py', tmp_path / 'o.py'
         src.write_text('import os\n\ndef f(x: int) -> int:\n    return 10 // x\n')
         sanitizar_python(str(src), str(out), temp_dir=str(tmp_path))
         assert '10 // x' in out.read_text()
+
+class TestPythonHarness:
+    def test_calls_each_function_with_nondet_arguments(self):
+        code = 'def f(n: int, s: str, b: bool, x: float) -> int:\n    return n\n\ndef g(a):\n    return a\n'
+        out, called, skipped = gerar_harness_python(code)
+        assert out.startswith(code)
+        assert called == ['f', 'g'] and not skipped
+        assert 'f(_esbmc_f_n, _esbmc_f_s, _esbmc_f_b, _esbmc_f_x)' in out
+        for decl in ('_esbmc_f_n: int = nondet_int()', '_esbmc_f_s: str = nondet_str()',
+                     '_esbmc_f_b: bool = nondet_bool()', '_esbmc_f_x: float = nondet_float()',
+                     '_esbmc_g_a: int = nondet_int()'):
+            assert decl in out
+
+    def test_skips_functions_it_cannot_call_and_adds_no_constraints(self):
+        code = ('def a(x: list) -> None:\n    pass\n\ndef b(*args):\n    pass\n\n'
+                'def c(*, k):\n    pass\n\ndef __d(x):\n    pass\n\nclass K:\n    def m(self, x: int):\n        pass\n')
+        out, called, skipped = gerar_harness_python(code)
+        assert (out, called, skipped) == (code, [], ['a', 'b', 'c', 'K.m'])
+        assert '__ESBMC_assume' not in gerar_harness_python('def f(n: int):\n    pass\n')[0]
+        assert gerar_harness_python('async def f(n: int):\n    pass\n')[2] == ['f']
+
 
 class TestCSanitizer:
     def test_generates_harness_for_module_without_main(self, tmp_path):
