@@ -45,6 +45,13 @@ class TestVerdictClassification:
                      '  assertion x==2 && "unwinding assertion"\n  !(x == 2)\n\nVERIFICATION FAILED\n')
         assert classificar_veredito(user_text, 1, False) == 'FAILED'
 
+    def test_unsupported_call_is_no_verdict_unless_a_real_property_fails(self):
+        unsupported = ('Violated property:\n  file p.py line 4 column 11\n'
+                       "  Unsupported function 'join' is reached\n  0\n\nVERIFICATION FAILED\n")
+        assert classificar_veredito(unsupported, 1, False) == 'UNSUPPORTED'
+        mixed = unsupported.replace('VERIFICATION FAILED', '  FAILED       [f.assertion.2]  line 3  assertion n != 3\nVERIFICATION FAILED')
+        assert classificar_veredito(mixed, 1, False) == 'FAILED'
+
     def test_completed_verdict_survives_late_cancel(self):
         assert classificar_veredito('VERIFICATION SUCCESSFUL\n', 0, True) == 'SUCCESSFUL'
 
@@ -79,7 +86,7 @@ class TestOracleComparison:
         assert avaliar_status_teste('VIOLATION [CONTRACT] (k=1)', 'VERIFICATION SUCCESSFUL')[0] == 'REGRESSION_FAILED'
 
     def test_run_without_verdict_never_passes_an_oracle(self):
-        for obtained in ('TIMEOUT (NO VERDICT)', 'ERROR (NO VERDICT)', 'MODEL_ONLY (NO VERDICT)',
+        for obtained in ('TIMEOUT (NO VERDICT)', 'ERROR (NO VERDICT)', 'BOUND_REACHED (NO VERDICT)',
                          'STOPPED (NO VERDICT)', 'RAW ERROR (Unresolved Deps)'):
             for oracle in ('VERIFICATION SUCCESSFUL', 'VERIFICATION FAILED', 'VERIFICATION TIMEOUT', 'UNKNOWN'):
                 assert avaliar_status_teste(obtained, oracle)[0] == 'INCONCLUSIVE', (obtained, oracle)
