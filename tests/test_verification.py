@@ -9,7 +9,7 @@ import os
 import pytest
 
 import app as backend_app
-from conftest import analyse, commit, known_defect, requires_esbmc, wait_for_task
+from conftest import analyse, commit, requires_esbmc, wait_for_task
 
 pytestmark = requires_esbmc
 
@@ -165,19 +165,41 @@ class TestSingleFilePython:
         res = result(analyse(client, {'language': 'python', 'codigo': code, 'flags': []}))
         assert res['verificacao_sucesso'] is False
 
-    @known_defect('D4 (#14): homogenizer replaces the body of div() with "return 200"')
-    def test_homogenized_function_keeps_original_body(self, client):
+    def test_harness_keeps_original_function_body(self, client):
         code = 'def div(a: int, b: int) -> int:\n    return a // b\n'
         res = result(analyse(client, {'language': 'python', 'codigo': code, 'flags': []}))
-        assert 'a // b' in res['codigo_analisado']
+        assert res['codigo_analisado'].startswith(code)
+        assert res['verdict'] != 'SUCCESSFUL'
 
-    def test_homogenized_run_is_never_reported_successful(self, client):
+    def test_harnessed_safe_function_is_successful(self, client):
+        code = 'import os\n\ndef f(n: int) -> int:\n    if n > 0:\n        return n\n    return -n\n'
+        res = result(analyse(client, {'language': 'python', 'codigo': code, 'flags': []}))
+        assert res['verdict'] == 'SUCCESSFUL'
+
+    def test_unsupported_library_call_is_not_reported_as_a_bug(self, client):
+        code = 'import os\n\ndef f(p: str) -> str:\n    return os.path.join(p, "x")\n'
+        res = result(analyse(client, {'language': 'python', 'codigo': code, 'flags': []}))
+        assert res['verdict'] == 'UNSUPPORTED'
+
+    def test_harness_reports_partial_when_functions_are_not_exercised(self, client):
+        code = ('import os\n\nclass C:\n    def m(self, y: int) -> int:\n        return 10 // y\n\n'
+                'def g(n: int) -> int:\n    return n\n')
+        status = analyse(client, {'language': 'python', 'codigo': code, 'flags': []})
+        res = result(status)
+        assert res['verdict'] == 'PARTIAL'
+        assert res['verificacao_sucesso'] is False
+        assert 'not exercised: C.m' in status['logs']
+
+    def test_real_bug_after_unsupported_call_is_still_found(self, client):
+        code = 'import os\n\ndef f(x: int) -> int:\n    p = os.path.join("a", "b")\n    assert x != 3\n    return x\n'
+        res = result(analyse(client, {'language': 'python', 'codigo': code, 'flags': []}))
+        assert res['verdict'] == 'FAILED'
+
+    def test_harness_explores_negative_inputs(self, client):
         code = 'import os\n\ndef f(n: int) -> int:\n    assert n >= 0\n    return n\n'
         res = result(analyse(client, {'language': 'python', 'codigo': code, 'flags': []}))
-        assert res['verdict'] == 'MODEL_ONLY'
-        assert res['verificacao_sucesso'] is False
-        assert not any(r.get('status') == 'successful' for r in res['dashboard_data'])
-
+        assert res['verdict'] == 'FAILED'
+        assert res['codigo_analisado'].startswith(code)
 
 class TestRepository:
     def test_single_file_from_repo_finds_bug(self, client, local_repo):
@@ -220,11 +242,11 @@ class TestRepository:
         res = result(analyse(client, {'language': 'c', 'git_url': repo, 'explore_repo': True, 'flags': []}))
         assert res['verdict'] == 'SUCCESSFUL'
 
-    def test_exploration_does_not_report_homogenized_python_as_safe(self, client, local_repo):
-        repo = local_repo({'pkg/m.py': 'import os\n\ndef f(n: int) -> int:\n    return 10 // n\n'})
+    def test_exploration_harness_finds_bug_in_uncalled_python_function(self, client, local_repo):
+        repo = local_repo({'pkg/m.py': 'import os\n\ndef f(n: int) -> int:\n    assert n != 3\n    return n\n'})
         res = result(analyse(client, {'language': 'python', 'git_url': repo, 'explore_repo': True, 'flags': []}))
-        assert res['repo_exploration_summary'][0]['status'] == 'MODEL_ONLY (NO VERDICT)'
-        assert res['verificacao_sucesso'] is False
+        assert res['repo_exploration_summary'][0]['status'].startswith('VIOLATION')
+        assert res['verdict'] == 'FAILED'
 
     def test_repository_directive_cannot_smuggle_flag_as_value(self, client, local_repo):
         code = '// esbmc-flags: --unwind 3 --unwind --no-assertions\n#include <assert.h>\nint main(){ assert(0); return 0; }\n'
@@ -335,6 +357,19 @@ class TestRepository:
                                   'codigo': 'int main(){ return 0; }\n', 'flags': []})
         assert status['status'] == 'error'
         assert header.read_text() == 'consteval int f(){ return 1; }\n'
+
+    def test_exploration_marks_unsupported_library_call_as_no_verdict(self, client, local_repo):
+        repo = local_repo({'pkg/p.py': 'import os\n\ndef f(p: str) -> str:\n    return os.path.join(p, "x")\n'})
+        res = result(analyse(client, {'language': 'python', 'git_url': repo, 'explore_repo': True, 'flags': []}))
+        row = res['repo_exploration_summary'][0]
+        assert row['status'] == 'UNSUPPORTED (NO VERDICT)'
+        assert row['violations'] == 0
+        assert res['verdict'] == 'UNKNOWN'
+
+    def test_exploration_finds_real_bug_after_unsupported_call(self, client, local_repo):
+        repo = local_repo({'pkg/p.py': 'import os\n\ndef f(x: int) -> int:\n    p = os.path.join("a", "b")\n    assert x != 3\n    return x\n'})
+        res = result(analyse(client, {'language': 'python', 'git_url': repo, 'explore_repo': True, 'flags': []}))
+        assert res['repo_exploration_summary'][0]['status'].startswith('VIOLATION')
 
     def test_single_repo_file_parse_error_is_not_labelled_safe(self, client, local_repo):
         repo = local_repo({'src/broken.c': C_PARSE_ERROR})
