@@ -40,7 +40,7 @@ const ROW = (file, status, extra = {}) => ({
 
 // Stubbed scenarios replace the backend with a canned /status payload to pin rendering decisions.
 SCENARIOS.push(
-  { id: 'E2E-06', lang: 'c', expect: 'NOT_SUCCESSFUL', banner: /INCONCLUSIVE/, code: 'int main(){return 0;}\n',
+  { id: 'E2E-06', lang: 'c', expect: 'NOT_SUCCESSFUL', banner: /INCONCLUSIVE — ESBMC REPORTED NO VERDICT/, code: 'int main(){return 0;}\n',
     note: 'oracle suite banner must not override an inconclusive repository verdict',
     stub: { status: 'completed', logs: '', progresso: null, resultado: {
       verdict: 'UNKNOWN', verificacao_sucesso: false, dashboard_data: [], codigo_analisado: '// stub',
@@ -59,13 +59,13 @@ SCENARIOS.push(
       verdict: 'FAILED', verificacao_sucesso: false, codigo_analisado: '// stub',
       dashboard_data: [{ status: 'violation', steps: [{ type: 'violation', message: 'assertion 0', file: 'src/bug.c', line: 3, function: 'main', cwe: 'CWE-617', severity: 'High' }] }],
       repo_exploration_summary: [ROW('src/bug.c', 'VIOLATION [NATIVE BUG] (k=1)', { violations: 1, test_status: '❌ VIOLATION', test_status_code: 'VIOLATION' })] } } },
-  { id: 'E2E-09', lang: 'c', expect: 'BANNER', banner: /SUÍTE DE TESTES APROVADA: 1 BUG/, code: 'int main(){return 0;}\n',
+  { id: 'E2E-09', lang: 'c', expect: 'BANNER', banner: /TEST SUITE PASSED: 1 BUG/, code: 'int main(){return 0;}\n',
     note: 'a real oracle suite whose expected bug was found still shows the approved-suite banner',
     stub: { status: 'completed', logs: '', progresso: null, resultado: {
       verdict: 'FAILED', verificacao_sucesso: false, codigo_analisado: '// stub',
       dashboard_data: [{ status: 'violation', steps: [{ type: 'violation', message: 'assertion 0', file: 'src/bug.c', line: 3, function: 'main', cwe: 'CWE-617', severity: 'High' }] }],
       repo_exploration_summary: [ROW('src/bug.c', 'VIOLATION [NATIVE BUG] (k=1)', { violations: 1, expected_verdict: 'VERIFICATION FAILED', test_status: '🟢 PASS (Bug Encontrado)', test_status_code: 'PASS_BUG_FOUND' })] } } },
-  { id: 'E2E-10', lang: 'c', expect: 'BANNER', banner: /INCONCLUSIVA/, code: 'int main(){return 0;}\n',
+  { id: 'E2E-10', lang: 'c', expect: 'BANNER', banner: /TEST SUITE INCONCLUSIVE/, code: 'int main(){return 0;}\n',
     note: 'an oracle module without a verdict keeps the suite from showing as approved',
     stub: { status: 'completed', logs: '', progresso: null, resultado: {
       verdict: 'FAILED', verificacao_sucesso: false, codigo_analisado: '// stub',

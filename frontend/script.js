@@ -165,7 +165,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     serverStatusBadge.style.color = '#065f46';
                     serverStatusBadge.style.borderColor = '#10b981';
                     serverStatusDot.style.background = '#10b981';
-                    serverStatusText.textContent = `🟢 Servidor ESBMC Online (${info.engine ? 'Ativo' : 'Pronto'})`;
+                    serverStatusText.textContent = `🟢 ESBMC Server Online (${info.engine ? 'Active' : 'Ready'})`;
                 }
                 return;
             }
@@ -177,7 +177,7 @@ document.addEventListener('DOMContentLoaded', () => {
             serverStatusBadge.style.color = '#92400e';
             serverStatusBadge.style.borderColor = '#f59e0b';
             serverStatusDot.style.background = '#f59e0b';
-            serverStatusText.textContent = `⏳ Conectando ao Servidor...`;
+            serverStatusText.textContent = `⏳ Connecting to Server...`;
         }
         setTimeout(checkServerHealth, 2000);
     }
@@ -199,11 +199,11 @@ document.addEventListener('DOMContentLoaded', () => {
         <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; margin-bottom: 10px;">
             <div id="live-progress-status-text" style="font-size: 13.5px; color: var(--primary); font-weight: 700; display: flex; align-items: center; gap: 8px;">
                 <span style="display:inline-block; width: 14px; height: 14px; border: 2.5px solid var(--primary); border-top-color: transparent; border-radius: 50%; animation: spin 1s linear infinite;"></span>
-                <span>Iniciando verificação formal...</span>
+                <span>Starting formal verification...</span>
             </div>
             <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
                 <span id="live-progress-counter-badge" style="background: #4f46e5; color: #fff; padding: 4px 12px; border-radius: 999px; font-size: 12.5px; font-weight: 800;">
-                    Teste 1/1 (0%)
+                    Test 1/1 (0%)
                 </span>
                 <span id="live-progress-scoreboard" style="background: #e2e8f0; color: #1e293b; padding: 4px 10px; border-radius: 6px; font-size: 12px; font-weight: 600;">
                     ✅ SAFE: 0 | ❌ VIOLATION: 0 | 📐 VCCs: 0
@@ -217,15 +217,15 @@ document.addEventListener('DOMContentLoaded', () => {
             <table style="width: 100%; border-collapse: collapse; font-size: 12px;">
                 <thead style="background: #f1f5f9; position: sticky; top: 0;">
                     <tr>
-                        <th style="padding: 6px 8px; text-align: left;">Teste #</th>
+                        <th style="padding: 6px 8px; text-align: left;">Test #</th>
                         <th style="padding: 6px 8px; text-align: left;">Lang</th>
-                        <th style="padding: 6px 8px; text-align: left;">Fase</th>
-                        <th style="padding: 6px 8px; text-align: left;">Módulo / Arquivo</th>
-                        <th style="padding: 6px 8px; text-align: left;">Modo / Contraexemplo Z3</th>
+                        <th style="padding: 6px 8px; text-align: left;">Phase</th>
+                        <th style="padding: 6px 8px; text-align: left;">Module / File</th>
+                        <th style="padding: 6px 8px; text-align: left;">Mode / Z3 Counterexample</th>
                         <th style="padding: 6px 8px; text-align: left;">VCCs / SSA</th>
-                        <th style="padding: 6px 8px; text-align: left;">Tempo</th>
-                        <th style="padding: 6px 8px; text-align: left;">Veredito</th>
-                        <th style="padding: 6px 8px; text-align: left;">Status / Oráculo</th>
+                        <th style="padding: 6px 8px; text-align: left;">Time</th>
+                        <th style="padding: 6px 8px; text-align: left;">Verdict</th>
+                        <th style="padding: 6px 8px; text-align: left;">Status / Oracle</th>
                     </tr>
                 </thead>
                 <tbody id="live-streaming-preview-tbody"></tbody>
@@ -281,7 +281,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (statusText) {
             statusText.innerHTML = `<span style="display:inline-block; width: 14px; height: 14px; border: 2.5px solid var(--primary); border-top-color: transparent; border-radius: 50%; animation: spin 1s linear infinite;"></span> <span>${initialMessage}</span>`;
         }
-        if (counterBadge) counterBadge.textContent = isRepoMode ? 'Clonando & Escaneando Git...' : 'Teste 1/1 (Em execução)';
+        if (counterBadge) counterBadge.textContent = isRepoMode ? 'Cloning & Scanning Git...' : 'Test 1/1 (Running)';
         if (scoreboard) scoreboard.textContent = '✅ SAFE: 0 | ❌ VIOLATION: 0 | 📐 VCCs: 0 | 🔗 SSA: 0';
         if (barFill) barFill.style.width = '6%';
         if (previewWrapper) previewWrapper.style.display = 'none';
@@ -472,12 +472,12 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (repoSubdirFilter && !repoSubdirFilter.value && dirPai) {
                     repoSubdirFilter.value = dirPai;
                 }
-                gitFetchStatus.innerHTML = `<span style="color:#059669; font-weight:600;">⚡ URL de arquivo detectada! Repositório base: <code>${baseUrl}</code> | Arquivo: <code>${subpath}</code></span>`;
+                gitFetchStatus.innerHTML = `<span style="color:#059669; font-weight:600;">⚡ File URL detected! Base repository: <code>${baseUrl}</code> | File: <code>${subpath}</code></span>`;
             } else {
                 if (repoSubdirFilter) {
                     repoSubdirFilter.value = subpath;
                 }
-                gitFetchStatus.innerHTML = `<span style="color:#059669; font-weight:600;">⚡ Subpasta detectada! Repositório base: <code>${baseUrl}</code> | Filtro de subdiretório: <code>${subpath}</code></span>`;
+                gitFetchStatus.innerHTML = `<span style="color:#059669; font-weight:600;">⚡ Subfolder detected! Base repository: <code>${baseUrl}</code> | Subdirectory filter: <code>${subpath}</code></span>`;
             }
         }
     }
@@ -502,15 +502,15 @@ document.addEventListener('DOMContentLoaded', () => {
     function renderizarArquivosPasta(listaArquivos, subpasta) {
         gitFileListDatalist.innerHTML = '';
         if (gitFileSelect) {
-            gitFileSelect.innerHTML = '<option value="">📂 Selecionar arquivo da pasta...</option>';
+            gitFileSelect.innerHTML = '<option value="">📂 Select a file from the folder...</option>';
         }
 
         if (!listaArquivos || listaArquivos.length === 0) {
             if (gitFileSelect) gitFileSelect.style.display = 'none';
             if (gitFolderScopeBadge) gitFolderScopeBadge.style.display = 'none';
             gitFetchStatus.textContent = subpasta 
-                ? `Nenhum arquivo verificável (.c, .cpp, .py) encontrado na pasta "${subpasta}".`
-                : 'Nenhum arquivo verificável (.c, .cpp, .py) encontrado neste repositório.';
+                ? `No verifiable file (.c, .cpp, .py) found in folder "${subpasta}".`
+                : 'No verifiable file (.c, .cpp, .py) found in this repository.';
             return;
         }
 
@@ -537,23 +537,23 @@ document.addEventListener('DOMContentLoaded', () => {
         if (gitFolderScopeBadge) {
             gitFolderScopeBadge.style.display = 'inline-block';
             if (subpasta) {
-                gitFolderScopeBadge.textContent = `📂 Pasta: ${subpasta} (${listaArquivos.length} arquivos)`;
+                gitFolderScopeBadge.textContent = `📂 Folder: ${subpasta} (${listaArquivos.length} files)`;
                 gitFolderScopeBadge.style.background = '#dbeafe';
                 gitFolderScopeBadge.style.color = '#1e40af';
             } else {
-                gitFolderScopeBadge.textContent = `🌐 Repositório completo (${listaArquivos.length} arquivos)`;
+                gitFolderScopeBadge.textContent = `🌐 Whole repository (${listaArquivos.length} files)`;
                 gitFolderScopeBadge.style.background = '#e5e7eb';
                 gitFolderScopeBadge.style.color = '#4b5563';
             }
         }
 
         if (subpasta) {
-            gitFetchStatus.innerHTML = `<span style="color:#059669; font-weight:600;">✅ Pasta aberta: <code>${subpasta}</code> — ${listaArquivos.length} arquivo(s) prontos para teste individual ou exploração.</span>`;
+            gitFetchStatus.innerHTML = `<span style="color:#059669; font-weight:600;">✅ Folder opened: <code>${subpasta}</code> — ${listaArquivos.length} file(s) ready for an individual test or exploration.</span>`;
             if (gitMainFile && !gitMainFile.value) {
-                gitMainFile.placeholder = `Escolha um arquivo de ${subpasta}...`;
+                gitMainFile.placeholder = `Choose a file from ${subpasta}...`;
             }
         } else {
-            gitFetchStatus.innerHTML = `<span style="color:#059669; font-weight:600;">✅ Encontrados ${listaArquivos.length} arquivos no repositório.</span>`;
+            gitFetchStatus.innerHTML = `<span style="color:#059669; font-weight:600;">✅ Found ${listaArquivos.length} files in the repository.</span>`;
         }
     }
 
@@ -602,7 +602,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         gitFileListDatalist.innerHTML = '';
         if (gitFileSelect) {
-            gitFileSelect.innerHTML = '<option value="">📂 Carregando arquivos...</option>';
+            gitFileSelect.innerHTML = '<option value="">📂 Loading files...</option>';
             gitFileSelect.style.display = 'none';
         }
         gitFetchStatus.textContent = 'Preparing to clone repository...';
@@ -692,7 +692,7 @@ document.addEventListener('DOMContentLoaded', () => {
         gitRepoUrl.value = '';
         gitMainFile.value = '';
         if (gitFileSelect) {
-            gitFileSelect.innerHTML = '<option value="">📂 Arquivos da pasta...</option>';
+            gitFileSelect.innerHTML = '<option value="">📂 Files in folder...</option>';
             gitFileSelect.style.display = 'none';
         }
         if (gitFolderScopeBadge) gitFolderScopeBadge.style.display = 'none';
@@ -725,7 +725,7 @@ document.addEventListener('DOMContentLoaded', () => {
         gitRepoUrl.value = '';
         gitMainFile.value = '';
         if (gitFileSelect) {
-            gitFileSelect.innerHTML = '<option value="">📂 Arquivos da pasta...</option>';
+            gitFileSelect.innerHTML = '<option value="">📂 Files in folder...</option>';
             gitFileSelect.style.display = 'none';
         }
         if (gitFolderScopeBadge) gitFolderScopeBadge.style.display = 'none';
@@ -1045,7 +1045,7 @@ document.addEventListener('DOMContentLoaded', () => {
             cancelarBtn.textContent = 'Stop Analysis & Consolidate Results';
 
             initLiveProgressPanel(
-                'Clonando repositório Git e iniciando varredura estratificada RepoSlice-BMC...',
+                'Cloning the Git repository and starting the RepoSlice-BMC stratified scan...',
                 true
             );
 
@@ -1130,19 +1130,19 @@ document.addEventListener('DOMContentLoaded', () => {
                 const previewTbody = document.getElementById('live-streaming-preview-tbody');
 
                 if (counterBadge) {
-                    counterBadge.textContent = `Teste ${cur}/${tot} (${pct}%)`;
+                    counterBadge.textContent = `Test ${cur}/${tot} (${pct}%)`;
                 }
                 if (statusText) {
                     const langTag = prog.current_lang ? `[${prog.current_lang}] ` : '';
-                    const fileTag = prog.current_file || 'Aguardando...';
-                    statusText.innerHTML = `<span style="display:inline-block; width: 14px; height: 14px; border: 2.5px solid var(--primary); border-top-color: transparent; border-radius: 50%; animation: spin 1s linear infinite;"></span> <span>Verificando <strong>${cur}/${tot}</strong>: <code>${langTag}${fileTag}</code></span>`;
+                    const fileTag = prog.current_file || 'Waiting...';
+                    statusText.innerHTML = `<span style="display:inline-block; width: 14px; height: 14px; border: 2.5px solid var(--primary); border-top-color: transparent; border-radius: 50%; animation: spin 1s linear infinite;"></span> <span>Verifying <strong>${cur}/${tot}</strong>: <code>${langTag}${fileTag}</code></span>`;
                 }
                 if (scoreboard) {
                     const passBug = prog.pass_bug_count || 0;
                     const passSafe = prog.pass_safe_count || 0;
                     const regrCount = prog.regression_count || 0;
                     if (prog.test_suite_mode || passBug > 0 || regrCount > 0) {
-                        scoreboard.innerHTML = `🟢 PASS (Bugs): <strong>${passBug}</strong> | 🛡️ PASS (Safe): <strong>${passSafe}</strong> | 🔴 REGRESSÕES: <strong style="color:#dc2626;">${regrCount}</strong> | 📐 VCCs: <strong>${prog.total_vccs || 0}</strong>`;
+                        scoreboard.innerHTML = `🟢 PASS (Bugs): <strong>${passBug}</strong> | 🛡️ PASS (Safe): <strong>${passSafe}</strong> | 🔴 REGRESSIONS: <strong style="color:#dc2626;">${regrCount}</strong> | 📐 VCCs: <strong>${prog.total_vccs || 0}</strong>`;
                     } else {
                         scoreboard.innerHTML = `✅ SAFE: <strong>${prog.safe_count || 0}</strong> | ❌ VIOLATION: <strong style="color:#dc2626;">${prog.violation_count || 0}</strong> | 📐 VCCs: <strong>${prog.total_vccs || 0}</strong> | 🔗 SSA: <strong>${prog.total_ssa || 0}</strong>`;
                     }
@@ -1168,7 +1168,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         let testStatusHtml = '<span style="color:#94a3b8;">-</span>';
                         if (item.test_status) {
                             let tsColor = '#059669';
-                            if (item.test_status.includes('REGRESSÃO') || item.test_status.includes('VIOLAÇÃO')) tsColor = '#dc2626';
+                            if (item.test_status_code === 'REGRESSION_FAILED') tsColor = '#dc2626';
                             else if (item.test_status.includes('PASS')) tsColor = '#059669';
                             testStatusHtml = `<span style="background:${tsColor}; color:#fff; padding:1px 6px; border-radius:3px; font-size:10.5px; font-weight:700; white-space:nowrap;">${item.test_status}</span>`;
                         }
@@ -1192,7 +1192,7 @@ document.addEventListener('DOMContentLoaded', () => {
             if (data.status === 'consolidating') {
                 const statusText = document.getElementById('live-progress-status-text');
                 if (statusText) {
-                    statusText.innerHTML = `<span style="display:inline-block; width: 14px; height: 14px; border: 2.5px solid #059669; border-top-color: transparent; border-radius: 50%; animation: spin 1s linear infinite;"></span> <span style="color:#059669;">⏳ Consolidando Dashboard, Tabela LaTeX e CSV dos módulos já verificados...</span>`;
+                    statusText.innerHTML = `<span style="display:inline-block; width: 14px; height: 14px; border: 2.5px solid #059669; border-top-color: transparent; border-radius: 50%; animation: spin 1s linear infinite;"></span> <span style="color:#059669;">⏳ Consolidating the Dashboard, LaTeX table and CSV for the modules verified so far...</span>`;
                 }
                 return;
             }
@@ -1415,23 +1415,23 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function copyBugReportMarkdown(buttonElement) {
         if (!latestBugReportMarkdown) {
-            alert('Nenhum relatório de bug disponível no momento.');
+            alert('No bug report is available yet.');
             return;
         }
         navigator.clipboard.writeText(latestBugReportMarkdown).then(() => {
             if (buttonElement) {
                 const originalText = buttonElement.innerHTML;
-                buttonElement.innerHTML = '✅ Copiado!';
+                buttonElement.innerHTML = '✅ Copied!';
                 setTimeout(() => { buttonElement.innerHTML = originalText; }, 2500);
             }
         }).catch(() => {
-            alert('Não foi possível copiar automaticamente para a área de transferência.');
+            alert('Could not copy to the clipboard automatically.');
         });
     }
 
     function downloadBugReportMd() {
         if (!latestBugReportMarkdown) {
-            alert('Nenhum relatório de bug disponível para download.');
+            alert('No bug report is available to download.');
             return;
         }
         const blob = new Blob([latestBugReportMarkdown], { type: 'text/markdown;charset=utf-8;' });
@@ -1451,13 +1451,13 @@ document.addEventListener('DOMContentLoaded', () => {
     // =========================================================================
     function generateBugReportPdf() {
         if (!latestBugReportData || !latestBugReportMarkdown) {
-            alert('Nenhum relatório de bug disponível para gerar PDF.');
+            alert('No bug report is available to generate a PDF.');
             return;
         }
 
         const data = latestBugReportData;
         const now = new Date();
-        const dataFormatada = now.toLocaleDateString('pt-BR') + ' ' + now.toLocaleTimeString('pt-BR');
+        const dataFormatada = now.toLocaleDateString('en-GB') + ' ' + now.toLocaleTimeString('en-GB');
 
         const escapeHtml = (str) => {
             if (!str) return '';
@@ -1494,12 +1494,12 @@ document.addEventListener('DOMContentLoaded', () => {
                 <table class="report-table" style="width: 100%; border-collapse: collapse; margin-top: 6px; font-size: 11px;">
                     <thead>
                         <tr style="background-color: #f1f5f9; color: #334155; text-align: left; border-bottom: 2px solid #cbd5e1;">
-                            <th style="padding: 6px 8px;">Arquivo</th>
-                            <th style="padding: 6px 8px;">Função</th>
-                            <th style="padding: 6px 8px;">Linha</th>
-                            <th style="padding: 6px 8px;">Propriedade Violada</th>
+                            <th style="padding: 6px 8px;">File</th>
+                            <th style="padding: 6px 8px;">Function</th>
+                            <th style="padding: 6px 8px;">Line</th>
+                            <th style="padding: 6px 8px;">Violated Property</th>
                             <th style="padding: 6px 8px;">CWE (MITRE)</th>
-                            <th style="padding: 6px 8px;">Severidade</th>
+                            <th style="padding: 6px 8px;">Severity</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -1527,7 +1527,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         const p = [];
         p.push('<!DOCTYPE html>');
-        p.push('<html lang="pt-BR">');
+        p.push('<html lang="en">');
         p.push('<head>');
         p.push('    <meta charset="UTF-8">');
         p.push('    <title>' + escapeHtml(data.title) + '</title>');
@@ -1556,7 +1556,7 @@ document.addEventListener('DOMContentLoaded', () => {
         p.push('    <div class="header">');
         p.push('        <div>');
         p.push('            <h1 class="header-title">🐞 ESBMC Reproducer & Execution Flow Report</h1>');
-        p.push('            <div class="header-subtitle">Relatório Formal de Reprodução de Bug estruturado conforme template oficial de <strong>esbmc/esbmc</strong> (Wrong result or crash)</div>');
+        p.push('            <div class="header-subtitle">Formal bug reproduction report following the official <strong>esbmc/esbmc</strong> template (Wrong result or crash)</div>');
         p.push('        </div>');
         p.push('        <div class="header-badge">');
         p.push('            ❌ VERIFICATION FAILED<br>');
@@ -1564,17 +1564,17 @@ document.addEventListener('DOMContentLoaded', () => {
         p.push('        </div>');
         p.push('    </div>');
         p.push('    <div class="meta-grid">');
-        p.push('        <div class="meta-item"><strong>Título da Issue</strong><span>' + escapeHtml(data.title) + '</span></div>');
-        p.push('        <div class="meta-item"><strong>Módulo Analisado</strong><span>' + escapeHtml(data.targetFile) + '</span></div>');
-        p.push('        <div class="meta-item"><strong>Data / Hora de Extração</strong><span>' + dataFormatada + '</span></div>');
-        p.push('        <div class="meta-item"><strong>Versão do ESBMC & Solver</strong><span>' + escapeHtml(data.esbmcVer) + '</span></div>');
-        p.push('        <div class="meta-item"><strong>Linguagem / Modo</strong><span>' + escapeHtml((data.codeLang || 'c').toUpperCase()) + ' (' + escapeHtml(latestSelectedEngineMode || 'assisted') + ')</span></div>');
-        p.push('        <div class="meta-item"><strong>Projeto / Contexto</strong><span>Mestrado UFAM • Verificação Formal de Software</span></div>');
+        p.push('        <div class="meta-item"><strong>Issue Title</strong><span>' + escapeHtml(data.title) + '</span></div>');
+        p.push('        <div class="meta-item"><strong>Analysed Module</strong><span>' + escapeHtml(data.targetFile) + '</span></div>');
+        p.push('        <div class="meta-item"><strong>Extraction Date / Time</strong><span>' + dataFormatada + '</span></div>');
+        p.push('        <div class="meta-item"><strong>ESBMC & Solver Version</strong><span>' + escapeHtml(data.esbmcVer) + '</span></div>');
+        p.push('        <div class="meta-item"><strong>Language / Mode</strong><span>' + escapeHtml((data.codeLang || 'c').toUpperCase()) + ' (' + escapeHtml(latestSelectedEngineMode || 'assisted') + ')</span></div>');
+        p.push('        <div class="meta-item"><strong>Project / Context</strong><span>UFAM MSc • Formal Software Verification</span></div>');
         p.push('    </div>');
         p.push('    <div class="section">');
         p.push('        <div class="section-title">1. What went wrong</div>');
         p.push('        <div style="background: #fff1f2; border: 1px solid #fecdd3; border-radius: 6px; padding: 8px 12px; color: #9f1239; font-size: 11px;">');
-        p.push('            <strong>False alarm or verification failure:</strong> O modelo bounded do ESBMC identificou uma violação formal de propriedade ou quebra de asserção durante a checagem simbólica com o solver SMT.');
+        p.push('            <strong>False alarm or verification failure:</strong> The ESBMC bounded model found a formal property violation or a failed assertion during symbolic checking with the SMT solver.');
         p.push('        </div>');
         p.push('    </div>');
         p.push('    <div class="section">');
@@ -1584,32 +1584,32 @@ document.addEventListener('DOMContentLoaded', () => {
         p.push('    </div>');
         p.push('    <div class="section">');
         p.push('        <div class="section-title">3. Program</div>');
-        p.push('        <div class="section-desc">Reduce it first: the smallest program that still shows the problem (com destaque na linha da violação):</div>');
+        p.push('        <div class="section-desc">Reduce it first: the smallest program that still shows the problem (the violating line is highlighted):</div>');
         p.push('        <div class="code-box">' + codeHtml + '</div>');
         p.push('    </div>');
         p.push('    <div class="section">');
         p.push('        <div class="section-title">4. Command</div>');
-        p.push('        <div class="section-desc">Comando exato de linha de comando para reprodução determinística do contraexemplo:</div>');
+        p.push('        <div class="section-desc">Exact command line to reproduce the counterexample deterministically:</div>');
         p.push('        <div class="cmd-box">' + escapeHtml(data.cmdLine) + '</div>');
         p.push('    </div>');
         p.push('    <div class="section">');
         p.push('        <div class="section-title">5. Execution Flow & Counterexample</div>');
         if (violationsTableHtml) {
-            p.push('        <div style="font-weight: 700; color: #334155; margin-top: 4px; margin-bottom: 4px;">Propriedades Violadas no Código:</div>');
+            p.push('        <div style="font-weight: 700; color: #334155; margin-top: 4px; margin-bottom: 4px;">Properties Violated in the Code:</div>');
             p.push('        ' + violationsTableHtml);
         }
         if (data.initialValuesStr && data.initialValuesStr.trim()) {
-            p.push('        <div style="font-weight: 700; color: #334155; margin-top: 10px; margin-bottom: 4px;">Initial Symbolic State (Valores de Entrada do Contraexemplo):</div>');
+            p.push('        <div style="font-weight: 700; color: #334155; margin-top: 10px; margin-bottom: 4px;">Initial Symbolic State (Counterexample Input Values):</div>');
             p.push('        <div class="initial-values-box">' + escapeHtml(data.initialValuesStr.trim()) + '</div>');
         }
         if (data.traceStr && data.traceStr.trim()) {
-            p.push('        <div style="font-weight: 700; color: #334155; margin-top: 10px; margin-bottom: 4px;">Step-by-Step Execution Trace (Fluxo de Execução Passo a Passo):</div>');
+            p.push('        <div style="font-weight: 700; color: #334155; margin-top: 10px; margin-bottom: 4px;">Step-by-Step Execution Trace:</div>');
             p.push('        <div class="trace-box">' + escapeHtml(data.traceStr.trim()) + '</div>');
         }
         p.push('    </div>');
         p.push('    <div class="footer">');
-        p.push('        <div>ESBMC-Web • Plataforma Integrada de Verificação Formal Bounded Model Checking</div>');
-        p.push('        <div>Universidade Federal do Amazonas (UFAM) • IComp • Mestrado em Informática</div>');
+        p.push('        <div>ESBMC-Web • Integrated Bounded Model Checking Formal Verification Platform</div>');
+        p.push('        <div>Federal University of Amazonas (UFAM) • IComp • MSc in Informatics</div>');
         p.push('    </div>');
         p.push('</body>');
         p.push('</html>');
@@ -1729,22 +1729,21 @@ document.addEventListener('DOMContentLoaded', () => {
             const filtered = summaryList.filter(item => {
                 if (currentRepoFilter === 'all') return true;
                 const code = item.test_status_code || '';
-                const desc = item.test_status || '';
                 if (currentRepoFilter === 'pass_bug') {
-                    return code === 'PASS_BUG_FOUND' || desc.includes('Bug Encontrado');
+                    return code === 'PASS_BUG_FOUND';
                 }
                 if (currentRepoFilter === 'pass_safe') {
-                    return code === 'PASS_SOUND' || desc.includes('Provado Seguro') || (!code && String(item.status).includes('SAFE'));
+                    return code === 'PASS_SOUND' || (!code && String(item.status).includes('SAFE'));
                 }
                 if (currentRepoFilter === 'regression') {
-                    return code === 'REGRESSION_FAILED' || desc.includes('REGRESSÃO') || (!code && String(item.status).includes('VIOLATION'));
+                    return code === 'REGRESSION_FAILED' || (!code && String(item.status).includes('VIOLATION'));
                 }
                 return true;
             });
 
             if (filtered.length === 0) {
                 const tr = repoExplorerTabela.insertRow();
-                tr.innerHTML = `<td colspan="12" style="text-align:center; padding:20px; color:#64748b;">Nenhum módulo corresponde ao filtro selecionado.</td>`;
+                tr.innerHTML = `<td colspan="12" style="text-align:center; padding:20px; color:#64748b;">No module matches the selected filter.</td>`;
                 return;
             }
 
@@ -1769,7 +1768,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     let tsColor = '#059669';
                     let tsBg = '#ecfdf5';
                     let tsBorder = '#10b981';
-                    if (item.test_status.includes('REGRESSÃO') || item.test_status.includes('VIOLAÇÃO')) {
+                    if (item.test_status_code === 'REGRESSION_FAILED') {
                         tsColor = '#dc2626';
                         tsBg = '#fef2f2';
                         tsBorder = '#ef4444';
@@ -1779,7 +1778,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         tsBorder = '#10b981';
                     }
                     const oracleSubtext = item.expected_verdict
-                        ? `<div style="font-size:10px; color:#64748b; margin-top:2px;">Esp: <code>${item.expected_verdict}</code></div>`
+                        ? `<div style="font-size:10px; color:#64748b; margin-top:2px;">Expected: <code>${item.expected_verdict}</code></div>`
                         : '';
                     testStatusBadge = `<div style="display:inline-block; padding:2px 8px; border-radius:4px; font-size:11px; font-weight:700; background:${tsBg}; color:${tsColor}; border:1px solid ${tsBorder}; white-space:nowrap;">${item.test_status}</div>${oracleSubtext}`;
                 }
@@ -1806,7 +1805,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     <td>${testStatusBadge}</td>
                     <td style="text-align:center;">
                         <button class="btn-ver-homogeneizado btn-editor" data-index="${item.index}" style="padding: 4px 10px; font-size: 11px; background: #0284c7; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: 600; white-space: nowrap;">
-                            👁️ Ver Código
+                            👁️ View Code
                         </button>
                     </td>
                 `;
@@ -1962,7 +1961,7 @@ document.addEventListener('DOMContentLoaded', () => {
             cardPassos.textContent = 0;
         } else {
             statusBanner.className = 'status-banner success';
-            statusBanner.textContent = '✅ VERIFICATION SUCCESSFUL — STATUS: OK (NENHUMA VULNERABILIDADE ENCONTRADA)';
+            statusBanner.textContent = '✅ VERIFICATION SUCCESSFUL — STATUS: OK (NO VULNERABILITIES FOUND)';
             cardViolacoes.className = 'value';
             cardViolacoes.style.color = 'var(--success)';
             if (sucessoSection) sucessoSection.style.display = 'block';
@@ -1972,21 +1971,21 @@ document.addEventListener('DOMContentLoaded', () => {
         // Se for exploração de suíte de testes profissional com oráculos esperados:
         if (repoExplorationSummary && Array.isArray(repoExplorationSummary) && repoExplorationSummary.length > 0) {
             const hasOracles = repoExplorationSummary.some(it => it.expected_verdict && it.expected_verdict !== '-');
-            const regressions = repoExplorationSummary.filter(it => it.test_status_code === 'REGRESSION_FAILED' || (it.test_status && it.test_status.includes('REGRESSÃO')));
-            const passBugs = repoExplorationSummary.filter(it => it.test_status_code === 'PASS_BUG_FOUND' || (it.test_status && it.test_status.includes('Bug Encontrado')));
-            const passSafe = repoExplorationSummary.filter(it => it.test_status_code === 'PASS_SOUND' || (it.test_status && it.test_status.includes('Provado Seguro')));
+            const regressions = repoExplorationSummary.filter(it => it.test_status_code === 'REGRESSION_FAILED');
+            const passBugs = repoExplorationSummary.filter(it => it.test_status_code === 'PASS_BUG_FOUND');
+            const passSafe = repoExplorationSummary.filter(it => it.test_status_code === 'PASS_SOUND');
             const inconclusiveOracles = repoExplorationSummary.filter(it => it.test_status_code === 'INCONCLUSIVE');
 
             if (hasOracles) {
                 if (regressions.length > 0) {
                     statusBanner.className = 'status-banner failed';
-                    statusBanner.textContent = `🔴 SUÍTE DE TESTES: ${regressions.length} REGRESSÃO(ÕES) DETECTADA(S) (DIVERGÊNCIA DE ORÁCULO)`;
+                    statusBanner.textContent = `🔴 TEST SUITE: ${regressions.length} REGRESSION(S) DETECTED (ORACLE MISMATCH)`;
                 } else if (inconclusiveOracles.length > 0) {
                     statusBanner.className = 'status-banner inconclusive';
-                    statusBanner.textContent = `⚠ SUÍTE DE TESTES INCONCLUSIVA: ${inconclusiveOracles.length} ORÁCULO(S) SEM VEREDITO`;
+                    statusBanner.textContent = `⚠ TEST SUITE INCONCLUSIVE: ${inconclusiveOracles.length} ORACLE(S) WITHOUT A VERDICT`;
                 } else if (verdict === 'SUCCESSFUL' || verdict === 'FAILED') {
                     statusBanner.className = 'status-banner success';
-                    statusBanner.textContent = `🟢 SUÍTE DE TESTES APROVADA: ${passBugs.length} BUG(S) CONFIRMADO(S) + ${passSafe.length} PROVADO(S) SEGURO(S) [100% ORÁCULOS ATENDIDOS]`;
+                    statusBanner.textContent = `🟢 TEST SUITE PASSED: ${passBugs.length} BUG(S) CONFIRMED + ${passSafe.length} PROVED SAFE [100% OF ORACLES MET]`;
                 }
             }
         }
@@ -2037,7 +2036,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!skipHistoryRecord) {
             let runVerdict = 'SAFE';
             if (repoExplorationSummary && Array.isArray(repoExplorationSummary) && repoExplorationSummary.length > 0) {
-                const hasRegressions = repoExplorationSummary.some(it => it.test_status_code === 'REGRESSION_FAILED' || (it.test_status && it.test_status.includes('REGRESSÃO')));
+                const hasRegressions = repoExplorationSummary.some(it => it.test_status_code === 'REGRESSION_FAILED');
                 if (hasRegressions) runVerdict = 'REGRESSION';
                 else if (hasAnyFailure) runVerdict = 'VIOLATION';
                 else runVerdict = 'SAFE';
@@ -2122,17 +2121,17 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!modal || !modalCode) return;
 
         if (modalTitle) {
-            modalTitle.textContent = `📄 Código Homogeneizado & Fatiado: ${item.file}`;
+            modalTitle.textContent = `📄 Homogenised & Sliced Code: ${item.file}`;
         }
         if (modalMeta) {
             modalMeta.innerHTML = `
-                <div><strong>Módulo:</strong> <code>${item.directory}/${item.file}</code> &nbsp;|&nbsp; <strong>Linguagem:</strong> <span style="background:#e0e7ff; color:#3730a3; padding:1px 6px; border-radius:4px; font-weight:700;">${item.lang}</span> &nbsp;|&nbsp; <strong>Modo:</strong> <em>${item.mode}</em></div>
-                <div style="margin-top:4px;"><strong>Veredito Formal:</strong> <strong>${item.status}</strong> &nbsp;|&nbsp; <strong>VCCs:</strong> ${item.vccs || 0} &nbsp;|&nbsp; <strong>Atribuições SSA:</strong> ${item.ssa_assigns || 0} &nbsp;|&nbsp; <strong>Tempo:</strong> ${item.wall_time || '-'}</div>
-                ${item.esbmc_cli ? `<div style="margin-top:4px; font-size:11px; color:#475569;"><strong>CLI Reproduzível:</strong> <code>${item.esbmc_cli}</code></div>` : ''}
+                <div><strong>Module:</strong> <code>${item.directory}/${item.file}</code> &nbsp;|&nbsp; <strong>Language:</strong> <span style="background:#e0e7ff; color:#3730a3; padding:1px 6px; border-radius:4px; font-weight:700;">${item.lang}</span> &nbsp;|&nbsp; <strong>Mode:</strong> <em>${item.mode}</em></div>
+                <div style="margin-top:4px;"><strong>Formal Verdict:</strong> <strong>${item.status}</strong> &nbsp;|&nbsp; <strong>VCCs:</strong> ${item.vccs || 0} &nbsp;|&nbsp; <strong>SSA Assignments:</strong> ${item.ssa_assigns || 0} &nbsp;|&nbsp; <strong>Time:</strong> ${item.wall_time || '-'}</div>
+                ${item.esbmc_cli ? `<div style="margin-top:4px; font-size:11px; color:#475569;"><strong>Reproducible CLI:</strong> <code>${item.esbmc_cli}</code></div>` : ''}
             `;
         }
 
-        const codigo = item.homogenized_code || '// Nenhum código intermediário disponível para este módulo.';
+        const codigo = item.homogenized_code || '// No intermediate code is available for this module.';
         modalCode.textContent = codigo;
         modal.style.display = 'flex';
     }
@@ -2145,10 +2144,10 @@ document.addEventListener('DOMContentLoaded', () => {
             try {
                 await navigator.clipboard.writeText(modalCode.textContent);
                 const originalText = copyHomogenizedCodeBtn.textContent;
-                copyHomogenizedCodeBtn.textContent = '✅ Copiado!';
+                copyHomogenizedCodeBtn.textContent = '✅ Copied!';
                 setTimeout(() => { copyHomogenizedCodeBtn.textContent = originalText; }, 2000);
             } catch (err) {
-                alert('Não foi possível copiar o código.');
+                alert('Could not copy the code.');
             }
         });
     }
@@ -2193,11 +2192,11 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function calculateCodacyGrade(score) {
-        if (score >= 90) return { grade: 'A', color: '#10b981', label: 'Excelente Confiabilidade', bg: '#d1fae5', textCol: '#065f46' };
-        if (score >= 75) return { grade: 'B', color: '#3b82f6', label: 'Boa Integridade Formal', bg: '#dbeafe', textCol: '#1e40af' };
-        if (score >= 60) return { grade: 'C', color: '#f59e0b', label: 'Atenção Necessária', bg: '#fef3c7', textCol: '#92400e' };
-        if (score >= 35) return { grade: 'D', color: '#f97316', label: 'Degradação / Alto Risco', bg: '#ffedd5', textCol: '#9a3412' };
-        return { grade: 'F', color: '#ef4444', label: 'Crítico / Múltiplas Falhas', bg: '#fee2e2', textCol: '#991b1b' };
+        if (score >= 90) return { grade: 'A', color: '#10b981', label: 'Excellent Reliability', bg: '#d1fae5', textCol: '#065f46' };
+        if (score >= 75) return { grade: 'B', color: '#3b82f6', label: 'Good Formal Integrity', bg: '#dbeafe', textCol: '#1e40af' };
+        if (score >= 60) return { grade: 'C', color: '#f59e0b', label: 'Needs Attention', bg: '#fef3c7', textCol: '#92400e' };
+        if (score >= 35) return { grade: 'D', color: '#f97316', label: 'Degraded / High Risk', bg: '#ffedd5', textCol: '#9a3412' };
+        return { grade: 'F', color: '#ef4444', label: 'Critical / Multiple Failures', bg: '#fee2e2', textCol: '#991b1b' };
     }
 
     function computeRunScore(verdict, cwes = []) {
@@ -2223,7 +2222,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const history = getVerificationHistory();
         const runId = history.length > 0 ? (history[0].id || history.length) + 1 : 1;
         const now = new Date();
-        const dataFormatada = now.toLocaleDateString('pt-BR') + ' ' + now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+        const dataFormatada = now.toLocaleDateString('en-GB') + ' ' + now.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
 
         const score = computeRunScore(runData.verdict, runData.cwes);
         const gradeObj = calculateCodacyGrade(score);
@@ -2268,13 +2267,13 @@ document.addEventListener('DOMContentLoaded', () => {
         if (history.length === 0) {
             if (badgeElem) { badgeElem.textContent = 'A'; badgeElem.style.background = '#10b981'; badgeElem.style.boxShadow = '0 4px 10px rgba(16, 185, 129, 0.3)'; }
             if (scoreElem) scoreElem.textContent = '100 / 100';
-            if (labelElem) { labelElem.textContent = 'Excelente Confiabilidade (Aguardando Verificações)'; labelElem.style.color = '#10b981'; }
-            if (trendElem) trendElem.innerHTML = '<span>🟡 Estável</span>';
-            if (trendSubElem) trendSubElem.textContent = 'Nenhuma corrida registrada';
+            if (labelElem) { labelElem.textContent = 'Excellent Reliability (Waiting for Verifications)'; labelElem.style.color = '#10b981'; }
+            if (trendElem) trendElem.innerHTML = '<span>🟡 Stable</span>';
+            if (trendSubElem) trendSubElem.textContent = 'No runs recorded';
             if (safeRateElem) safeRateElem.textContent = '100%';
-            if (safeRateSubElem) safeRateSubElem.textContent = '0 falhas registradas';
+            if (safeRateSubElem) safeRateSubElem.textContent = '0 failures recorded';
             if (totalVccsElem) totalVccsElem.textContent = '0';
-            if (totalRunsElem) totalRunsElem.textContent = '0 auditoria(s) acumulada(s)';
+            if (totalRunsElem) totalRunsElem.textContent = '0 audit(s) recorded';
         } else {
             const avgScore = history.reduce((acc, r) => acc + (r.score !== undefined ? r.score : 100), 0) / history.length;
             const roundScore = Math.round(avgScore);
@@ -2294,18 +2293,18 @@ document.addEventListener('DOMContentLoaded', () => {
             if (history.length > 1) {
                 const diff = (history[0].score || 0) - (history[1].score || 0);
                 if (diff > 0) {
-                    if (trendElem) trendElem.innerHTML = `<span style="color:#059669;">🟢 Melhorando (+${diff} pts)</span>`;
-                    if (trendSubElem) trendSubElem.textContent = 'Integridade em ascensão com bugs sanados';
+                    if (trendElem) trendElem.innerHTML = `<span style="color:#059669;">🟢 Improving (+${diff} pts)</span>`;
+                    if (trendSubElem) trendSubElem.textContent = 'Integrity rising as bugs are fixed';
                 } else if (diff < 0) {
-                    if (trendElem) trendElem.innerHTML = `<span style="color:#dc2626;">🔴 Regressão (${diff} pts)</span>`;
-                    if (trendSubElem) trendSubElem.textContent = 'Novas vulnerabilidades detectadas';
+                    if (trendElem) trendElem.innerHTML = `<span style="color:#dc2626;">🔴 Regression (${diff} pts)</span>`;
+                    if (trendSubElem) trendSubElem.textContent = 'New vulnerabilities detected';
                 } else {
-                    if (trendElem) trendElem.innerHTML = `<span>🟡 Estável</span>`;
-                    if (trendSubElem) trendSubElem.textContent = 'Mesmo nível de integridade da corrida anterior';
+                    if (trendElem) trendElem.innerHTML = `<span>🟡 Stable</span>`;
+                    if (trendSubElem) trendSubElem.textContent = 'Same integrity level as the previous run';
                 }
             } else {
-                if (trendElem) trendElem.innerHTML = `<span>🟢 Linha de Base</span>`;
-                if (trendSubElem) trendSubElem.textContent = 'Primeira verificação registrada';
+                if (trendElem) trendElem.innerHTML = `<span>🟢 Baseline</span>`;
+                if (trendSubElem) trendSubElem.textContent = 'First verification recorded';
             }
 
             const safeCount = history.filter(r => r.verdict === 'SAFE').length;
@@ -2314,11 +2313,11 @@ document.addEventListener('DOMContentLoaded', () => {
                 safeRateElem.textContent = `${safePercent}%`;
                 safeRateElem.style.color = safePercent >= 80 ? '#059669' : (safePercent >= 50 ? '#d97706' : '#dc2626');
             }
-            if (safeRateSubElem) safeRateSubElem.textContent = `${safeCount} de ${history.length} provados seguros (SAFE)`;
+            if (safeRateSubElem) safeRateSubElem.textContent = `${safeCount} of ${history.length} proved safe (SAFE)`;
 
             const totalVccs = history.reduce((acc, r) => acc + (r.vccs || 0), 0);
             if (totalVccsElem) totalVccsElem.textContent = totalVccs;
-            if (totalRunsElem) totalRunsElem.textContent = `${history.length} auditoria(s) acumulada(s)`;
+            if (totalRunsElem) totalRunsElem.textContent = `${history.length} audit(s) recorded`;
         }
 
         renderCodacyCharts(history);
@@ -2329,7 +2328,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const chronHistory = history.slice(0, 15).reverse();
         const evolutionLabels = chronHistory.length > 0 
             ? chronHistory.map(r => `#${r.id} ${r.target.split('/').pop().substring(0, 14)}`)
-            : ['Sem dados'];
+            : ['No data'];
         const safeData = chronHistory.length > 0 ? chronHistory.map(r => r.verdict === 'SAFE' ? 1 : 0) : [0];
         const violationData = chronHistory.length > 0 ? chronHistory.map(r => r.verdict !== 'SAFE' ? (r.cwes && r.cwes.length ? r.cwes.length : 1) : 0) : [0];
         const vccData = chronHistory.length > 0 ? chronHistory.map(r => r.vccs || 0) : [0];
@@ -2337,7 +2336,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const cweCounts = {};
         history.forEach(r => {
             (r.cwes || []).forEach(c => {
-                const name = c.cwe && c.cwe !== 'N/A' ? c.cwe : 'Vulnerabilidade Geral';
+                const name = c.cwe && c.cwe !== 'N/A' ? c.cwe : 'General Vulnerability';
                 cweCounts[name] = (cweCounts[name] || 0) + 1;
             });
         });
@@ -2347,7 +2346,7 @@ document.addEventListener('DOMContentLoaded', () => {
         let cweColors = ['#ef4444', '#f97316', '#eab308', '#8b5cf6', '#ec4899', '#06b6d4', '#64748b'];
 
         if (cweLabels.length === 0) {
-            cweLabels = ['100% Sem Vulnerabilidades (SAFE)'];
+            cweLabels = ['100% Free of Vulnerabilities (SAFE)'];
             cweValues = [1];
             cweColors = ['#10b981'];
         }
@@ -2380,7 +2379,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         labels: evolutionLabels,
                         datasets: [
                             {
-                                label: 'Provado Seguro (SAFE)',
+                                label: 'Proved Safe (SAFE)',
                                 data: safeData,
                                 backgroundColor: 'rgba(16, 185, 129, 0.85)',
                                 borderColor: '#10b981',
@@ -2389,7 +2388,7 @@ document.addEventListener('DOMContentLoaded', () => {
                                 stack: 'status'
                             },
                             {
-                                label: 'Violações / Bugs',
+                                label: 'Violations / Bugs',
                                 data: violationData,
                                 backgroundColor: 'rgba(239, 68, 68, 0.85)',
                                 borderColor: '#ef4444',
@@ -2398,7 +2397,7 @@ document.addEventListener('DOMContentLoaded', () => {
                                 stack: 'status'
                             },
                             {
-                                label: 'VCCs Formais',
+                                label: 'Formal VCCs',
                                 data: vccData,
                                 type: 'line',
                                 borderColor: '#3b82f6',
@@ -2417,14 +2416,14 @@ document.addEventListener('DOMContentLoaded', () => {
                             x: { grid: { display: false } },
                             y: {
                                 beginAtZero: true,
-                                title: { display: true, text: 'Status / Falhas', font: { size: 10 } },
+                                title: { display: true, text: 'Status / Failures', font: { size: 10 } },
                                 ticks: { precision: 0 }
                             },
                             y1: {
                                 position: 'right',
                                 beginAtZero: true,
                                 grid: { display: false },
-                                title: { display: true, text: 'Qtd VCCs', font: { size: 10 } },
+                                title: { display: true, text: 'VCC Count', font: { size: 10 } },
                                 ticks: { precision: 0 }
                             }
                         },
@@ -2550,7 +2549,7 @@ document.addEventListener('DOMContentLoaded', () => {
             tbody.innerHTML = `
                 <tr>
                     <td colspan="9" style="text-align: center; padding: 30px; color: #64748b; font-size: 13px;">
-                        ${history.length === 0 ? 'Nenhuma auditoria registrada ainda. Execute uma análise no editor ou clique em "🎲 Carregar Dados Demo".' : 'Nenhuma corrida encontrada para os filtros selecionados.'}
+                        ${history.length === 0 ? 'No audits recorded yet. Run an analysis from the editor or click "🎲 Load Demo Data".' : 'No runs match the selected filters.'}
                     </td>
                 </tr>
             `;
@@ -2597,14 +2596,14 @@ document.addEventListener('DOMContentLoaded', () => {
                 </td>
                 <td style="padding: 8px 10px; text-align: center; white-space: nowrap;">
                     <button class="btn-load-run" data-run-id="${run.id}" style="background:#2563eb; color:#fff; padding:3px 8px; font-size:11px; border-radius:4px; font-weight:600; margin-right:4px;">
-                        🔍 Visualizar
+                        🔍 View
                     </button>
                     ${hasViolations ? `
-                        <button class="btn-pdf-run" data-run-id="${run.id}" style="background:#b91c1c; color:#fff; padding:3px 8px; font-size:11px; border-radius:4px; font-weight:600; margin-right:4px;" title="Baixar Relatório PDF de Bug">
+                        <button class="btn-pdf-run" data-run-id="${run.id}" style="background:#b91c1c; color:#fff; padding:3px 8px; font-size:11px; border-radius:4px; font-weight:600; margin-right:4px;" title="Download PDF Bug Report">
                             📄 PDF
                         </button>
                     ` : ''}
-                    <button class="btn-delete-run" data-run-id="${run.id}" style="background:#f1f5f9; color:#dc2626; border:1px solid #e2e8f0; padding:3px 7px; font-size:11px; border-radius:4px; font-weight:600;" title="Excluir corrida">
+                    <button class="btn-delete-run" data-run-id="${run.id}" style="background:#f1f5f9; color:#dc2626; border:1px solid #e2e8f0; padding:3px 7px; font-size:11px; border-radius:4px; font-weight:600;" title="Delete run">
                         🗑️
                     </button>
                 </td>
@@ -2753,11 +2752,11 @@ document.addEventListener('DOMContentLoaded', () => {
     function exportHistoryCsv() {
         const history = getVerificationHistory();
         if (history.length === 0) {
-            alert('Histórico vazio. Nenhuma corrida para exportar.');
+            alert('History is empty. There are no runs to export.');
             return;
         }
 
-        const headers = ['ID', 'Data_Hora', 'Alvo', 'Linguagem', 'Modo', 'Veredito', 'VCCs', 'Score', 'Grade', 'CWEs'];
+        const headers = ['ID', 'Date_Time', 'Target', 'Language', 'Mode', 'Verdict', 'VCCs', 'Score', 'Grade', 'CWEs'];
         const rows = history.map(r => [
             r.id,
             `"${r.timestamp}"`,
@@ -2784,7 +2783,7 @@ document.addEventListener('DOMContentLoaded', () => {
     function exportHistoryJson() {
         const history = getVerificationHistory();
         if (history.length === 0) {
-            alert('Histórico vazio. Nenhuma corrida para exportar.');
+            alert('History is empty. There are no runs to export.');
             return;
         }
 
@@ -2798,7 +2797,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function clearCodacyHistory() {
-        if (confirm('Tem certeza que deseja apagar todo o histórico de auditorias gravado localmente?')) {
+        if (confirm('Delete the entire audit history stored in this browser?')) {
             localStorage.removeItem(STORAGE_KEY_CODACY_HISTORY);
             renderCodacyMetricsView();
         }
@@ -2842,7 +2841,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 downloadHistoricalRunPdf(runId);
             } else if (btnDelete) {
                 const runId = parseInt(btnDelete.dataset.runId, 10);
-                if (confirm(`Deseja remover a corrida #${runId} do histórico?`)) {
+                if (confirm(`Remove run #${runId} from the history?`)) {
                     deleteHistoricalRun(runId);
                 }
             }
