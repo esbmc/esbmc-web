@@ -510,15 +510,15 @@ def classificar_grau_prioridade_modulo(rel_path: str, conteudo: str, linguagem: 
             motivos.append("Arithmetic")
 
     NOMES_GRAUS = {
-        5: "Risco Crítico de Memória / Anulabilidade (CWE-476, CWE-416)",
-        4: "Limites de Buffers e Indexação (CWE-119, CWE-787)",
-        3: "Ciclo de Vida de Recursos e Exceções (CWE-415, CWE-755)",
-        2: "Concorrência e Sincronização (CWE-362, CWE-667)",
-        1: "Integridade Numérica e Aritmética (CWE-369, CWE-190)",
-        0: "Lógica Pura e Funções Auxiliares"
+        5: "Critical Memory / Nullability Risk (CWE-476, CWE-416)",
+        4: "Buffer Bounds and Indexing (CWE-119, CWE-787)",
+        3: "Resource Lifecycle and Exceptions (CWE-415, CWE-755)",
+        2: "Concurrency and Synchronisation (CWE-362, CWE-667)",
+        1: "Numeric and Arithmetic Integrity (CWE-369, CWE-190)",
+        0: "Pure Logic and Helper Functions"
     }
-    nome_grau = NOMES_GRAUS.get(grau, "Lógica Geral")
-    resumo_motivos = ", ".join(motivos[:3]) if motivos else "Módulo Geral"
+    nome_grau = NOMES_GRAUS.get(grau, "General Logic")
+    resumo_motivos = ", ".join(motivos[:3]) if motivos else "General Module"
 
     return grau, nome_grau, score, resumo_motivos
 
@@ -526,7 +526,7 @@ def classificar_grau_prioridade_modulo(rel_path: str, conteudo: str, linguagem: 
 def calcular_score_criticidade_modulo(rel_path: str, conteudo: str, linguagem: str) -> Tuple[int, str]:
     """Calcula a pontuação de criticidade formal de um arquivo para priorizar a exploração."""
     grau, nome_grau, score, resumo = classificar_grau_prioridade_modulo(rel_path, conteudo, linguagem)
-    return score, f"Grau {grau} ({nome_grau}) | {resumo}"
+    return score, f"Grade {grau} ({nome_grau}) | {resumo}"
 
 
 def descobrir_alvos_verificaveis_repositorio(
@@ -645,7 +645,7 @@ def descobrir_alvos_verificaveis_repositorio(
                 'grau': grau,
                 'nome_grau': nome_grau,
                 'score': score,
-                'categoria': f"Grau {grau}: {nome_grau}",
+                'categoria': f"Grade {grau}: {nome_grau}",
                 'motivos': motivos_lista,
                 'conteudo': conteudo,
                 'is_harness': eh_harness,

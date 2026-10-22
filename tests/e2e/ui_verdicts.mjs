@@ -32,9 +32,9 @@ const SCENARIOS = [
 ];
 
 const ROW = (file, status, extra = {}) => ({
-  index: 1, grau: 0, nome_grau: 'Auxiliar', lang: 'C', directory: 'src', file, score: 10, reasons: '-',
+  index: 1, grau: 0, nome_grau: 'Auxiliary', lang: 'C', directory: 'src', file, score: 10, reasons: '-',
   fused_deps: 0, fused_names: '-', goto_time: '0.1s', ssa_assigns: 0, vccs: 0, wall_time: '0.1s', mode: 'Native C',
-  phase: 'Fase 1', esbmc_cli: 'esbmc', z3_witness: '', violations: 0, status, expected_verdict: '-',
+  phase: 'Phase 1', esbmc_cli: 'esbmc', z3_witness: '', violations: 0, status, expected_verdict: '-',
   test_status: 'COMPLETED', test_status_code: 'COMPLETED', is_harness: false, homogenized_code: '', ...extra,
 });
 
@@ -45,7 +45,7 @@ SCENARIOS.push(
     stub: { status: 'completed', logs: '', progresso: null, resultado: {
       verdict: 'UNKNOWN', verificacao_sucesso: false, dashboard_data: [], codigo_analisado: '// stub',
       repo_exploration_summary: [
-        ROW('src/a.c', 'BOUNDED SAFE (k=1)', { expected_verdict: 'VERIFICATION SUCCESSFUL', test_status: '🟢 PASS (Provado Seguro)', test_status_code: 'PASS_SOUND' }),
+        ROW('src/a.c', 'BOUNDED SAFE (k=1)', { expected_verdict: 'VERIFICATION SUCCESSFUL', test_status: '🟢 PASS (Proved Safe)', test_status_code: 'PASS_SOUND' }),
         ROW('src/b.c', 'ERROR (NO VERDICT)', { index: 2 }),
       ] } } },
   { id: 'E2E-07', lang: 'c', expect: 'FAILED', code: 'int main(){return 0;}\n',
@@ -64,15 +64,15 @@ SCENARIOS.push(
     stub: { status: 'completed', logs: '', progresso: null, resultado: {
       verdict: 'FAILED', verificacao_sucesso: false, codigo_analisado: '// stub',
       dashboard_data: [{ status: 'violation', steps: [{ type: 'violation', message: 'assertion 0', file: 'src/bug.c', line: 3, function: 'main', cwe: 'CWE-617', severity: 'High' }] }],
-      repo_exploration_summary: [ROW('src/bug.c', 'VIOLATION [NATIVE BUG] (k=1)', { violations: 1, expected_verdict: 'VERIFICATION FAILED', test_status: '🟢 PASS (Bug Encontrado)', test_status_code: 'PASS_BUG_FOUND' })] } } },
+      repo_exploration_summary: [ROW('src/bug.c', 'VIOLATION [NATIVE BUG] (k=1)', { violations: 1, expected_verdict: 'VERIFICATION FAILED', test_status: '🟢 PASS (Bug Found)', test_status_code: 'PASS_BUG_FOUND' })] } } },
   { id: 'E2E-10', lang: 'c', expect: 'BANNER', banner: /TEST SUITE INCONCLUSIVE/, code: 'int main(){return 0;}\n',
     note: 'an oracle module without a verdict keeps the suite from showing as approved',
     stub: { status: 'completed', logs: '', progresso: null, resultado: {
       verdict: 'FAILED', verificacao_sucesso: false, codigo_analisado: '// stub',
       dashboard_data: [{ status: 'violation', steps: [{ type: 'violation', message: 'assertion 0', file: 'src/bug.c', line: 3, function: 'main', cwe: 'CWE-617', severity: 'High' }] }],
       repo_exploration_summary: [
-        ROW('src/bug.c', 'VIOLATION [NATIVE BUG] (k=1)', { violations: 1, expected_verdict: 'VERIFICATION FAILED', test_status: '🟢 PASS (Bug Encontrado)', test_status_code: 'PASS_BUG_FOUND' }),
-        ROW('src/slow.c', 'TIMEOUT (NO VERDICT)', { index: 2, expected_verdict: 'VERIFICATION SUCCESSFUL', test_status: '⚠ INCONCLUSIVE (Sem Veredito)', test_status_code: 'INCONCLUSIVE' }),
+        ROW('src/bug.c', 'VIOLATION [NATIVE BUG] (k=1)', { violations: 1, expected_verdict: 'VERIFICATION FAILED', test_status: '🟢 PASS (Bug Found)', test_status_code: 'PASS_BUG_FOUND' }),
+        ROW('src/slow.c', 'TIMEOUT (NO VERDICT)', { index: 2, expected_verdict: 'VERIFICATION SUCCESSFUL', test_status: '⚠ INCONCLUSIVE (No Verdict)', test_status_code: 'INCONCLUSIVE' }),
       ] } } },
 );
 
