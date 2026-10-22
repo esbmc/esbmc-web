@@ -173,11 +173,11 @@
                     AI Agents
                 </a>
                 <button id="btnOpenMetricsHeader" class="btn-editor" style="background: #0f172a; color: white; font-weight: 600; padding: 6px 13px; font-size: 12px; display: inline-flex; align-items: center; gap: 6px; box-shadow: 0 1px 3px rgba(0,0,0,0.15); cursor: pointer;">
-                    <span>📊</span> Codacy Metrics & Histórico
+                    <span>📊</span> Codacy Metrics & History
                 </button>
                 <div id="server-status-badge" style="display: inline-flex; align-items: center; gap: 8px; padding: 6px 12px; border-radius: 20px; font-size: 12px; font-weight: 700; background: #fef3c7; color: #92400e; border: 1px solid #f59e0b; transition: all 0.3s;">
                     <span id="server-status-dot" style="width: 8px; height: 8px; border-radius: 50%; background: #f59e0b; display: inline-block;"></span>
-                    <span id="server-status-text">⏳ Iniciando Servidor ESBMC...</span>
+                    <span id="server-status-text">⏳ Starting ESBMC Server...</span>
                 </div>
                 <div class="help-link-container">
                     <a href="#" id="helpBtn">
@@ -234,20 +234,20 @@
             <div class="git-flex-row" style="gap: 15px; flex-wrap: wrap;">
                 <div class="git-flex-col" style="flex: 2; min-width: 280px;">
                     <label for="gitMainFile" style="display:flex; justify-content:space-between; align-items:center;">
-                        <span>🎯 Arquivo Alvo Individual (para Teste Isolado)</span>
-                        <span id="git-folder-scope-badge" style="font-size: 11px; font-weight: normal; color: #1e40af; background: #dbeafe; padding: 2px 7px; border-radius: 4px; display: none;">📂 Pasta: todas</span>
+                        <span>🎯 Single Target File (for an Isolated Test)</span>
+                        <span id="git-folder-scope-badge" style="font-size: 11px; font-weight: normal; color: #1e40af; background: #dbeafe; padding: 2px 7px; border-radius: 4px; display: none;">📂 Folder: all</span>
                     </label>
                     <div style="display: flex; gap: 8px;">
-                        <input type="text" id="gitMainFile" placeholder="Selecione um arquivo ou escolha no dropdown..." list="git-file-list" style="flex: 1;">
-                        <select id="gitFileSelect" style="display: none; max-width: 220px; height: 42px; font-size: 13px; border-color: #3b82f6; background-color: #f8fafc; font-weight: 500;" title="Selecione um arquivo desta pasta para testar individualmente">
-                            <option value="">📂 Arquivos da pasta...</option>
+                        <input type="text" id="gitMainFile" placeholder="Type a file path or pick one from the list..." list="git-file-list" style="flex: 1;">
+                        <select id="gitFileSelect" style="display: none; max-width: 220px; height: 42px; font-size: 13px; border-color: #3b82f6; background-color: #f8fafc; font-weight: 500;" title="Pick a file from this folder to test on its own">
+                            <option value="">📂 Files in folder...</option>
                         </select>
                     </div>
                     <datalist id="git-file-list"></datalist>
                 </div>
                 <div class="git-flex-col" style="flex: 1; min-width: 170px;">
-                    <label for="repoSubdirFilter">Subdirectory Filter (Pasta Específica)</label>
-                    <input type="text" id="repoSubdirFilter" placeholder="ex: src/util ou lib/ (vazio = repo todo)">
+                    <label for="repoSubdirFilter">Subdirectory Filter (Specific Folder)</label>
+                    <input type="text" id="repoSubdirFilter" placeholder="e.g. src/util or lib/ (empty = whole repo)">
                 </div>
                 <div class="git-flex-col" style="flex: 1; min-width: 190px;">
                     <label for="repoLangFilterSelect">Repository Language Filter</label>
@@ -279,17 +279,17 @@
                 <div class="git-flex-col" style="flex: 1.2; min-width: 200px;">
                     <label for="verificationPhasesSelect" title="Multi-Phase Verification: Separate functional contracts from safety/overflow checks">Execution Phases</label>
                     <select id="verificationPhasesSelect" style="height: 42px; font-weight: 600;">
-                        <option value="both" selected>⚡ Ambas as Fases (Contratos + Safety)</option>
-                        <option value="1">🎯 Fase 1: Apenas Contratos Funcionais</option>
-                        <option value="2">🛡️ Fase 2: Apenas Safety & Aritmética</option>
+                        <option value="both" selected>⚡ Both Phases (Contracts + Safety)</option>
+                        <option value="1">🎯 Phase 1: Functional Contracts Only</option>
+                        <option value="2">🛡️ Phase 2: Safety & Arithmetic Only</option>
                     </select>
                 </div>
                 <div class="git-flex-col" style="flex: 1.1; min-width: 190px; justify-content: center;">
-                    <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; margin-bottom: 0; font-weight: 600; font-size: 13px;" title="Preserva harnesses/stubs locais, oráculos de teste e diretivas de verificação formal">
+                    <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; margin-bottom: 0; font-weight: 600; font-size: 13px;" title="Keeps local harnesses/stubs, test oracles and formal verification directives">
                         <input type="checkbox" id="testSuiteModeCheck" style="width: 18px; height: 18px; accent-color: #4f46e5;">
-                        <span>🧪 Suíte Profissional (Testbed)</span>
+                        <span>🧪 Professional Test Suite (Testbed)</span>
                     </label>
-                    <small style="color: var(--text-muted, #94a3b8); font-size: 11px;">Preserva stubs & avalia oráculos</small>
+                    <small style="color: var(--text-muted, #94a3b8); font-size: 11px;">Keeps stubs & checks oracles</small>
                 </div>
                 <div class="git-flex-col" style="flex: 1; min-width: 240px; display:flex; align-items:flex-end;">
                     <button id="exploreRepoBtn" class="btn-editor" style="background: linear-gradient(135deg, #4f46e5, #2563eb); padding: 10px 16px; height: 42px; width:100%; font-weight: 700;">
@@ -333,17 +333,17 @@
             <div id="tab-pane-checks" class="opcoes-tab-pane active">
                 <div style="margin-bottom: 14px; padding: 10px 12px; background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 8px;">
                     <div style="font-size: 12px; font-weight: 700; color: #334155; margin-bottom: 8px; display: flex; align-items: center; gap: 6px;">
-                        <span>🎯 Perfis Científicos de Verificação (1-Click Presets — SV-COMP / UFAM):</span>
+                        <span>🎯 Scientific Verification Profiles (1-Click Presets — SV-COMP / UFAM):</span>
                     </div>
                     <div style="display: flex; flex-wrap: wrap; gap: 8px;">
                         <button type="button" class="btn-editor preset-profile-btn" data-preset="fast-audit" style="background: #0284c7; font-size: 11.5px; padding: 5px 10px;">
-                            ⚡ Auditoria Rápida Git (Falsification + Unwind 3)
+                            ⚡ Quick Git Audit (Falsification + Unwind 3)
                         </button>
                         <button type="button" class="btn-editor preset-profile-btn" data-preset="bug-hunting" style="background: #d97706; font-size: 11.5px; padding: 5px 10px;">
-                            🔍 Caça Profunda de Bugs (Incremental BMC + Overflow/Leak)
+                            🔍 Deep Bug Hunt (Incremental BMC + Overflow/Leak)
                         </button>
                         <button type="button" class="btn-editor preset-profile-btn" data-preset="sound-proof" style="background: #4f46e5; font-size: 11.5px; padding: 5px 10px;">
-                            🛡️ Prova Matemática Completa (k-Indução + Multi-Property)
+                            🛡️ Full Mathematical Proof (k-Induction + Multi-Property)
                         </button>
                     </div>
                 </div>
@@ -441,8 +441,8 @@
         <div id="tabs-container" class="tabs-container" style="display: none;">
             <button class="tab-btn active" id="tab-dashboard">Dashboard View</button>
             <button class="tab-btn" id="tab-raw-text">Terminal Output</button>
-            <button class="tab-btn" id="tab-bug-report" style="display: none; background: #fff1f2; color: #be123c; border: 1px solid #fda4af; font-weight: 700;">🐞 Relatório de Bug (GitHub ESBMC)</button>
-            <button class="tab-btn" id="tab-metrics-history" style="background: #f0fdf4; color: #166534; border: 1px solid #bbf7d0; font-weight: 700;">📊 Métricas & Histórico (Codacy)</button>
+            <button class="tab-btn" id="tab-bug-report" style="display: none; background: #fff1f2; color: #be123c; border: 1px solid #fda4af; font-weight: 700;">🐞 Bug Report (GitHub ESBMC)</button>
+            <button class="tab-btn" id="tab-metrics-history" style="background: #f0fdf4; color: #166534; border: 1px solid #bbf7d0; font-weight: 700;">📊 Metrics & History (Codacy)</button>
             <button class="tab-btn" id="tab-html-report" style="display: none;">HTML Report</button>
             <button class="tab-btn" id="tab-yaml-report" style="display: none;">YAML Trace</button>
             <button class="tab-btn" id="tab-graphml-report" style="display: none;">GraphML Trace</button>
@@ -461,22 +461,22 @@
                 <div style="display: flex; align-items: center; gap: 12px;">
                     <span style="font-size: 26px;">🐞</span>
                     <div>
-                        <div style="font-weight: 700; color: #9f1239; font-size: 13.5px;">Relatório de Fluxo de Execução & Bug Report (Padrão GitHub / ESBMC Core)</div>
-                        <div style="font-size: 12px; color: #881337;">Estruturado conforme o template oficial <em>Wrong result or crash</em> do repositório <strong>esbmc/esbmc</strong>.</div>
+                        <div style="font-weight: 700; color: #9f1239; font-size: 13.5px;">Execution Flow & Bug Report (GitHub / ESBMC Core Format)</div>
+                        <div style="font-size: 12px; color: #881337;">Follows the official <em>Wrong result or crash</em> template of the <strong>esbmc/esbmc</strong> repository.</div>
                     </div>
                 </div>
                 <div style="display: flex; gap: 8px; flex-wrap: wrap;">
                     <button id="btnVerRelatorioTab" class="btn-editor" style="background: #e11d48; color: white; font-weight: 600; padding: 7px 14px; font-size: 12.5px;">
-                        📝 Visualizar Relatório
+                        📝 View Report
                     </button>
                     <button id="btnGerarPdfRapido" class="btn-editor" style="background: #b91c1c; color: white; font-weight: 600; padding: 7px 14px; font-size: 12.5px;">
-                        📄 Gerar Relatório PDF
+                        📄 Generate PDF Report
                     </button>
                     <button id="btnCopiarRelatorioRapido" class="btn-editor" style="background: #334155; color: white; font-weight: 600; padding: 7px 14px; font-size: 12.5px;">
-                        📋 Copiar Markdown
+                        📋 Copy Markdown
                     </button>
                     <button id="btnAbrirGithubIssueRapido" class="btn-editor" style="background: #0f172a; color: white; font-weight: 600; padding: 7px 14px; font-size: 12.5px;">
-                        🌐 Abrir Issue no GitHub
+                        🌐 Open GitHub Issue
                     </button>
                 </div>
             </div>
@@ -492,10 +492,10 @@
 
             <div id="sucesso-section" style="display: none; margin-bottom: 30px; padding: 20px; border-radius: 8px; background-color: #ecfdf5; border: 2px solid #10b981; color: #065f46;">
                 <div style="font-size: 1.15rem; font-weight: 700; margin-bottom: 8px; display: flex; align-items: center; gap: 10px;">
-                    <span>✅ VERIFICATION SUCCESSFUL — Código Verificado (OK)</span>
+                    <span>✅ VERIFICATION SUCCESSFUL — Code Verified (OK)</span>
                 </div>
                 <p style="font-size: 0.95rem; margin: 0;">
-                    A verificação formal simbólica do <strong>ESBMC</strong> foi concluída com sucesso! <strong>Nenhuma vulnerabilidade ou violação de propriedade foi encontrada</strong> no código analisado.
+                    <strong>ESBMC</strong> symbolic formal verification completed successfully. <strong>No vulnerability or property violation was found</strong> in the analysed code.
                 </p>
             </div>
             
@@ -514,11 +514,11 @@
 
                 <!-- Filtros Rápidos de Oráculo & Status -->
                 <div style="display: flex; gap: 8px; margin-bottom: 14px; flex-wrap: wrap; align-items: center; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 8px 12px;">
-                    <span style="font-size: 12px; font-weight: 700; color: #475569; margin-right: 4px;">Filtros do Oráculo:</span>
-                    <button class="btn-filter-status active" data-filter="all" style="padding: 5px 12px; border-radius: 6px; font-size: 12px; font-weight: 700; cursor: pointer; border: 1px solid #475569; background: #334155; color: #f8fafc; transition: all 0.2s;">Todos</button>
-                    <button class="btn-filter-status" data-filter="pass_bug" style="padding: 5px 12px; border-radius: 6px; font-size: 12px; font-weight: 700; cursor: pointer; border: 1px solid #16a34a; background: #fff; color: #16a34a; transition: all 0.2s;">🟢 Bugs Encontrados (Pass)</button>
-                    <button class="btn-filter-status" data-filter="pass_safe" style="padding: 5px 12px; border-radius: 6px; font-size: 12px; font-weight: 700; cursor: pointer; border: 1px solid #0284c7; background: #fff; color: #0284c7; transition: all 0.2s;">🛡️ Provados Seguros (Pass)</button>
-                    <button class="btn-filter-status" data-filter="regression" style="padding: 5px 12px; border-radius: 6px; font-size: 12px; font-weight: 700; cursor: pointer; border: 1px solid #dc2626; background: #fff; color: #dc2626; transition: all 0.2s;">🔴 Regressões / Falhas</button>
+                    <span style="font-size: 12px; font-weight: 700; color: #475569; margin-right: 4px;">Oracle Filters:</span>
+                    <button class="btn-filter-status active" data-filter="all" style="padding: 5px 12px; border-radius: 6px; font-size: 12px; font-weight: 700; cursor: pointer; border: 1px solid #475569; background: #334155; color: #f8fafc; transition: all 0.2s;">All</button>
+                    <button class="btn-filter-status" data-filter="pass_bug" style="padding: 5px 12px; border-radius: 6px; font-size: 12px; font-weight: 700; cursor: pointer; border: 1px solid #16a34a; background: #fff; color: #16a34a; transition: all 0.2s;">🟢 Bugs Found (Pass)</button>
+                    <button class="btn-filter-status" data-filter="pass_safe" style="padding: 5px 12px; border-radius: 6px; font-size: 12px; font-weight: 700; cursor: pointer; border: 1px solid #0284c7; background: #fff; color: #0284c7; transition: all 0.2s;">🛡️ Proved Safe (Pass)</button>
+                    <button class="btn-filter-status" data-filter="regression" style="padding: 5px 12px; border-radius: 6px; font-size: 12px; font-weight: 700; cursor: pointer; border: 1px solid #dc2626; background: #fff; color: #dc2626; transition: all 0.2s;">🔴 Regressions / Failures</button>
                 </div>
 
                 <div style="overflow-x: auto;">
@@ -527,7 +527,7 @@
                             <tr>
                                 <th>#</th>
                                 <th>Lang</th>
-                                <th>Fase</th>
+                                <th>Phase</th>
                                 <th>Directory</th>
                                 <th>Module / File</th>
                                 <th>Verification Mode / Z3 Witness</th>
@@ -535,7 +535,7 @@
                                 <th>SSA / VCCs</th>
                                 <th>Time</th>
                                 <th>Formal Verdict</th>
-                                <th>Oráculo / Status</th>
+                                <th>Oracle / Status</th>
                                 <th>Source / Slice</th>
                             </tr>
                         </thead>
@@ -590,30 +590,30 @@
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; flex-wrap: wrap; gap: 10px; border-bottom: 2px solid var(--bg-body); padding-bottom: 12px;">
                 <div>
                     <div class="card-title" style="margin: 0; border: none; padding: 0; display: flex; align-items: center; gap: 8px;">
-                        <span>🐞 Relatório de Reprodução de Bug & Fluxo de Execução (Padrão GitHub ESBMC)</span>
+                        <span>🐞 Bug Reproduction & Execution Flow Report (GitHub ESBMC Format)</span>
                     </div>
                     <div style="font-size: 12.5px; color: var(--text-muted); margin-top: 4px;">
-                        Template oficial <code>Wrong result or crash</code> para submissão no <a href="https://github.com/esbmc/esbmc/issues/new" target="_blank" style="color: var(--primary); text-decoration: underline;">GitHub do ESBMC</a> ou anexos de dissertação.
+                        Official <code>Wrong result or crash</code> template for submitting to the <a href="https://github.com/esbmc/esbmc/issues/new" target="_blank" style="color: var(--primary); text-decoration: underline;">ESBMC GitHub</a> or for thesis appendices.
                     </div>
                 </div>
                 <div style="display: flex; gap: 8px; flex-wrap: wrap;">
                     <button id="btnGerarPdf" class="btn-editor" style="background: #b91c1c; color: white; font-weight: 600;">
-                        📄 Gerar Relatório PDF
+                        📄 Generate PDF Report
                     </button>
                     <button id="btnCopiarRelatorio" class="btn-editor" style="background: #2563eb; color: white; font-weight: 600;">
-                        📋 Copiar Markdown
+                        📋 Copy Markdown
                     </button>
                     <button id="btnBaixarRelatorioMd" class="btn-editor" style="background: #059669; color: white; font-weight: 600;">
-                        💾 Baixar .md
+                        💾 Download .md
                     </button>
                     <button id="btnAbrirGithubIssue" class="btn-editor" style="background: #0f172a; color: white; font-weight: 600;">
-                        🌐 Abrir Issue no GitHub
+                        🌐 Open GitHub Issue
                     </button>
                 </div>
             </div>
 
             <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px 16px; margin-bottom: 15px; font-size: 13px; color: #475569;">
-                ℹ️ Este relatório reúne automaticamente a versão do ESBMC/Z3, o programa mínimo reproduzível, o comando com flags e o fluxo passo a passo do contraexemplo.
+                ℹ️ This report automatically gathers the ESBMC/Z3 version, the minimal reproducible program, the command with its flags, and the step-by-step counterexample trace.
             </div>
 
             <pre id="bug-report-pre" style="background: #0f172a; color: #f8fafc; padding: 20px; border-radius: 8px; font-family: 'Fira Code', 'Courier New', monospace; font-size: 12.5px; line-height: 1.6; max-height: 700px; overflow: auto; white-space: pre-wrap; word-break: break-word; box-shadow: inset 0 2px 8px rgba(0,0,0,0.4);"></pre>
@@ -626,24 +626,24 @@
                 <div>
                     <div class="card-title" style="margin: 0; border: none; padding: 0; display: flex; align-items: center; gap: 10px;">
                         <span style="font-size: 1.4rem;">📊</span>
-                        <span>Painel de Qualidade e Histórico de Vulnerabilidades (Codacy Dashboard)</span>
+                        <span>Quality & Vulnerability History Panel (Codacy Dashboard)</span>
                     </div>
                     <div style="font-size: 12.5px; color: var(--text-muted); margin-top: 4px;">
-                        Visão consolidada de integridade formal, histórico de execuções do ESBMC e distribuição do catálogo MITRE CWE.
+                        Consolidated view of formal integrity, ESBMC run history and the MITRE CWE catalogue breakdown.
                     </div>
                 </div>
                 <div style="display: flex; gap: 8px; flex-wrap: wrap;">
                     <button id="btnCarregarDemoCodacy" class="btn-editor" style="background: #2563eb; color: white; font-weight: 600; font-size: 12px; padding: 7px 12px;">
-                        🎲 Carregar Dados Demo
+                        🎲 Load Demo Data
                     </button>
                     <button id="btnExportarCsvCodacy" class="btn-editor" style="background: #059669; color: white; font-weight: 600; font-size: 12px; padding: 7px 12px;">
-                        📥 Exportar Histórico (CSV)
+                        📥 Export History (CSV)
                     </button>
                     <button id="btnExportarJsonCodacy" class="btn-editor" style="background: #334155; color: white; font-weight: 600; font-size: 12px; padding: 7px 12px;">
-                        💾 Exportar Histórico (JSON)
+                        💾 Export History (JSON)
                     </button>
                     <button id="btnLimparHistoricoCodacy" class="btn-editor btn-danger" style="font-weight: 600; font-size: 12px; padding: 7px 12px;">
-                        🗑️ Limpar Histórico
+                        🗑️ Clear History
                     </button>
                 </div>
             </div>
@@ -658,31 +658,31 @@
                     <div>
                         <div style="font-size: 11px; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px;">Quality Grade</div>
                         <div id="codacy-health-score" style="font-size: 1.45rem; font-weight: 800; color: #0f172a; line-height: 1.2;">100 / 100</div>
-                        <div id="codacy-grade-label" style="font-size: 11.5px; font-weight: 600; color: #059669;">Excelente Confiabilidade</div>
+                        <div id="codacy-grade-label" style="font-size: 11.5px; font-weight: 600; color: #059669;">Excellent Reliability</div>
                     </div>
                 </div>
 
                 <!-- Card 2: Tendência / Delta -->
                 <div style="background: #f8fafc; border: 1.5px solid #cbd5e1; border-radius: 8px; padding: 18px; box-shadow: 0 1px 3px rgba(0,0,0,0.05);">
-                    <div style="font-size: 11px; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 6px;">Tendência / Delta</div>
+                    <div style="font-size: 11px; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 6px;">Trend / Delta</div>
                     <div id="codacy-trend-indicator" style="font-size: 1.1rem; font-weight: 700; color: #059669; display: flex; align-items: center; gap: 6px;">
-                        <span>🟢 Estável</span>
+                        <span>🟢 Stable</span>
                     </div>
-                    <div id="codacy-trend-subtext" style="font-size: 11.5px; color: #64748b; margin-top: 4px;">Nenhuma alteração recente</div>
+                    <div id="codacy-trend-subtext" style="font-size: 11.5px; color: #64748b; margin-top: 4px;">No recent change</div>
                 </div>
 
                 <!-- Card 3: Taxa Formal de Sucesso (% SAFE) -->
                 <div style="background: #f8fafc; border: 1.5px solid #cbd5e1; border-radius: 8px; padding: 18px; box-shadow: 0 1px 3px rgba(0,0,0,0.05);">
-                    <div style="font-size: 11px; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 6px;">Taxa de Sucesso (% SAFE)</div>
+                    <div style="font-size: 11px; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 6px;">Success Rate (% SAFE)</div>
                     <div id="codacy-safe-rate" style="font-size: 1.45rem; font-weight: 800; color: #2563eb; line-height: 1.2;">100%</div>
-                    <div id="codacy-safe-rate-subtext" style="font-size: 11.5px; color: #64748b; margin-top: 4px;">0 falhas registradas</div>
+                    <div id="codacy-safe-rate-subtext" style="font-size: 11.5px; color: #64748b; margin-top: 4px;">0 failures recorded</div>
                 </div>
 
                 <!-- Card 4: Fórmulas SMT & VCCs Totais -->
                 <div style="background: #f8fafc; border: 1.5px solid #cbd5e1; border-radius: 8px; padding: 18px; box-shadow: 0 1px 3px rgba(0,0,0,0.05);">
-                    <div style="font-size: 11px; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 6px;">Total de VCCs Auditadas</div>
+                    <div style="font-size: 11px; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 6px;">Total VCCs Audited</div>
                     <div id="codacy-total-vccs" style="font-size: 1.45rem; font-weight: 800; color: #0f172a; line-height: 1.2;">0</div>
-                    <div id="codacy-total-runs-count" style="font-size: 11.5px; color: #64748b; margin-top: 4px;">0 auditoria(s) acumulada(s)</div>
+                    <div id="codacy-total-runs-count" style="font-size: 11.5px; color: #64748b; margin-top: 4px;">0 audit(s) recorded</div>
                 </div>
             </div>
 
@@ -692,8 +692,8 @@
                 <div style="background: #ffffff; border: 1.5px solid #e2e8f0; border-radius: 8px; padding: 18px; box-shadow: 0 2px 4px rgba(0,0,0,0.04);">
                     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
                         <div>
-                            <div style="font-weight: 700; font-size: 13.5px; color: #0f172a;">📈 Evolução Histórica das Auditorias (Timeline)</div>
-                            <div style="font-size: 11.5px; color: #64748b;">Módulos com Violação vs. Provados Seguros (SAFE) por corrida</div>
+                            <div style="font-weight: 700; font-size: 13.5px; color: #0f172a;">📈 Audit History Over Time (Timeline)</div>
+                            <div style="font-size: 11.5px; color: #64748b;">Modules with Violations vs. Proved Safe (SAFE) per run</div>
                         </div>
                     </div>
                     <div style="position: relative; height: 260px; width: 100%;">
@@ -706,8 +706,8 @@
                 <div style="background: #ffffff; border: 1.5px solid #e2e8f0; border-radius: 8px; padding: 18px; box-shadow: 0 2px 4px rgba(0,0,0,0.04);">
                     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
                         <div>
-                            <div style="font-weight: 700; font-size: 13.5px; color: #0f172a;">🛡️ Perfil de Vulnerabilidades (Catálogo MITRE CWE)</div>
-                            <div style="font-size: 11.5px; color: #64748b;">Distribuição proporcional dos tipos de defeitos identificados</div>
+                            <div style="font-weight: 700; font-size: 13.5px; color: #0f172a;">🛡️ Vulnerability Profile (MITRE CWE Catalogue)</div>
+                            <div style="font-size: 11.5px; color: #64748b;">Share of each defect type found</div>
                         </div>
                     </div>
                     <div style="position: relative; height: 260px; width: 100%;">
@@ -721,15 +721,15 @@
             <div style="border-top: 2px solid var(--bg-body); padding-top: 20px;">
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; flex-wrap: wrap; gap: 10px;">
                     <div>
-                        <div style="font-weight: 700; font-size: 14px; color: #0f172a;">📋 Registro Detalhado de Corridas Formais</div>
-                        <div style="font-size: 12px; color: #64748b;">Clique em "Visualizar" para inspecionar os resultados e contraexemplos no Dashboard interativo.</div>
+                        <div style="font-weight: 700; font-size: 14px; color: #0f172a;">📋 Detailed Log of Formal Runs</div>
+                        <div style="font-size: 12px; color: #64748b;">Click "View" to inspect the results and counterexamples in the interactive Dashboard.</div>
                     </div>
                     <div style="display: flex; gap: 8px; align-items: center;">
-                        <input type="text" id="filterHistorySearch" placeholder="🔍 Filtrar por módulo/arquivo..." style="padding: 6px 10px; font-size: 12px; border-radius: 6px; border: 1px solid #cbd5e1; width: 220px; background: #fff;">
+                        <input type="text" id="filterHistorySearch" placeholder="🔍 Filter by module/file..." style="padding: 6px 10px; font-size: 12px; border-radius: 6px; border: 1px solid #cbd5e1; width: 220px; background: #fff;">
                         <select id="filterHistoryVerdict" style="padding: 6px 10px; font-size: 12px; border-radius: 6px; border: 1px solid #cbd5e1; width: auto; background: #fff;">
-                            <option value="all">Todos os Vereditos</option>
-                            <option value="SAFE">Apenas SAFE</option>
-                            <option value="VIOLATION">Apenas Violações</option>
+                            <option value="all">All Verdicts</option>
+                            <option value="SAFE">SAFE Only</option>
+                            <option value="VIOLATION">Violations Only</option>
                         </select>
                     </div>
                 </div>
@@ -739,14 +739,14 @@
                         <thead style="position: sticky; top: 0; background: #f8fafc; z-index: 1;">
                             <tr style="border-bottom: 2px solid #cbd5e1; color: #475569;">
                                 <th style="padding: 8px 10px; width: 60px;"># Run</th>
-                                <th style="padding: 8px 10px; width: 130px;">Data / Hora</th>
-                                <th style="padding: 8px 10px;">Alvo / Módulo</th>
-                                <th style="padding: 8px 10px; width: 90px;">Linguagem</th>
-                                <th style="padding: 8px 10px; width: 130px;">Veredito</th>
-                                <th style="padding: 8px 10px;">CWEs Encontradas</th>
+                                <th style="padding: 8px 10px; width: 130px;">Date / Time</th>
+                                <th style="padding: 8px 10px;">Target / Module</th>
+                                <th style="padding: 8px 10px; width: 90px;">Language</th>
+                                <th style="padding: 8px 10px; width: 130px;">Verdict</th>
+                                <th style="padding: 8px 10px;">CWEs Found</th>
                                 <th style="padding: 8px 10px; width: 80px;">VCCs</th>
                                 <th style="padding: 8px 10px; width: 70px; text-align: center;">Grade</th>
-                                <th style="padding: 8px 10px; width: 160px; text-align: center;">Ações</th>
+                                <th style="padding: 8px 10px; width: 160px; text-align: center;">Actions</th>
                             </tr>
                         </thead>
                         <tbody id="tabela-historico-codacy-body">
@@ -819,11 +819,11 @@
         <div class="modal-content" style="max-width: 960px; width: 92%; max-height: 88vh; display: flex; flex-direction: column;">
             <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border); padding-bottom: 12px; margin-bottom: 14px;">
                 <div style="font-weight: 700; font-size: 1.15rem; color: #0f172a; display: flex; align-items: center; gap: 8px;">
-                    <span id="homogenizedModalTitle">📄 Código Homogeneizado & Fatiado (Input ESBMC / Z3)</span>
+                    <span id="homogenizedModalTitle">📄 Homogenised & Sliced Code (ESBMC / Z3 Input)</span>
                 </div>
                 <div style="display: flex; gap: 10px; align-items: center;">
                     <button id="copyHomogenizedCodeBtn" class="btn-editor" style="background: #2563eb; color: white; padding: 6px 14px; font-size: 12px; font-weight: 600;">
-                        📋 Copiar Código
+                        📋 Copy Code
                     </button>
                     <span id="homogenizedModalClose" class="modal-close-btn" style="position: static; font-size: 26px; cursor: pointer; line-height: 1;">&times;</span>
                 </div>

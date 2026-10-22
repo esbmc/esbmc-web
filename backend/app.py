@@ -232,12 +232,12 @@ def avaliar_status_teste(veredicto_obtido: str, veredicto_esperado: Optional[str
         return "COMPLETED", "COMPLETED"
 
     if obtido_norm == "UNKNOWN":
-        return "INCONCLUSIVE", "⚠ INCONCLUSIVE (Sem Veredito)"
+        return "INCONCLUSIVE", "⚠ INCONCLUSIVE (No Verdict)"
     if obtido_norm == _normalizar_veredito(veredicto_esperado):
         if obtido_norm == "FAILED":
-            return "PASS_BUG_FOUND", "🟢 PASS (Bug Encontrado)"
-        return "PASS_SOUND", "🟢 PASS (Provado Seguro)"
-    return "REGRESSION_FAILED", "🔴 REGRESSÃO (Divergiu do Oráculo)"
+            return "PASS_BUG_FOUND", "🟢 PASS (Bug Found)"
+        return "PASS_SOUND", "🟢 PASS (Proved Safe)"
+    return "REGRESSION_FAILED", "🔴 REGRESSION (Oracle Mismatch)"
 
 
 from sanitizers.python_sanitizer import sanitizar_python
@@ -1095,7 +1095,7 @@ def iniciar_analise():
                 )
                 for idx_a, a in enumerate(alvos, 1):
                     lang_badge = str(a.get('lang', linguagem)).upper()
-                    grau_tag = f"Grau {a.get('grau', 0)}: {a.get('nome_grau', 'Auxiliar')}"
+                    grau_tag = f"Grade {a.get('grau', 0)}: {a.get('nome_grau', 'Auxiliary')}"
                     oracle_badge = f" | Expected: {a['expected_verdict'].replace('VERIFICATION ', '')}" if a.get('expected_verdict') else ""
                     harness_badge = " [HARNESS]" if a.get('is_harness') else ""
                     TAREFAS_ATIVAS[task_id]["logs"] += (
@@ -1132,7 +1132,7 @@ def iniciar_analise():
                         "current_file": rel_path,
                         "current_lang": lang_mod.upper()
                     })
-                    grau_banner = f"Grau {alvo_info.get('grau', 0)} ({alvo_info.get('nome_grau', 'Auxiliar')})"
+                    grau_banner = f"Grade {alvo_info.get('grau', 0)} ({alvo_info.get('nome_grau', 'Auxiliary')})"
                     TAREFAS_ATIVAS[task_id]["logs"] += (
                         f"\n--------------------------------------------------------------------------------\n"
                         f"[RepoSlice-BMC] [{idx_a}/{len(alvos)}] Exploring [{grau_banner}] [{lang_mod.upper()}] Module: {rel_path} (Directory: {alvo_info['dir']})\n"
@@ -1223,7 +1223,7 @@ def iniciar_analise():
                     timeout_primario = 10 if (lang_mod in ('c', 'cpp') and '--incremental-bmc' in flags_modulo_base) else 16
 
                     # FASE 1: Contratos Funcionais (Asserções e Invariantes)
-                    fase_rotulo = "Fase 1 (Contratos)" if modo_fases in ('1', 'both') else "Fase 2 (Safety)"
+                    fase_rotulo = "Phase 1 (Contracts)" if modo_fases in ('1', 'both') else "Phase 2 (Safety)"
                     txt_mod, rc_mod = rodar_esbmc(
                         arq_exec,
                         usou_homogenizer=usou_homog_mod,
@@ -1242,7 +1242,7 @@ def iniciar_analise():
                     if modo_fases in ('2', 'both') and not is_raw_esbmc and not TAREFAS_ATIVAS[task_id].get("cancel_requested"):
                         if p1_failed:
                             # A Fase 1 já descobriu bug funcional com contraexemplo Z3!
-                            fase_rotulo = "Fase 1 (Contrato Violado)"
+                            fase_rotulo = "Phase 1 (Contract Violated)"
                         else:
                             flags_p2 = list(flags_modulo_base)
                             if '--overflow-check' not in flags_p2:
@@ -1265,17 +1265,17 @@ def iniciar_analise():
                             if "VERIFICATION FAILED" in txt_p2:
                                 txt_mod = txt_p2
                                 rc_mod = rc_p2
-                                fase_rotulo = "Fase 2 (Safety Violado)"
+                                fase_rotulo = "Phase 2 (Safety Violated)"
                             elif "VERIFICATION SUCCESSFUL" not in txt_p2:
                                 txt_mod = txt_p2
                                 rc_mod = rc_p2
-                                fase_rotulo = "Fase 2 (Sem Veredito)"
+                                fase_rotulo = "Phase 2 (No Verdict)"
                             elif modo_fases == 'both' and p1_success:
-                                fase_rotulo = "Fases 1 + 2 (Sound)"
+                                fase_rotulo = "Phases 1 + 2 (Sound)"
                             elif modo_fases == '2':
                                 txt_mod = txt_p2
                                 rc_mod = rc_p2
-                                fase_rotulo = "Fase 2 (Safety & Overflow)"
+                                fase_rotulo = "Phase 2 (Safety & Overflow)"
                     if TAREFAS_ATIVAS[task_id].get("cancel_requested") and ("VERIFICATION SUCCESSFUL" not in txt_mod and "VERIFICATION FAILED" not in txt_mod):
                         if not repo_exploration_summary:
                             dur_parcial = time.time() - t_mod_start
@@ -1495,7 +1495,7 @@ def iniciar_analise():
                     repo_exploration_summary.append({
                         "index": idx_a,
                         "grau": alvo_info.get('grau', 0),
-                        "nome_grau": alvo_info.get('nome_grau', 'Auxiliar'),
+                        "nome_grau": alvo_info.get('nome_grau', 'Auxiliary'),
                         "lang": lang_mod.upper(),
                         "directory": alvo_info['dir'],
                         "file": rel_path,
@@ -1521,8 +1521,8 @@ def iniciar_analise():
                     })
 
                     # Atualiza o placar ao vivo para a barra de progresso e prévia em tempo real no HTML
-                    total_pass_live = sum(1 for r in repo_exploration_summary if "PASS" in r.get("test_status", ""))
-                    total_regr_live = sum(1 for r in repo_exploration_summary if "REGRESS" in r.get("test_status", ""))
+                    total_pass_live = sum(1 for r in repo_exploration_summary if r.get("test_status_code", "").startswith("PASS_"))
+                    total_regr_live = sum(1 for r in repo_exploration_summary if r.get("test_status_code") == "REGRESSION_FAILED")
                     TAREFAS_ATIVAS[task_id]["progresso"].update({
                         "safe_count": sum(1 for r in repo_exploration_summary if "SAFE" in r["status"] or "SOUND" in r["status"]),
                         "violation_count": sum(1 for r in repo_exploration_summary if r["violations"] > 0),
@@ -1540,8 +1540,8 @@ def iniciar_analise():
                 total_raw_err = sum(1 for r in repo_exploration_summary if "RAW ERROR" in r["status"] or "NO VERDICT" in r["status"])
                 total_vccs_repo = sum(int(r.get("vccs", 0)) for r in repo_exploration_summary)
                 total_ssa_repo = sum(int(r.get("ssa_assigns", 0)) for r in repo_exploration_summary)
-                total_pass = sum(1 for r in repo_exploration_summary if "PASS" in r.get("test_status", ""))
-                total_regr = sum(1 for r in repo_exploration_summary if "REGRESS" in r.get("test_status", ""))
+                total_pass = sum(1 for r in repo_exploration_summary if r.get("test_status_code", "").startswith("PASS_"))
+                total_regr = sum(1 for r in repo_exploration_summary if r.get("test_status_code") == "REGRESSION_FAILED")
                 total_bugs = sum(1 for r in repo_exploration_summary if r.get("test_status_code") == "PASS_BUG_FOUND")
                 total_sound = sum(1 for r in repo_exploration_summary if r.get("test_status_code") == "PASS_SOUND")
 
@@ -1556,20 +1556,20 @@ def iniciar_analise():
                     f" • Test Oracle Compliance : {total_pass} PASSED ({total_bugs} Bugs Found, {total_sound} Proved Safe) | {total_regr} REGRESSIONS",
                     f" • Total SMT Proof Effort : {total_vccs_repo} Verification Conditions (VCCs) | {total_ssa_repo} SSA Assignments | Wall Time: {tempo_total_repo:.2f}s",
                     "------------------------------------------------------------------------------------------------------------------------------------------------",
-                    f"{'#':<3} | {'Grau':<5} | {'Lang':<5} | {'Fase':<12} | {'Module (Path)':<34} | {'Expected':<12} | {'Test Status':<16} | {'Formal Verdict / Z3 Witness'}",
+                    f"{'#':<3} | {'Grade':<5} | {'Lang':<5} | {'Phase':<12} | {'Module (Path)':<34} | {'Expected':<12} | {'Test Status':<16} | {'Formal Verdict / Z3 Witness'}",
                     "-" * 144
                 ]
                 linhas_csv = ["Index,Priority_Grade,Grade_Name,Language,Directory,Module,Phase,ExpectedVerdict,TestStatus,VerificationMode,ESBMC_CLI,GOTO_Time,SSA_Assignments,VCCs,WallTime_s,Verdict,Z3_Witness"]
                 linhas_latex = [
-                    "% === TABELA LATEX GERADA AUTOMATICAMENTE PELO ESBMC-WEB (v2026) PARA DISSERTAÇÃO UFAM / IEEE ===",
+                    "% === LATEX TABLE GENERATED AUTOMATICALLY BY ESBMC-WEB (v2026) FOR UFAM THESIS / IEEE ===",
                     "\\begin{table*}[htbp]",
                     "\\centering",
-                    "\\caption{Resultados da Verificação Formal Poliglota Multi-Diretório via Algoritmo \\textit{RepoSlice-BMC} com Suítes de Teste e Oráculos}",
+                    "\\caption{Results of Polyglot Multi-Directory Formal Verification with the \\textit{RepoSlice-BMC} Algorithm, Test Suites and Oracles}",
                     "\\label{tab:reposlice_bmc_results}",
                     "\\resizebox{\\textwidth}{!}{%",
                     "\\begin{tabular}{ccclllllrrrl}",
                     "\\hline",
-                    "\\textbf{\\#} & \\textbf{Grau} & \\textbf{Ling.} & \\textbf{Módulo Verificado} & \\textbf{Fase} & \\textbf{Oráculo} & \\textbf{Status do Teste} & \\textbf{Atrib. SSA} & \\textbf{VCCs} & \\textbf{Tempo (s)} & \\textbf{Veredito Formal (ESBMC + Z3)} \\\\ \\hline"
+                    "\\textbf{\\#} & \\textbf{Grade} & \\textbf{Lang.} & \\textbf{Verified Module} & \\textbf{Phase} & \\textbf{Oracle} & \\textbf{Test Status} & \\textbf{SSA Assign.} & \\textbf{VCCs} & \\textbf{Time (s)} & \\textbf{Formal Verdict (ESBMC + Z3)} \\\\ \\hline"
                 ]
 
                 for r in repo_exploration_summary:
@@ -1597,12 +1597,12 @@ def iniciar_analise():
                     exp_tex = exp_txt.replace("_", "\\_")
                     test_tex = stat_test_clean.replace("🟢", "").replace("🔴", "").replace("❌", "").replace("✅", "").strip().replace("_", "\\_")
                     linhas_latex.append(
-                        f"{r['index']} & Grau {r.get('grau', 0)} & \\texttt{{{r['lang']}}} & \\texttt{{{arq_tex}}} & {fase_tex} & {exp_tex} & \\textbf{{{test_tex}}} & {r['ssa_assigns']} & {r['vccs']} & {r['wall_time']} & \\textbf{{{stat_tex}}} \\\\"
+                        f"{r['index']} & Grade {r.get('grau', 0)} & \\texttt{{{r['lang']}}} & \\texttt{{{arq_tex}}} & {fase_tex} & {exp_tex} & \\textbf{{{test_tex}}} & {r['ssa_assigns']} & {r['vccs']} & {r['wall_time']} & \\textbf{{{stat_tex}}} \\\\"
                     )
 
                 linhas_latex.extend([
                     "\\hline",
-                    f"\\multicolumn{{7}}{{r}}{{\\textbf{{Total Consolidado ({len(repo_exploration_summary)} Módulos)}}}} & \\textbf{{{total_ssa_repo}}} & \\textbf{{{total_vccs_repo}}} & \\textbf{{{tempo_total_repo:.2f}s}} & \\textbf{{{total_safe} SAFE / {total_viol} VIOLATION}} \\\\ \\hline",
+                    f"\\multicolumn{{7}}{{r}}{{\\textbf{{Consolidated Total ({len(repo_exploration_summary)} Modules)}}}} & \\textbf{{{total_ssa_repo}}} & \\textbf{{{total_vccs_repo}}} & \\textbf{{{tempo_total_repo:.2f}s}} & \\textbf{{{total_safe} SAFE / {total_viol} VIOLATION}} \\\\ \\hline",
                     "\\end{tabular}%",
                     "}",
                     "\\end{table*}"
@@ -1628,7 +1628,7 @@ def iniciar_analise():
                 if verificacao_sucesso and not aggregated_dashboard_data:
                     aggregated_dashboard_data = [{
                         "status": "successful",
-                        "message": f"VERIFICATION SUCCESSFUL — {len(alvos)} módulo(s) em múltiplos diretórios verificados sem vulnerabilidades!",
+                        "message": f"VERIFICATION SUCCESSFUL — {len(alvos)} module(s) across multiple directories verified with no vulnerabilities!",
                         "steps": []
                     }]
 
@@ -1772,7 +1772,7 @@ def iniciar_analise():
                 if not dashboard_data:
                     dashboard_data = [{
                         "status": "successful",
-                        "message": "VERIFICATION SUCCESSFUL — Código seguro! Nenhuma vulnerabilidade detectada pelo ESBMC.",
+                        "message": "VERIFICATION SUCCESSFUL — Code is safe! ESBMC detected no vulnerabilities.",
                         "steps": []
                     }]
 
