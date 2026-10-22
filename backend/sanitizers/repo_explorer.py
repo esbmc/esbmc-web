@@ -331,11 +331,15 @@ def resolver_fontes_dependentes_cpp(caminho_alvo: str, repo_dir: str) -> Tuple[L
         return [], []
 
     nomes_headers = {os.path.basename(inc).lower() for inc in includes_alvo}
+    dir_alvo_rel = os.path.dirname(os.path.relpath(os.path.abspath(caminho_alvo), repo_dir))
     stem_para_caminhos: Dict[str, Set[str]] = {}
     for inc in includes_alvo:
         stem_inc = os.path.splitext(os.path.basename(inc))[0].lower()
-        sem_ext = os.path.splitext(inc)[0].lower()
-        stem_para_caminhos.setdefault(stem_inc, set()).add(sem_ext)
+        stem_para_caminhos.setdefault(stem_inc, set()).add(os.path.splitext(inc)[0].lower())
+        # "../lib/lib.h" from app/main.c names lib/lib.h; match its implementation by repo path too
+        relativo = os.path.normpath(os.path.join(dir_alvo_rel, inc)).replace('\\', '/')
+        if not relativo.startswith('..'):
+            stem_para_caminhos[stem_inc].add(os.path.splitext(relativo)[0].lower())
 
     chamadas_alvo = set(re.findall(r'(?<![\.\->])\b([A-Za-z_][A-Za-z0-9_]*)\s*\(', codigo_alvo)) - NOMES_GENERICOS_IGNORADOS
 
