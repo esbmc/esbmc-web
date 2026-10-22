@@ -82,6 +82,14 @@ class TestSingleFileC:
         res = result(analyse(client, {'language': 'c', 'codigo': code, 'flags': [], 'dependencies': deps}))
         assert res['verificacao_sucesso'] is True
 
+    @pytest.mark.parametrize('mode', ['assisted', 'raw_esbmc'])
+    def test_function_without_body_is_not_reported_successful(self, client, mode):
+        code = 'int helper(int x);\nint nondet_int();\nint main(){ return helper(nondet_int()); }\n'
+        status = analyse(client, {'language': 'c', 'codigo': code, 'flags': [], 'verification_engine_mode': mode})
+        res = result(status)
+        assert res['verdict'] == 'PARTIAL'
+        assert 'no body for: helper' in status['logs']
+
     def test_raw_mode_finds_deep_loop_bug(self, client):
         res = result(analyse(client, {'language': 'c', 'codigo': C_DEEP_LOOP_BUG, 'flags': [],
                                       'verification_engine_mode': 'raw_esbmc'}))
@@ -370,6 +378,15 @@ class TestRepository:
         repo = local_repo({'pkg/p.py': 'import os\n\ndef f(x: int) -> int:\n    p = os.path.join("a", "b")\n    assert x != 3\n    return x\n'})
         res = result(analyse(client, {'language': 'python', 'git_url': repo, 'explore_repo': True, 'flags': []}))
         assert res['repo_exploration_summary'][0]['status'].startswith('VIOLATION')
+
+    def test_implementation_in_another_directory_is_linked(self, client, local_repo):
+        repo = local_repo({
+            'lib/lib.c': '#include <assert.h>\n#include "lib.h"\nint helper(int x){ assert(x != 3); return x; }\n',
+            'lib/lib.h': 'int helper(int x);\n',
+            'app/main.c': '#include "../lib/lib.h"\nint nondet_int();\nint main(){ return helper(nondet_int()); }\n',
+        })
+        res = result(analyse(client, {'language': 'c', 'git_url': repo, 'main_file_path': 'app/main.c', 'flags': []}))
+        assert res['verdict'] == 'FAILED'
 
     def test_single_repo_file_parse_error_is_not_labelled_safe(self, client, local_repo):
         repo = local_repo({'src/broken.c': C_PARSE_ERROR})

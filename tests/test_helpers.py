@@ -2,7 +2,7 @@ import pytest
 
 import app as backend_app
 from app import (JANELA_CORPO_FUNCAO, _fim_do_bloco, avaliar_status_teste, classificar_veredito, descobrir_funcao_alvo_principal,
-                 filtrar_flags_do_repositorio, normalizar_url_e_subpasta_git)
+                 filtrar_flags_do_repositorio, funcoes_sem_corpo, normalizar_url_e_subpasta_git)
 
 
 class TestGitUrlNormalisation:
@@ -51,6 +51,16 @@ class TestVerdictClassification:
         assert classificar_veredito(unsupported, 1, False) == 'UNSUPPORTED'
         mixed = unsupported.replace('VERIFICATION FAILED', '  FAILED       [f.assertion.2]  line 3  assertion n != 3\nVERIFICATION FAILED')
         assert classificar_veredito(mixed, 1, False) == 'FAILED'
+
+    def test_success_with_bodyless_user_function_is_partial(self):
+        text = 'WARNING: no body for function helper\nVERIFICATION SUCCESSFUL\n'
+        assert classificar_veredito(text, 0, False) == 'PARTIAL'
+        assert funcoes_sem_corpo(text) == ['helper']
+        stubs = ('WARNING: no body for function nondet_int\nWARNING: no body for function __VERIFIER_nondet_int\n'
+                 'WARNING: no body for function allocator#\nVERIFICATION SUCCESSFUL\n')
+        assert classificar_veredito(stubs, 0, False) == 'SUCCESSFUL'
+        failed = 'WARNING: no body for function helper\nViolated property:\n  assertion x\n\nVERIFICATION FAILED\n'
+        assert classificar_veredito(failed, 1, False) == 'FAILED'
 
     def test_completed_verdict_survives_late_cancel(self):
         assert classificar_veredito('VERIFICATION SUCCESSFUL\n', 0, True) == 'SUCCESSFUL'
