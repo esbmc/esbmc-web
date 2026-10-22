@@ -254,7 +254,7 @@ sequenceDiagram
    cd backend
    python3 app.py
    ```
-   The backend starts at `http://127.0.0.1:5000`.
+   The backend starts at `http://127.0.0.1:5000`. Flask's debug mode is off by default; set `ESBMC_WEB_DEBUG=1` to enable it during development.
 
 5. **Open the Frontend**:
    Open `frontend/index.html` directly in any modern browser.
