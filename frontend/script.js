@@ -1,4 +1,11 @@
 document.addEventListener('DOMContentLoaded', () => {
+    // Values from ESBMC, the analysed code or a cloned repository are untrusted: escape them in innerHTML (#32)
+    const escapeHtml = (value) => (value === undefined || value === null ? '' : String(value))
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
     // --- Variáveis Globais e Constantes ---
     const analisarBtn = document.getElementById('analisarBtn');
     const esbmcFlags = document.querySelectorAll('.esbmc-flag');
@@ -472,12 +479,12 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (repoSubdirFilter && !repoSubdirFilter.value && dirPai) {
                     repoSubdirFilter.value = dirPai;
                 }
-                gitFetchStatus.innerHTML = `<span style="color:#059669; font-weight:600;">⚡ File URL detected! Base repository: <code>${baseUrl}</code> | File: <code>${subpath}</code></span>`;
+                gitFetchStatus.innerHTML = `<span style="color:#059669; font-weight:600;">⚡ File URL detected! Base repository: <code>${escapeHtml(baseUrl)}</code> | File: <code>${escapeHtml(subpath)}</code></span>`;
             } else {
                 if (repoSubdirFilter) {
                     repoSubdirFilter.value = subpath;
                 }
-                gitFetchStatus.innerHTML = `<span style="color:#059669; font-weight:600;">⚡ Subfolder detected! Base repository: <code>${baseUrl}</code> | Subdirectory filter: <code>${subpath}</code></span>`;
+                gitFetchStatus.innerHTML = `<span style="color:#059669; font-weight:600;">⚡ Subfolder detected! Base repository: <code>${escapeHtml(baseUrl)}</code> | Subdirectory filter: <code>${escapeHtml(subpath)}</code></span>`;
             }
         }
     }
@@ -548,7 +555,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         if (subpasta) {
-            gitFetchStatus.innerHTML = `<span style="color:#059669; font-weight:600;">✅ Folder opened: <code>${subpasta}</code> — ${listaArquivos.length} file(s) ready for an individual test or exploration.</span>`;
+            gitFetchStatus.innerHTML = `<span style="color:#059669; font-weight:600;">✅ Folder opened: <code>${escapeHtml(subpasta)}</code> — ${listaArquivos.length} file(s) ready for an individual test or exploration.</span>`;
             if (gitMainFile && !gitMainFile.value) {
                 gitMainFile.placeholder = `Choose a file from ${subpasta}...`;
             }
@@ -1135,16 +1142,16 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (statusText) {
                     const langTag = prog.current_lang ? `[${prog.current_lang}] ` : '';
                     const fileTag = prog.current_file || 'Waiting...';
-                    statusText.innerHTML = `<span style="display:inline-block; width: 14px; height: 14px; border: 2.5px solid var(--primary); border-top-color: transparent; border-radius: 50%; animation: spin 1s linear infinite;"></span> <span>Verifying <strong>${cur}/${tot}</strong>: <code>${langTag}${fileTag}</code></span>`;
+                    statusText.innerHTML = `<span style="display:inline-block; width: 14px; height: 14px; border: 2.5px solid var(--primary); border-top-color: transparent; border-radius: 50%; animation: spin 1s linear infinite;"></span> <span>Verifying <strong>${escapeHtml(cur)}/${escapeHtml(tot)}</strong>: <code>${escapeHtml(langTag)}${escapeHtml(fileTag)}</code></span>`;
                 }
                 if (scoreboard) {
                     const passBug = prog.pass_bug_count || 0;
                     const passSafe = prog.pass_safe_count || 0;
                     const regrCount = prog.regression_count || 0;
                     if (prog.test_suite_mode || passBug > 0 || regrCount > 0) {
-                        scoreboard.innerHTML = `🟢 PASS (Bugs): <strong>${passBug}</strong> | 🛡️ PASS (Safe): <strong>${passSafe}</strong> | 🔴 REGRESSIONS: <strong style="color:#dc2626;">${regrCount}</strong> | 📐 VCCs: <strong>${prog.total_vccs || 0}</strong>`;
+                        scoreboard.innerHTML = `🟢 PASS (Bugs): <strong>${passBug}</strong> | 🛡️ PASS (Safe): <strong>${passSafe}</strong> | 🔴 REGRESSIONS: <strong style="color:#dc2626;">${regrCount}</strong> | 📐 VCCs: <strong>${escapeHtml(prog.total_vccs || 0)}</strong>`;
                     } else {
-                        scoreboard.innerHTML = `✅ SAFE: <strong>${prog.safe_count || 0}</strong> | ❌ VIOLATION: <strong style="color:#dc2626;">${prog.violation_count || 0}</strong> | 📐 VCCs: <strong>${prog.total_vccs || 0}</strong> | 🔗 SSA: <strong>${prog.total_ssa || 0}</strong>`;
+                        scoreboard.innerHTML = `✅ SAFE: <strong>${escapeHtml(prog.safe_count || 0)}</strong> | ❌ VIOLATION: <strong style="color:#dc2626;">${escapeHtml(prog.violation_count || 0)}</strong> | 📐 VCCs: <strong>${escapeHtml(prog.total_vccs || 0)}</strong> | 🔗 SSA: <strong>${escapeHtml(prog.total_ssa || 0)}</strong>`;
                     }
                 }
                 if (barFill) {
@@ -1158,11 +1165,11 @@ document.addEventListener('DOMContentLoaded', () => {
                         const isViol = String(item.status).startsWith('VIOLATION');
                         const badgeColor = isViol ? '#dc2626' : '#059669';
                         const witnessOrMode = item.z3_witness
-                            ? `<span style="color:#dc2626; font-weight:600;">❌ ${item.z3_witness}</span>`
-                            : `<span style="color:#4f46e5; font-weight:600;">${item.mode || 'Symbolic BMC'}</span>`;
+                            ? `<span style="color:#dc2626; font-weight:600;">❌ ${escapeHtml(item.z3_witness)}</span>`
+                            : `<span style="color:#4f46e5; font-weight:600;">${escapeHtml(item.mode || 'Symbolic BMC')}</span>`;
 
                         const phaseBadge = item.phase
-                            ? `<span style="background:#fef3c7; color:#92400e; padding:1px 5px; border-radius:3px; font-size:10px; font-weight:600; white-space:nowrap;">${item.phase.split(':')[0]}</span>`
+                            ? `<span style="background:#fef3c7; color:#92400e; padding:1px 5px; border-radius:3px; font-size:10px; font-weight:600; white-space:nowrap;">${escapeHtml(item.phase.split(':')[0])}</span>`
                             : `<span style="color:#94a3b8;">-</span>`;
 
                         let testStatusHtml = '<span style="color:#94a3b8;">-</span>';
@@ -1170,18 +1177,18 @@ document.addEventListener('DOMContentLoaded', () => {
                             let tsColor = '#059669';
                             if (item.test_status_code === 'REGRESSION_FAILED') tsColor = '#dc2626';
                             else if (item.test_status.includes('PASS')) tsColor = '#059669';
-                            testStatusHtml = `<span style="background:${tsColor}; color:#fff; padding:1px 6px; border-radius:3px; font-size:10.5px; font-weight:700; white-space:nowrap;">${item.test_status}</span>`;
+                            testStatusHtml = `<span style="background:${tsColor}; color:#fff; padding:1px 6px; border-radius:3px; font-size:10.5px; font-weight:700; white-space:nowrap;">${escapeHtml(item.test_status)}</span>`;
                         }
 
                         tr.innerHTML = `
-                            <td style="padding: 5px 8px; border-bottom: 1px solid #f1f5f9;"><strong>${item.index}/${tot}</strong></td>
-                            <td style="padding: 5px 8px; border-bottom: 1px solid #f1f5f9;"><span style="background:#e0e7ff; color:#3730a3; padding:1px 6px; border-radius:4px; font-weight:700; font-size:10.5px;">${item.lang || 'C/C++'}</span></td>
+                            <td style="padding: 5px 8px; border-bottom: 1px solid #f1f5f9;"><strong>${escapeHtml(item.index)}/${tot}</strong></td>
+                            <td style="padding: 5px 8px; border-bottom: 1px solid #f1f5f9;"><span style="background:#e0e7ff; color:#3730a3; padding:1px 6px; border-radius:4px; font-weight:700; font-size:10.5px;">${escapeHtml(item.lang || 'C/C++')}</span></td>
                             <td style="padding: 5px 8px; border-bottom: 1px solid #f1f5f9;">${phaseBadge}</td>
-                            <td style="padding: 5px 8px; border-bottom: 1px solid #f1f5f9;"><code>${item.directory}/${item.file}</code></td>
+                            <td style="padding: 5px 8px; border-bottom: 1px solid #f1f5f9;"><code>${escapeHtml(item.directory)}/${escapeHtml(item.file)}</code></td>
                             <td style="padding: 5px 8px; border-bottom: 1px solid #f1f5f9;">${witnessOrMode}</td>
-                            <td style="padding: 5px 8px; border-bottom: 1px solid #f1f5f9;"><strong>${item.vccs || 0}</strong> <small style="color:#64748b;">(${item.ssa_assigns || 0} SSA)</small></td>
-                            <td style="padding: 5px 8px; border-bottom: 1px solid #f1f5f9;"><code>${item.wall_time || '-'}</code></td>
-                            <td style="padding: 5px 8px; border-bottom: 1px solid #f1f5f9;"><span style="background:${badgeColor}; color:#fff; padding:2px 7px; border-radius:4px; font-size:10.5px; font-weight:700;">${item.status}</span></td>
+                            <td style="padding: 5px 8px; border-bottom: 1px solid #f1f5f9;"><strong>${escapeHtml(item.vccs || 0)}</strong> <small style="color:#64748b;">(${escapeHtml(item.ssa_assigns || 0)} SSA)</small></td>
+                            <td style="padding: 5px 8px; border-bottom: 1px solid #f1f5f9;"><code>${escapeHtml(item.wall_time || '-')}</code></td>
+                            <td style="padding: 5px 8px; border-bottom: 1px solid #f1f5f9;"><span style="background:${badgeColor}; color:#fff; padding:2px 7px; border-radius:4px; font-size:10.5px; font-weight:700;">${escapeHtml(item.status)}</span></td>
                             <td style="padding: 5px 8px; border-bottom: 1px solid #f1f5f9;">${testStatusHtml}</td>
                         `;
                     });
@@ -1459,15 +1466,6 @@ document.addEventListener('DOMContentLoaded', () => {
         const now = new Date();
         const dataFormatada = now.toLocaleDateString('en-GB') + ' ' + now.toLocaleTimeString('en-GB');
 
-        const escapeHtml = (str) => {
-            if (!str) return '';
-            return String(str)
-                .replace(/&/g, '&amp;')
-                .replace(/</g, '&lt;')
-                .replace(/>/g, '&gt;')
-                .replace(/"/g, '&quot;')
-                .replace(/'/g, '&#039;');
-        };
 
         // Extrai números de linha com violação
         const violationLines = (data.violationDetails || []).map(v => parseInt(v.line, 10)).filter(n => !isNaN(n));
@@ -1757,10 +1755,10 @@ document.addEventListener('DOMContentLoaded', () => {
                 else if (statusStr.startsWith('BOUNDED SAFE')) statusColor = '#2563eb';
                 else if (statusStr.startsWith('SLICED SAFE')) statusColor = '#4f46e5';
                 else if (statusStr.startsWith('STATIC SAFE')) statusColor = '#0d9488';
-                const statusBadge = `<span class="severity-badge" style="background-color: ${statusColor};">${item.status}</span>`;
-                const langBadge = `<span style="background:#e0e7ff; color:#3730a3; padding:2px 7px; border-radius:4px; font-weight:700; font-size:11px;">${item.lang || 'C/C++'}</span>`;
+                const statusBadge = `<span class="severity-badge" style="background-color: ${statusColor};">${escapeHtml(item.status)}</span>`;
+                const langBadge = `<span style="background:#e0e7ff; color:#3730a3; padding:2px 7px; border-radius:4px; font-weight:700; font-size:11px;">${escapeHtml(item.lang || 'C/C++')}</span>`;
                 const phaseBadge = item.phase
-                    ? `<span style="background:#fef3c7; color:#92400e; padding:2px 6px; border-radius:4px; font-weight:700; font-size:10.5px; white-space:nowrap;">${item.phase.split(':')[0]}</span>`
+                    ? `<span style="background:#fef3c7; color:#92400e; padding:2px 6px; border-radius:4px; font-weight:700; font-size:10.5px; white-space:nowrap;">${escapeHtml(item.phase.split(':')[0])}</span>`
                     : `<span style="color:#94a3b8;">-</span>`;
 
                 let testStatusBadge = '<span style="color:#94a3b8;">-</span>';
@@ -1778,33 +1776,33 @@ document.addEventListener('DOMContentLoaded', () => {
                         tsBorder = '#10b981';
                     }
                     const oracleSubtext = item.expected_verdict
-                        ? `<div style="font-size:10px; color:#64748b; margin-top:2px;">Expected: <code>${item.expected_verdict}</code></div>`
+                        ? `<div style="font-size:10px; color:#64748b; margin-top:2px;">Expected: <code>${escapeHtml(item.expected_verdict)}</code></div>`
                         : '';
-                    testStatusBadge = `<div style="display:inline-block; padding:2px 8px; border-radius:4px; font-size:11px; font-weight:700; background:${tsBg}; color:${tsColor}; border:1px solid ${tsBorder}; white-space:nowrap;">${item.test_status}</div>${oracleSubtext}`;
+                    testStatusBadge = `<div style="display:inline-block; padding:2px 8px; border-radius:4px; font-size:11px; font-weight:700; background:${tsBg}; color:${tsColor}; border:1px solid ${tsBorder}; white-space:nowrap;">${escapeHtml(item.test_status)}</div>${oracleSubtext}`;
                 }
 
-                const ssaVccStr = (item.vccs !== undefined) ? `<strong>${item.vccs} VCCs</strong> <small style="color:#64748b;">(${item.ssa_assigns || 0} SSA)</small>` : `Score ${item.score}`;
+                const ssaVccStr = (item.vccs !== undefined) ? `<strong>${escapeHtml(item.vccs)} VCCs</strong> <small style="color:#64748b;">(${escapeHtml(item.ssa_assigns || 0)} SSA)</small>` : `Score ${escapeHtml(item.score)}`;
                 const cliSubtext = item.esbmc_cli
-                    ? `<div style="margin-top:4px; font-family:monospace; font-size:10.5px; color:#475569; background:#f8fafc; border:1px solid #e2e8f0; border-radius:4px; padding:2px 6px; word-break:break-all;" title="Exact Reproducible ESBMC CLI Command">💻 ${item.esbmc_cli}</div>`
+                    ? `<div style="margin-top:4px; font-family:monospace; font-size:10.5px; color:#475569; background:#f8fafc; border:1px solid #e2e8f0; border-radius:4px; padding:2px 6px; word-break:break-all;" title="Exact Reproducible ESBMC CLI Command">💻 ${escapeHtml(item.esbmc_cli)}</div>`
                     : '';
                 const witnessHtml = item.z3_witness
-                    ? `<div style="color:#dc2626; font-weight:600; font-size:12px;">❌ ${item.z3_witness}</div>${cliSubtext}`
-                    : `<div><span style="font-weight:600; color:#4f46e5;">${item.mode || 'Symbolic BMC'}</span> <small style="color:#64748b;">(Score ${item.score})</small></div>${cliSubtext}`;
+                    ? `<div style="color:#dc2626; font-weight:600; font-size:12px;">❌ ${escapeHtml(item.z3_witness)}</div>${cliSubtext}`
+                    : `<div><span style="font-weight:600; color:#4f46e5;">${escapeHtml(item.mode || 'Symbolic BMC')}</span> <small style="color:#64748b;">(Score ${escapeHtml(item.score)})</small></div>${cliSubtext}`;
 
                 tr.innerHTML = `
-                    <td><strong>${item.index}</strong></td>
+                    <td><strong>${escapeHtml(item.index)}</strong></td>
                     <td>${langBadge}</td>
                     <td>${phaseBadge}</td>
-                    <td><code>${item.directory}</code></td>
-                    <td><strong>${item.file}</strong></td>
+                    <td><code>${escapeHtml(item.directory)}</code></td>
+                    <td><strong>${escapeHtml(item.file)}</strong></td>
                     <td>${witnessHtml}</td>
-                    <td><code>${item.fused_names}</code> <small>(${item.fused_deps})</small></td>
+                    <td><code>${escapeHtml(item.fused_names)}</code> <small>(${escapeHtml(item.fused_deps)})</small></td>
                     <td>${ssaVccStr}</td>
-                    <td><code>${item.wall_time || '-'}</code></td>
+                    <td><code>${escapeHtml(item.wall_time || '-')}</code></td>
                     <td>${statusBadge}</td>
                     <td>${testStatusBadge}</td>
                     <td style="text-align:center;">
-                        <button class="btn-ver-homogeneizado btn-editor" data-index="${item.index}" style="padding: 4px 10px; font-size: 11px; background: #0284c7; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: 600; white-space: nowrap;">
+                        <button class="btn-ver-homogeneizado btn-editor" data-index="${escapeHtml(item.index)}" style="padding: 4px 10px; font-size: 11px; background: #0284c7; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: 600; white-space: nowrap;">
                             👁️ View Code
                         </button>
                     </td>
@@ -1923,8 +1921,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 const row = violacoesTabela.insertRow();
                 let cweHtml = v.cwe;
                 if (v.cwe !== 'N/A') {
-                    const cweNumber = v.cwe.replace('CWE-', ''); 
-                    cweHtml = `<a href="https://cwe.mitre.org/data/definitions/${cweNumber}.html" target="_blank" style="color: #007bff; text-decoration: none; font-weight: bold;" title="View MITRE Specification">${v.cwe}</a>`;
+                    const cweNumber = String(v.cwe).replace(/\D/g, ''); 
+                    cweHtml = `<a href="https://cwe.mitre.org/data/definitions/${cweNumber}.html" target="_blank" style="color: #007bff; text-decoration: none; font-weight: bold;" title="View MITRE Specification">${escapeHtml(v.cwe)}</a>`;
                 }
 
                 let badgeClass = 'severity-na';
@@ -1933,8 +1931,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 else if (v.severity === 'Medium') badgeClass = 'severity-medium';
                 else if (v.severity === 'Low') badgeClass = 'severity-low';
 
-                let severityHtml = `<span class="severity-badge ${badgeClass}">${v.severity}</span>`;
-                row.innerHTML = `<td>${v.file}</td><td>${v.function}</td><td>${v.line}</td><td>${v.message}</td><td>${cweHtml}</td><td>${severityHtml}</td>`;
+                let severityHtml = `<span class="severity-badge ${badgeClass}">${escapeHtml(v.severity)}</span>`;
+                row.innerHTML = `<td>${escapeHtml(v.file)}</td><td>${escapeHtml(v.function)}</td><td>${escapeHtml(v.line)}</td><td>${escapeHtml(v.message)}</td><td>${cweHtml}</td><td>${severityHtml}</td>`;
             });
 
             if (firstResultWithViolation.initial_values) {
@@ -2125,9 +2123,9 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         if (modalMeta) {
             modalMeta.innerHTML = `
-                <div><strong>Module:</strong> <code>${item.directory}/${item.file}</code> &nbsp;|&nbsp; <strong>Language:</strong> <span style="background:#e0e7ff; color:#3730a3; padding:1px 6px; border-radius:4px; font-weight:700;">${item.lang}</span> &nbsp;|&nbsp; <strong>Mode:</strong> <em>${item.mode}</em></div>
-                <div style="margin-top:4px;"><strong>Formal Verdict:</strong> <strong>${item.status}</strong> &nbsp;|&nbsp; <strong>VCCs:</strong> ${item.vccs || 0} &nbsp;|&nbsp; <strong>SSA Assignments:</strong> ${item.ssa_assigns || 0} &nbsp;|&nbsp; <strong>Time:</strong> ${item.wall_time || '-'}</div>
-                ${item.esbmc_cli ? `<div style="margin-top:4px; font-size:11px; color:#475569;"><strong>Reproducible CLI:</strong> <code>${item.esbmc_cli}</code></div>` : ''}
+                <div><strong>Module:</strong> <code>${escapeHtml(item.directory)}/${escapeHtml(item.file)}</code> &nbsp;|&nbsp; <strong>Language:</strong> <span style="background:#e0e7ff; color:#3730a3; padding:1px 6px; border-radius:4px; font-weight:700;">${escapeHtml(item.lang)}</span> &nbsp;|&nbsp; <strong>Mode:</strong> <em>${escapeHtml(item.mode)}</em></div>
+                <div style="margin-top:4px;"><strong>Formal Verdict:</strong> <strong>${escapeHtml(item.status)}</strong> &nbsp;|&nbsp; <strong>VCCs:</strong> ${escapeHtml(item.vccs || 0)} &nbsp;|&nbsp; <strong>SSA Assignments:</strong> ${escapeHtml(item.ssa_assigns || 0)} &nbsp;|&nbsp; <strong>Time:</strong> ${escapeHtml(item.wall_time || '-')}</div>
+                ${item.esbmc_cli ? `<div style="margin-top:4px; font-size:11px; color:#475569;"><strong>Reproducible CLI:</strong> <code>${escapeHtml(item.esbmc_cli)}</code></div>` : ''}
             `;
         }
 
@@ -2574,9 +2572,9 @@ document.addEventListener('DOMContentLoaded', () => {
             let cwesHtml = '<span style="color:#94a3b8;">-</span>';
             if (run.cwes && run.cwes.length > 0) {
                 cwesHtml = run.cwes.map(c => {
-                    const cweNum = (c.cwe || '').replace('CWE-', '');
+                    const cweNum = String(c.cwe || '').replace(/\D/g, '');
                     const link = cweNum ? `https://cwe.mitre.org/data/definitions/${cweNum}.html` : '#';
-                    return `<a href="${link}" target="_blank" style="display:inline-block; background:#fee2e2; color:#991b1b; padding:1px 6px; border-radius:4px; font-size:10.5px; font-weight:700; text-decoration:none; margin:1px 2px;" title="${c.message || ''}">${c.cwe || 'CWE'}</a>`;
+                    return `<a href="${link}" target="_blank" style="display:inline-block; background:#fee2e2; color:#991b1b; padding:1px 6px; border-radius:4px; font-size:10.5px; font-weight:700; text-decoration:none; margin:1px 2px;" title="${escapeHtml(c.message || '')}">${escapeHtml(c.cwe || 'CWE')}</a>`;
                 }).join(' ');
             }
 
@@ -2584,26 +2582,26 @@ document.addEventListener('DOMContentLoaded', () => {
             const hasViolations = run.verdict !== 'SAFE';
 
             tr.innerHTML = `
-                <td style="padding: 8px 10px; font-weight: 700;">#${run.id}</td>
-                <td style="padding: 8px 10px; color: #64748b; font-size: 11.5px; white-space: nowrap;">${run.timestamp}</td>
-                <td style="padding: 8px 10px;"><code style="font-weight: 600; color: #1e293b;" title="${run.target}">${targetName}</code></td>
-                <td style="padding: 8px 10px;"><span style="background:#e0e7ff; color:#3730a3; padding:1px 6px; border-radius:4px; font-weight:700; font-size:10.5px;">${run.lang || 'C'}</span></td>
+                <td style="padding: 8px 10px; font-weight: 700;">#${escapeHtml(run.id)}</td>
+                <td style="padding: 8px 10px; color: #64748b; font-size: 11.5px; white-space: nowrap;">${escapeHtml(run.timestamp)}</td>
+                <td style="padding: 8px 10px;"><code style="font-weight: 600; color: #1e293b;" title="${escapeHtml(run.target)}">${escapeHtml(targetName)}</code></td>
+                <td style="padding: 8px 10px;"><span style="background:#e0e7ff; color:#3730a3; padding:1px 6px; border-radius:4px; font-weight:700; font-size:10.5px;">${escapeHtml(run.lang || 'C')}</span></td>
                 <td style="padding: 8px 10px;">${verdictBadge}</td>
                 <td style="padding: 8px 10px;">${cwesHtml}</td>
-                <td style="padding: 8px 10px;"><strong>${run.vccs || 0}</strong></td>
+                <td style="padding: 8px 10px;"><strong>${escapeHtml(run.vccs || 0)}</strong></td>
                 <td style="padding: 8px 10px; text-align: center;">
                     <span style="background:${gradeObj.bg}; color:${gradeObj.textCol}; border:1px solid ${gradeObj.color}; padding:2px 8px; border-radius:12px; font-weight:800; font-size:12px;">${gradeObj.grade}</span>
                 </td>
                 <td style="padding: 8px 10px; text-align: center; white-space: nowrap;">
-                    <button class="btn-load-run" data-run-id="${run.id}" style="background:#2563eb; color:#fff; padding:3px 8px; font-size:11px; border-radius:4px; font-weight:600; margin-right:4px;">
+                    <button class="btn-load-run" data-run-id="${escapeHtml(run.id)}" style="background:#2563eb; color:#fff; padding:3px 8px; font-size:11px; border-radius:4px; font-weight:600; margin-right:4px;">
                         🔍 View
                     </button>
                     ${hasViolations ? `
-                        <button class="btn-pdf-run" data-run-id="${run.id}" style="background:#b91c1c; color:#fff; padding:3px 8px; font-size:11px; border-radius:4px; font-weight:600; margin-right:4px;" title="Download PDF Bug Report">
+                        <button class="btn-pdf-run" data-run-id="${escapeHtml(run.id)}" style="background:#b91c1c; color:#fff; padding:3px 8px; font-size:11px; border-radius:4px; font-weight:600; margin-right:4px;" title="Download PDF Bug Report">
                             📄 PDF
                         </button>
                     ` : ''}
-                    <button class="btn-delete-run" data-run-id="${run.id}" style="background:#f1f5f9; color:#dc2626; border:1px solid #e2e8f0; padding:3px 7px; font-size:11px; border-radius:4px; font-weight:600;" title="Delete run">
+                    <button class="btn-delete-run" data-run-id="${escapeHtml(run.id)}" style="background:#f1f5f9; color:#dc2626; border:1px solid #e2e8f0; padding:3px 7px; font-size:11px; border-radius:4px; font-weight:600;" title="Delete run">
                         🗑️
                     </button>
                 </td>
