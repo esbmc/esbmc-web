@@ -2,7 +2,7 @@ import pytest
 
 import app as backend_app
 from app import (JANELA_CORPO_FUNCAO, _fim_do_bloco, avaliar_status_teste, classificar_veredito, descobrir_funcao_alvo_principal,
-                 filtrar_flags_do_repositorio, funcoes_sem_corpo, normalizar_url_e_subpasta_git)
+                 escapar_latex, filtrar_flags_do_repositorio, funcoes_sem_corpo, normalizar_url_e_subpasta_git)
 
 
 class TestGitUrlNormalisation:
@@ -168,3 +168,9 @@ def test_flag_allowlist_excludes_solver_program_override():
     allowed = backend_app.FLAGS_PERMITIDAS_SIMPLES | backend_app.FLAGS_PERMITIDAS_COM_VALOR
     assert '--smtlib-solver-prog' not in allowed
     assert '--python' not in allowed
+
+
+def test_latex_escaping_covers_every_special_character():
+    assert escapar_latex('a&b%c$d#e_f{g}h~i^j\\k') == (
+        'a\\&b\\%c\\$d\\#e\\_f\\{g\\}h\\textasciitilde{}i\\textasciicircum{}j\\textbackslash{}k')
+    assert escapar_latex('plain.c') == 'plain.c'
