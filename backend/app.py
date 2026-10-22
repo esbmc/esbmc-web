@@ -367,9 +367,43 @@ class ProgressoClone(git.RemoteProgress):
                 CLONE_TASKS[self.task_id]['progress'] = percent
 
 
+def erro_de_corpo(dados, campos_texto=()) -> Optional[str]:
+    """Reason a request body is malformed, or None (#34)."""
+    if not isinstance(dados, dict):
+        return "Request body must be a JSON object."
+    for campo in campos_texto:
+        if dados.get(campo) is not None and not isinstance(dados[campo], str):
+            return f"'{campo}' must be a string."
+    return None
+
+
+def erro_de_analise(dados) -> Optional[str]:
+    erro = erro_de_corpo(dados, ('codigo', 'language', 'git_url', 'git_repo', 'main_file_path',
+                                 'repo_subdir_filter', 'verification_engine_mode', 'python_interpreter'))
+    if erro:
+        return erro
+    flags = dados.get('flags', [])
+    if not isinstance(flags, list) or not all(isinstance(f, str) for f in flags):
+        return "'flags' must be a list of strings."
+    deps = dados.get('dependencies', [])
+    if not isinstance(deps, list) or not all(
+            isinstance(d, dict) and isinstance(d.get('filename'), str) and isinstance(d.get('content'), str)
+            for d in deps):
+        return "'dependencies' must be a list of objects with string 'filename' and 'content'."
+    return None
+
+
+def modo_debug() -> bool:
+    """Flask's debugger exposes an interactive console on errors, so it is opt-in (#34)."""
+    return os.environ.get('ESBMC_WEB_DEBUG') == '1'
+
+
 @app.route('/fetch-repo-files', methods=['POST'])
 def fetch_repo_files():
-    dados = request.get_json() or {}
+    dados = request.get_json()
+    erro = erro_de_corpo(dados, ('git_url', 'subdir_filter', 'repo_subdir_filter'))
+    if erro:
+        return jsonify({'error': erro}), 400
     git_url_raw = dados.get('git_url')
     if not git_url_raw:
         return jsonify({'error': 'No Git URL provided.'}), 400
@@ -440,6 +474,9 @@ def fetch_repo_status(task_id):
 @app.route('/fetch-file-content', methods=['POST'])
 def fetch_file_content():
     dados = request.get_json()
+    erro = erro_de_corpo(dados, ('git_url', 'file_path'))
+    if erro:
+        return jsonify({'error': erro}), 400
     git_url_raw = dados.get('git_url')
     file_path = dados.get('file_path')
     if not git_url_raw or not file_path:
@@ -475,6 +512,9 @@ def fetch_file_content():
 @app.route('/analisar', methods=['POST'])
 def iniciar_analise():
     dados = request.get_json()
+    erro = erro_de_analise(dados)
+    if erro:
+        return jsonify({'error': erro}), 400
     task_id = str(uuid.uuid4())
     temp_dir = tempfile.mkdtemp()
 
@@ -1974,4 +2014,4 @@ def get_esbmc_help():
 
 
 if __name__ == '__main__':
-    app.run(host='127.0.0.1', port=5000, debug=True, use_reloader=False, threaded=True)
+    app.run(host='127.0.0.1', port=5000, debug=modo_debug(), use_reloader=False, threaded=True)

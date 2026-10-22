@@ -1,3 +1,6 @@
+import pytest
+
+import app as backend_app
 from conftest import requires_esbmc, wait_for_task
 
 
@@ -71,3 +74,32 @@ def test_fetch_repo_files_bad_url_reports_error(client, tmp_path):
 @requires_esbmc
 def test_help_returns_esbmc_usage(client):
     assert '--unwind' in client.get('/help').get_json()['help_text']
+
+
+@pytest.mark.parametrize('route, body', [
+    ('/fetch-repo-files', 'null'),
+    ('/fetch-repo-files', '{"git_url": 5}'),
+    ('/fetch-file-content', 'null'),
+    ('/fetch-file-content', '[]'),
+    ('/fetch-file-content', '{"git_url": "x", "file_path": 5}'),
+    ('/analisar', 'null'),
+    ('/analisar', '[]'),
+    ('/analisar', '{"language": "c", "codigo": "int main(){}", "flags": "--unwind"}'),
+    ('/analisar', '{"language": "c", "codigo": "int main(){}", "flags": ["--unwind", 3]}'),
+    ('/analisar', '{"language": "c", "codigo": 5, "flags": []}'),
+    ('/analisar', '{"language": "c", "codigo": "int main(){}", "flags": [], "dependencies": [{"filename": "a.h"}]}'),
+    ('/analisar', '{"language": "c", "codigo": "int main(){}", "flags": [], "dependencies": {"filename": "a.h"}}'),
+])
+def test_malformed_body_is_rejected_with_400(route, body):
+    backend_app.app.config['PROPAGATE_EXCEPTIONS'] = False
+    with backend_app.app.test_client() as c:
+        resp = c.post(route, data=body, content_type='application/json')
+    assert resp.status_code == 400, (route, body, resp.status_code)
+    assert resp.get_json()['error']
+
+
+def test_debug_mode_is_off_by_default(monkeypatch):
+    monkeypatch.delenv('ESBMC_WEB_DEBUG', raising=False)
+    assert backend_app.modo_debug() is False
+    monkeypatch.setenv('ESBMC_WEB_DEBUG', '1')
+    assert backend_app.modo_debug() is True
