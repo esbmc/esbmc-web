@@ -76,6 +76,21 @@ SCENARIOS.push(
       ] } } },
 );
 
+const probe = (id) => `<img id=${id} src=x>`;
+const PROBES = ['p_msg', 'p_vfile', 'p_func', 'p_row', 'p_dir', 'p_w', 'p_mode', 'p_cli', 'p_fused', 'p_exp'];
+SCENARIOS.push({
+  id: 'E2E-12', lang: 'c', expect: 'BANNER', banner: /./, forbid: PROBES, code: 'int main(){return 0;}\n',
+  note: 'values from ESBMC, the analysed code or a repository are shown as text, never parsed as HTML',
+  stub: { status: 'completed', logs: '', progresso: null, resultado: {
+    verdict: 'FAILED', verificacao_sucesso: false, codigo_analisado: '// stub',
+    dashboard_data: [{ status: 'violation', steps: [{ type: 'violation', message: `assertion ${probe('p_msg')}`,
+      file: `${probe('p_vfile')}.c`, line: 3, function: probe('p_func'), cwe: 'CWE-617', severity: 'High' }] }],
+    repo_exploration_summary: [ROW(`${probe('p_row')}.c`, 'VIOLATION [NATIVE BUG] (k=1)', {
+      violations: 1, directory: probe('p_dir'), z3_witness: probe('p_w'), mode: probe('p_mode'),
+      esbmc_cli: probe('p_cli'), fused_names: probe('p_fused'), expected_verdict: probe('p_exp'),
+      test_status: '🟢 PASS (Bug Found)', test_status_code: 'PASS_BUG_FOUND' })] } },
+});
+
 async function cdp(port) {
   const targets = await (await fetch(`http://127.0.0.1:${port}/json/list`)).json();
   const page = targets.find((t) => t.type === 'page');
@@ -157,6 +172,11 @@ async function runScenario(page, s) {
   else if (s.expect === 'FAILED') pass &&= showsFailed;
   else if (s.expect === 'NOT_SUCCESSFUL') pass &&= !showsSuccess;
   if (s.banner) pass &&= s.banner.test(banner);
+  if (s.forbid) {
+    const injected = await evaluate(`${JSON.stringify(s.forbid)}.filter(id => document.getElementById(id))`);
+    if (injected.length) console.log(`${s.id} injected elements: ${injected.join(', ')}`);
+    pass &&= injected.length === 0;
+  }
   const lastEsbmcLine = terminal.split('\n').filter((l) => /VERIFICATION|ERROR|STOPPED/.test(l)).slice(-1)[0] || '';
   let result = pass ? 'PASS' : 'FAIL';
   if (s.knownDefect) result = pass ? 'XPASS' : 'XFAIL';
