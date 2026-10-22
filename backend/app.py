@@ -181,6 +181,13 @@ def _propriedades_violadas(texto_esbmc: str) -> List[str]:
     return props
 
 
+def funcoes_sem_corpo(texto_esbmc: str) -> List[str]:
+    """Functions ESBMC had no body for; their code (and any assertion in it) was never checked."""
+    nomes = re.findall(r'WARNING: no body for function (\S+)', texto_esbmc)
+    # Names ending in '#' are ESBMC's own symbols for library types (e.g. 'allocator#'), never user code
+    return sorted({n for n in nomes if '#' not in n and not n.startswith(('nondet_', '__VERIFIER_', '__ESBMC_'))})
+
+
 def classificar_veredito(texto_esbmc: str, returncode: Optional[int], cancelado: bool) -> str:
     """Only ESBMC's own verdict line counts as SUCCESSFUL; anything else is FAILED or inconclusive."""
     if "VERIFICATION FAILED" in texto_esbmc:
@@ -192,7 +199,7 @@ def classificar_veredito(texto_esbmc: str, returncode: Optional[int], cancelado:
             return "UNSUPPORTED" if any(nao_suportado) else "BOUND_REACHED"
         return "FAILED"
     if "VERIFICATION SUCCESSFUL" in texto_esbmc:
-        return "SUCCESSFUL"
+        return "PARTIAL" if funcoes_sem_corpo(texto_esbmc) else "SUCCESSFUL"
     if cancelado:
         return "CANCELLED"
     if "ERROR: Timed out" in texto_esbmc or "reached bound/time limit" in texto_esbmc:
@@ -1448,6 +1455,11 @@ def iniciar_analise():
                     )
                     if veredito_mod == "SUCCESSFUL" and nao_exercitadas_mod:
                         veredito_mod = "PARTIAL"
+                    if funcoes_sem_corpo(txt_mod):
+                        TAREFAS_ATIVAS[task_id]["logs"] += (
+                            f"[SYSTEM] ESBMC had no body for: {', '.join(funcoes_sem_corpo(txt_mod))} "
+                            f"in {rel_path} (their code was not checked)\n"
+                        )
                     if teve_erro_bruto:
                         any_inconclusive_overall = True
                         status_mod = "RAW ERROR (Unresolved Deps)"
@@ -1765,6 +1777,11 @@ def iniciar_analise():
             )
             if veredito == "SUCCESSFUL" and nao_exercitadas:
                 veredito = "PARTIAL"
+            if funcoes_sem_corpo(texto_final):
+                TAREFAS_ATIVAS[task_id]["logs"] += (
+                    f"[SYSTEM] ESBMC had no body for: {', '.join(funcoes_sem_corpo(texto_final))} "
+                    f"(their code was not checked)\n"
+                )
             verificacao_sucesso = veredito == "SUCCESSFUL"
 
             # Garante que quando o ESBMC tiver sucesso sem vulnerabilidades, o Dashboard receba o status OK!

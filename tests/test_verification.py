@@ -82,6 +82,14 @@ class TestSingleFileC:
         res = result(analyse(client, {'language': 'c', 'codigo': code, 'flags': [], 'dependencies': deps}))
         assert res['verificacao_sucesso'] is True
 
+    @pytest.mark.parametrize('mode', ['assisted', 'raw_esbmc'])
+    def test_function_without_body_is_not_reported_successful(self, client, mode):
+        code = 'int helper(int x);\nint nondet_int();\nint main(){ return helper(nondet_int()); }\n'
+        status = analyse(client, {'language': 'c', 'codigo': code, 'flags': [], 'verification_engine_mode': mode})
+        res = result(status)
+        assert res['verdict'] == 'PARTIAL'
+        assert 'no body for: helper' in status['logs']
+
     def test_raw_mode_finds_deep_loop_bug(self, client):
         res = result(analyse(client, {'language': 'c', 'codigo': C_DEEP_LOOP_BUG, 'flags': [],
                                       'verification_engine_mode': 'raw_esbmc'}))
