@@ -5,6 +5,8 @@ correct behaviour, and the test turns into an XPASS failure once the defect is f
 """
 
 import os
+import shutil
+import subprocess
 
 import pytest
 
@@ -387,6 +389,21 @@ class TestRepository:
         })
         res = result(analyse(client, {'language': 'c', 'git_url': repo, 'main_file_path': 'app/main.c', 'flags': []}))
         assert res['verdict'] == 'FAILED'
+
+    def test_latex_table_compiles_with_special_characters_in_file_names(self, client, local_repo, tmp_path):
+        names = ['src/a&b.c', 'src/pct%x.c', 'src/hash#y.c']
+        repo = local_repo({n: C_SAFE for n in names})
+        res = result(analyse(client, {'language': 'c', 'git_url': repo, 'explore_repo': True,
+                                      'verification_phases': '2', 'flags': []}))
+        table = res['latex_table']
+        assert '\\texttt{a\\&b.c}' in table and 'pct\\%x.c' in table and 'hash\\#y.c' in table
+        if shutil.which('pdflatex'):
+            doc = tmp_path / 'doc.tex'
+            doc.write_text('\\documentclass{article}\\usepackage{graphicx}\\begin{document}\n'
+                           + table + '\n\\end{document}\n')
+            proc = subprocess.run(['pdflatex', '-interaction=nonstopmode', '-halt-on-error', doc.name],
+                                  cwd=tmp_path, capture_output=True, text=True, timeout=120, check=False)
+            assert proc.returncode == 0, proc.stdout[-1500:]
 
     def test_single_repo_file_parse_error_is_not_labelled_safe(self, client, local_repo):
         repo = local_repo({'src/broken.c': C_PARSE_ERROR})

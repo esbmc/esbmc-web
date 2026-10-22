@@ -220,6 +220,17 @@ def _normalizar_veredito(texto: str) -> str:
     return "UNKNOWN"
 
 
+_LATEX_ESPECIAIS = {
+    '\\': r'\textbackslash{}', '&': r'\&', '%': r'\%', '$': r'\$', '#': r'\#', '_': r'\_',
+    '{': r'\{', '}': r'\}', '~': r'\textasciitilde{}', '^': r'\textasciicircum{}',
+}
+
+
+def escapar_latex(texto) -> str:
+    """Escape every LaTeX special character so file names and labels cannot break the table (#33)."""
+    return ''.join(_LATEX_ESPECIAIS.get(c, c) for c in str(texto))
+
+
 def descrever_harness(info: dict) -> str:
     """Log line for an appended Python entry harness, naming what it could not exercise (#14)."""
     nao_exercitadas = info.get('funcoes_ignoradas') or []
@@ -1602,14 +1613,13 @@ def iniciar_analise():
                     linhas_csv.append(
                         f"{r['index']},{r.get('grau', 0)},\"{grade_nome_clean}\",{r['lang']},\"{r['directory']}\",\"{r['file']}\",\"{fase_clean}\",\"{exp_clean}\",\"{stat_test_clean}\",\"{r['mode']}\",\"{cli_clean}\",{r['goto_time']},{r['ssa_assigns']},{r['vccs']},{r['wall_time']},\"{r['status']}\",\"{w_clean}\""
                     )
-                    dir_tex = str(r["directory"]).replace("_", "\\_")
-                    arq_tex = os.path.basename(r["file"]).replace("_", "\\_")
-                    stat_tex = str(r["status"]).replace("_", "\\_")
-                    fase_tex = fase_clean.replace("_", "\\_")
-                    exp_tex = exp_txt.replace("_", "\\_")
-                    test_tex = stat_test_clean.replace("🟢", "").replace("🔴", "").replace("❌", "").replace("✅", "").strip().replace("_", "\\_")
+                    arq_tex = escapar_latex(os.path.basename(r["file"]))
+                    stat_tex = escapar_latex(r["status"])
+                    fase_tex = escapar_latex(fase_clean)
+                    exp_tex = escapar_latex(exp_txt)
+                    test_tex = escapar_latex(stat_test_clean.replace("🟢", "").replace("🔴", "").replace("❌", "").replace("✅", "").strip())
                     linhas_latex.append(
-                        f"{r['index']} & Grade {r.get('grau', 0)} & \\texttt{{{r['lang']}}} & \\texttt{{{arq_tex}}} & {fase_tex} & {exp_tex} & \\textbf{{{test_tex}}} & {r['ssa_assigns']} & {r['vccs']} & {r['wall_time']} & \\textbf{{{stat_tex}}} \\\\"
+                        f"{r['index']} & Grade {r.get('grau', 0)} & \\texttt{{{escapar_latex(r['lang'])}}} & \\texttt{{{arq_tex}}} & {fase_tex} & {exp_tex} & \\textbf{{{test_tex}}} & {r['ssa_assigns']} & {r['vccs']} & {escapar_latex(r['wall_time'])} & \\textbf{{{stat_tex}}} \\\\"
                     )
 
                 linhas_latex.extend([
