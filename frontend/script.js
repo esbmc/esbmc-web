@@ -165,7 +165,7 @@ document.addEventListener('DOMContentLoaded', () => {
             if (res && res.ok) {
                 const info = await res.json();
                 if (info && info.esbmc_version) {
-                    window.esbmcServerVersion = `${info.esbmc_version} (${info.solver || 'Z3'})`;
+                    window.esbmcServerVersion = info.esbmc_version;
                 }
                 if (serverStatusBadge && serverStatusDot && serverStatusText) {
                     serverStatusBadge.style.background = '#ecfdf5';
@@ -174,6 +174,15 @@ document.addEventListener('DOMContentLoaded', () => {
                     serverStatusDot.style.background = '#10b981';
                     serverStatusText.textContent = `🟢 ESBMC Server Online (${info.engine ? 'Active' : 'Ready'})`;
                 }
+                return;
+            }
+            if (res && res.status === 503 && serverStatusBadge && serverStatusDot && serverStatusText) {
+                serverStatusBadge.style.background = '#fef2f2';
+                serverStatusBadge.style.color = '#991b1b';
+                serverStatusBadge.style.borderColor = '#ef4444';
+                serverStatusDot.style.background = '#ef4444';
+                serverStatusText.textContent = '🔴 Server online, but ESBMC is unavailable';
+                setTimeout(checkServerHealth, 5000);
                 return;
             }
         } catch (err) {
@@ -1279,7 +1288,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // 🐞 GERADOR DE RELATÓRIO DE FLUXO DE EXECUÇÃO & BUG REPORT (GITHUB ESBMC)
     // =========================================================================
     function buildESBMCBugReportMarkdown(resultsArray, codigoFonte, repoExplorationSummary = null, violationDetails = []) {
-        const esbmcVer = window.esbmcServerVersion || 'ESBMC version 8.4.0 64-bit x86_64 linux (Z3 v4.8.12)';
+        const esbmcVer = window.esbmcServerVersion || 'unknown (the server did not report an ESBMC version)';
         const lang = (latestSelectedLanguage || 'cpp').toLowerCase();
         const codeLang = lang === 'python' ? 'python' : (lang === 'c' ? 'c' : 'cpp');
 
@@ -1655,7 +1664,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 '',
                 '### ESBMC version',
                 '```',
-                window.esbmcServerVersion || 'ESBMC version 8.4.0 64-bit x86_64 linux (Z3 v4.8.12)',
+                window.esbmcServerVersion || 'unknown (the server did not report an ESBMC version)',
                 '```',
                 '',
                 '### Command',
