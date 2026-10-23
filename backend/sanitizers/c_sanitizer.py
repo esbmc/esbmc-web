@@ -3,6 +3,7 @@ import re
 import subprocess
 
 from sanitizers.caminhos import contido_em
+from sanitizers.harness_args import montar_harness
 
 STDLIB_C = {
     'stdio.h', 'stdlib.h', 'string.h', 'math.h', 'stdbool.h',
@@ -191,44 +192,19 @@ def _diagnosticar_erros_clang_c(caminho_arquivo: str, include_dirs: list):
     return tipos_faltantes, structs_faltantes, identificadores_faltantes, funcoes_faltantes
 
 
-def _gerar_harness_main_c(funcoes) -> str:
-    if not funcoes:
-        return "\n/* Harness Simbólico ESBMC Homogenizer */\nint main(void) {\n    return 0;\n}\n"
-
-    linhas = [
-        "\n/* ==========================================================================",
-        " * HARNESS SIMBÓLICO GERADO PELO ESBMC C HOMOGENIZER (MÓDULO SEM MAIN)",
-        " * ========================================================================== */",
-        "extern int nondet_int(void);",
-        "int main(void) {"
-    ]
-
-    for idx, (fn_name, params) in enumerate(funcoes[:5]):
-        args_call = []
-        for p_idx, p_decl in enumerate(params):
-            if '*' in p_decl or '[' in p_decl:
-                base_t = re.sub(r'\*.*|\[.*\]', '', p_decl).strip()
-                tokens = base_t.split()
-                tipo_limpo = " ".join(tokens[:-1]) if len(tokens) >= 2 else (tokens[0] if tokens else "int")
-                if tipo_limpo in ('void', 'const void', 'const'):
-                    tipo_limpo = 'char'
-                tipo_limpo = re.sub(r'\bconst\b', '', tipo_limpo).strip() or 'int'
-                buf_name = f"_sym_buf_{idx}_{p_idx}"
-                linhas.append(f"    {tipo_limpo} {buf_name}[16];")
-                args_call.append(buf_name)
-            else:
-                arg_name = f"_sym_arg_{idx}_{p_idx}"
-                linhas.append(f"    int {arg_name} = nondet_int();")
-                args_call.append(arg_name)
-        linhas.append(f"    {fn_name}({', '.join(args_call)});")
-
-    linhas.append("    return 0;")
-    linhas.append("}\n")
-    return "\n".join(linhas)
+_ABERTURA_HARNESS_C = [
+    "/* ==========================================================================",
+    " * HARNESS SIMBÓLICO GERADO PELO ESBMC C HOMOGENIZER (MÓDULO SEM MAIN)",
+    " * ========================================================================== */",
+    "int main(void) {",
+]
 
 
 def sanitizar_c(caminho_arquivo: str, temp_dir: str, tem_flag_function: bool = False, sub_dir_repo: str = None):
-    """Homogeneizador e Sanitizador Inteligente para C (C11)."""
+    """Homogeneizador e Sanitizador Inteligente para C (C11).
+
+    Returns (generated files, functions the entry harness could not call).
+    """
     with open(caminho_arquivo, 'r', encoding='utf-8', errors='replace') as f:
         codigo_original = f.read()
 
@@ -244,6 +220,7 @@ def sanitizar_c(caminho_arquivo: str, temp_dir: str, tem_flag_function: bool = F
 
     dir_arquivo = sub_dir_repo or os.path.dirname(caminho_arquivo)
     arquivos_gerados = []
+    nao_exercitadas = []
 
     for inc in includes_encontrados:
         if inc in STDLIB_C:
@@ -308,11 +285,9 @@ def sanitizar_c(caminho_arquivo: str, temp_dir: str, tem_flag_function: bool = F
 
     if not tem_flag_function and not _tem_funcao_main(codigo_atual):
         funcoes_definidas = _extrair_funcoes_definidas_c(codigo_original)
-        harness_main = _gerar_harness_main_c(funcoes_definidas)
-        codigo_atual = codigo_atual + "\n" + harness_main
-        with open(caminho_arquivo, 'w', encoding='utf-8') as f:
-            f.write(codigo_atual)
+        comando = ['clang', '-fsyntax-only', '-x', 'c'] + [a for d in include_dirs for a in ('-I', d)]
+        nao_exercitadas = montar_harness(caminho_arquivo, codigo_atual, funcoes_definidas, _ABERTURA_HARNESS_C, comando)
         if not arquivos_gerados:
             arquivos_gerados.append("symbolic_main_harness")
 
-    return arquivos_gerados
+    return arquivos_gerados, nao_exercitadas

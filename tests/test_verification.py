@@ -160,6 +160,64 @@ class TestSingleFileCpp:
         assert has_violation(res)
 
 
+SIX_FUNCTIONS = ''.join(f'int f{i}(int x){{ return x; }}\n' for i in range(5)) + 'void f5(int x){ assert(x != 3); }\n'
+
+
+class TestEntryHarness:
+    """A module without main is checked through a generated harness, which must not restrict inputs (#39)."""
+
+    @pytest.mark.parametrize('language, header', [('c', '#include <assert.h>\n'), ('cpp', '#include <cassert>\n')])
+    @pytest.mark.parametrize('body', [
+        SIX_FUNCTIONS,
+        'void g(long x){ assert(x <= 2147483647L); }\n',
+        'void g(double x){ assert(x != 0.5); }\n',
+        'void g(int *p){ assert(p[0] != 3); }\n',
+        'typedef struct { int a; } S;\nvoid g(S s){ assert(s.a != 3); }\n',
+    ], ids=['sixth-function', 'long', 'double', 'pointer-contents', 'struct'])
+    def test_bug_reachable_through_parameters_is_found(self, client, language, header, body):
+        res = result(analyse(client, {'language': language, 'codigo': header + body, 'flags': []}))
+        assert res['verdict'] == 'FAILED'
+
+    @pytest.mark.parametrize('language, header', [('c', '#include <assert.h>\n'), ('cpp', '#include <cassert>\n')])
+    def test_binary_buffer_is_not_null_terminated(self, client, language, header):
+        code = header + 'void g(unsigned char *b){ assert(b[15] == 0); }\n'
+        res = result(analyse(client, {'language': language, 'codigo': code, 'flags': []}))
+        assert res['verdict'] == 'FAILED'
+
+    def test_function_the_harness_cannot_call_makes_the_verdict_partial(self, client):
+        code = '#include <cassert>\nint f(int x){ return x; }\nnamespace util {\nint helper(int x){ return x; }\n}\n'
+        status = analyse(client, {'language': 'cpp', 'codigo': code, 'flags': []})
+        assert result(status)['verdict'] == 'PARTIAL'
+        assert 'not exercised: helper' in status['logs']
+
+    def test_bug_is_still_found_when_another_call_is_dropped(self, client):
+        code = ('#include <cassert>\nvoid f(int x){ assert(x != 7); }\n'
+                'namespace util {\nint helper(int x){ return x; }\n}\n')
+        res = result(analyse(client, {'language': 'cpp', 'codigo': code, 'flags': []}))
+        assert res['verdict'] == 'FAILED'
+
+    @pytest.mark.parametrize('body', [
+        '#line 500 "grammar.y"\nint f(int x){ assert(x != 7); return x; }\nnamespace util {\nint helper(int x){ return x; }\n}\n',
+        'int f(int x){ assert(x != 7); return x; }\ntemplate<typename C>\nint sz(C c){ return c.size(); }\n',
+        'template<typename Item>\nstruct Box { Item v; };\nint f(int Item){ assert(Item != 7); return Item; }\n',
+        '#include <optional>\nint f(std::optional<int> o, int x){ assert(x != 7); return x; }\n',
+    ], ids=['line-directive', 'template-instantiation', 'class-template-clause', 'cxx17-parameter'])
+    def test_bug_survives_harness_compile_check(self, client, body):
+        res = result(analyse(client, {'language': 'cpp', 'codigo': '#include <cassert>\n' + body, 'flags': []}))
+        assert res['verdict'] == 'FAILED'
+
+    def test_bug_reachable_through_reference_is_found(self, client):
+        code = '#include <cassert>\nvoid g(int &x){ assert(x != 3); }\n'
+        res = result(analyse(client, {'language': 'cpp', 'codigo': code, 'flags': []}))
+        assert res['verdict'] == 'FAILED'
+
+    @pytest.mark.parametrize('language, header', [('c', '#include <string.h>\n'), ('cpp', '#include <cstring>\n')])
+    def test_string_parameter_is_null_terminated(self, client, language, header):
+        code = header + 'unsigned long g(const char *s){ return strlen(s); }\n'
+        res = result(analyse(client, {'language': language, 'codigo': code, 'flags': ['--unwind', '17']}))
+        assert res['verdict'] == 'SUCCESSFUL'
+
+
 class TestSingleFilePython:
     def test_safe_program_is_successful(self, client):
         res = result(analyse(client, {'language': 'python', 'codigo': 'x: int = 5\nassert x == 5\n', 'flags': []}))
