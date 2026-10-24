@@ -272,6 +272,8 @@ python3 -m pytest                       # unit, API and ESBMC-backed verdict tes
 node tests/e2e/ui_verdicts.mjs          # needs Google Chrome (or CHROME_BIN), Node >= 22 and esbmc on PATH
 ```
 
+CI (`.github/workflows/tests.yml`) runs both suites on Ubuntu against the pinned ESBMC release on every push and pull request.
+
 Tests marked as known defects (strict `xfail` in pytest, `knownDefect` in the UI script) assert the correct behaviour: they are expected to fail today, and an unexpected pass fails the run so the marker is removed once the defect is fixed.
 
 ---

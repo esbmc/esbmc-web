@@ -1,0 +1,76 @@
+name: Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+env:
+  # Bump in its own PR: a new ESBMC can change verdicts.
+  ESBMC_VERSION: v8.6
+
+jobs:
+  pytest:
+    # The macOS release links Homebrew libraries at fixed versions, so only the static Linux build is used.
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: |
+            backend/requirements.txt
+            requirements-dev.txt
+      - run: pip install -r backend/requirements.txt -r requirements-dev.txt
+      - name: Install ESBMC ${{ env.ESBMC_VERSION }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release download "$ESBMC_VERSION" --repo esbmc/esbmc --pattern esbmc-linux.zip --dir "$RUNNER_TEMP"
+          unzip -q "$RUNNER_TEMP/esbmc-linux.zip" -d "$RUNNER_TEMP/esbmc"
+          chmod +x "$RUNNER_TEMP/esbmc/release/bin/esbmc"
+          echo "$RUNNER_TEMP/esbmc/release/bin" >> "$GITHUB_PATH"
+      - run: esbmc --version && clang --version
+      - run: python -m pytest -q
+        timeout-minutes: 20
+
+  ui:
+    name: UI (headless Chrome)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: pip install -r backend/requirements.txt
+      - name: Install ESBMC ${{ env.ESBMC_VERSION }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release download "$ESBMC_VERSION" --repo esbmc/esbmc --pattern esbmc-linux.zip --dir "$RUNNER_TEMP"
+          unzip -q "$RUNNER_TEMP/esbmc-linux.zip" -d "$RUNNER_TEMP/esbmc"
+          chmod +x "$RUNNER_TEMP/esbmc/release/bin/esbmc"
+          echo "$RUNNER_TEMP/esbmc/release/bin" >> "$GITHUB_PATH"
+      # Ubuntu 24.04 blocks the unprivileged user namespaces Chrome's sandbox needs.
+      - run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+      - name: Start the backend
+        run: |
+          (cd backend && nohup python app.py > "$RUNNER_TEMP/backend.log" 2>&1 &)
+          for _ in $(seq 30); do curl -sf http://127.0.0.1:5000/health && exit 0; sleep 1; done
+          cat "$RUNNER_TEMP/backend.log"; exit 1
+      - run: node tests/e2e/ui_verdicts.mjs
+        env:
+          CHROME_BIN: /usr/bin/google-chrome
+      - if: failure()
+        run: cat "$RUNNER_TEMP/backend.log"
