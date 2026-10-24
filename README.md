@@ -53,6 +53,11 @@ python3 -m pytest                    # ESBMC-backed tests skip if esbmc is not o
 node tests/e2e/ui_verdicts.mjs       # needs Chrome (or CHROME_BIN), Node >= 22 and esbmc
 ```
 
+CI (`.github/workflows/tests.yml`) runs both suites on Ubuntu against the pinned ESBMC release on every push and pull request.
+
+Tests marked as known defects (strict `xfail` in pytest, `knownDefect` in the UI script) assert the correct behaviour: they are expected to fail today, and an unexpected pass fails the run so the marker is removed once the defect is fixed.
+
+---
 Known defects are marked strict `xfail` (pytest) or `knownDefect` (UI test). They assert the correct behaviour, so an unexpected pass fails the run until the marker is removed.
 
 ## Citation
