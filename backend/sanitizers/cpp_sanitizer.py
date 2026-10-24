@@ -6,6 +6,7 @@ from concurrent.futures import ThreadPoolExecutor
 from typing import Optional
 
 from sanitizers.caminhos import contido_em
+from sanitizers.harness_args import montar_harness
 
 STDLIB_CPP = {
     'iostream', 'vector', 'string', 'stdio.h', 'stdlib.h', 'cstdio', 'cstdlib',
@@ -169,7 +170,7 @@ def _extrair_funcoes_livres_cpp(codigo: str):
     codigo_limpo = re.sub(r'\bnamespace\s+(?:std|boost)\s*\{.*?\}\s*(?:/\*.*?\*/)?', '', codigo_limpo, flags=re.DOTALL)
 
     codigo_sem_classes = re.sub(
-        r'\b(?:class|struct)\s+[A-Za-z_][A-Za-z0-9_]*[^;{}]*\{.*?\}\s*;',
+        r'(?:\btemplate\s*<[^<>]*>\s*)?\b(?:class|struct)\s+[A-Za-z_][A-Za-z0-9_]*[^;{}]*\{.*?\}\s*;',
         '',
         codigo_limpo,
         flags=re.DOTALL
@@ -193,6 +194,9 @@ def _extrair_funcoes_livres_cpp(codigo: str):
                 p = p.strip()
                 if p and p != '...':
                     params.append(p)
+        clausula = re.search(r'template\s*<([^<>]*)>\s*(?:[^;{}<>]*)$', codigo_sem_classes[:m.start()] + ret_type)
+        for nome in re.findall(r'\b(?:typename|class)\s+([A-Za-z_]\w*)', clausula.group(1) if clausula else ''):
+            params = [re.sub(rf'\b{nome}\b', 'int', p) for p in params]
         funcoes.append((fn_name, params))
     return funcoes
 
@@ -436,65 +440,12 @@ def _diagnosticar_erros_clang_cpp(caminho_arquivo: str, include_dirs: list):
     return tipos_faltantes, funcoes_faltantes, constantes_faltantes, headers_sugeridos
 
 
-def _gerar_harness_main_cpp(funcoes) -> str:
-    """Gera `int __esbmc_main()` simbólico para módulos C++ de repositórios Git sem `main()`."""
-    if not funcoes:
-        return "\n// Harness Simbólico ESBMC C++ Homogenizer\nint __esbmc_main() {\n    return 0;\n}\n"
-
-    linhas = [
-        "\n// ==========================================================================",
-        "// HARNESS SIMBÓLICO GERADO PELO ESBMC C++ HOMOGENIZER (MÓDULO SEM MAIN)",
-        "// ==========================================================================",
-        "extern \"C\" int nondet_int();",
-        "int __esbmc_main() {"
-    ]
-
-    for idx, (fn_name, params) in enumerate(funcoes[:5]):
-        args_call = []
-        for p_idx, p_decl in enumerate(params):
-            p_clean = re.sub(r'=.*$', '', p_decl).strip()
-            if '*' in p_clean or '[' in p_clean:
-                base_t = re.sub(r'\*.*|\[.*\]', '', p_clean).strip()
-                tipo_limpo = re.sub(r'\bconst\b', '', base_t).strip() or 'char'
-                if tipo_limpo in ('void', 'T', 'auto') or len(tipo_limpo) == 1:
-                    tipo_limpo = 'char'
-                buf_name = f"_sym_buf_{idx}_{p_idx}"
-                linhas.append(f"    {tipo_limpo} {buf_name}[16] = {{}};")
-                args_call.append(buf_name)
-            elif '&' in p_clean:
-                base_t = re.sub(r'&.*', '', p_clean).strip()
-                tipo_limpo = re.sub(r'\bconst\b', '', base_t).strip() or 'int'
-                if tipo_limpo in ('void', 'T', 'auto') or len(tipo_limpo) == 1:
-                    tipo_limpo = 'int'
-                ref_name = f"_sym_ref_{idx}_{p_idx}"
-                linhas.append(f"    {tipo_limpo} {ref_name}{{}};")
-                args_call.append(ref_name)
-            else:
-                p_no_const = re.sub(r'\bconst\b', '', p_clean).strip()
-                tokens = p_no_const.split()
-                if len(tokens) >= 2 and tokens[-1] not in ('int', 'long', 'char', 'short', 'double', 'float'):
-                    tipo_limpo = " ".join(tokens[:-1])
-                elif tokens:
-                    tipo_limpo = " ".join(tokens)
-                else:
-                    tipo_limpo = "int"
-
-                if tipo_limpo in ('void', 'T', 'auto') or len(tipo_limpo) == 1:
-                    tipo_limpo = 'int'
-
-                arg_name = f"_sym_arg_{idx}_{p_idx}"
-                if tipo_limpo in ('float', 'double'):
-                    linhas.append(f"    {tipo_limpo} {arg_name} = 0.0;")
-                elif tipo_limpo in ('int', 'short', 'char', 'long', 'unsigned', 'unsigned int', 'bool', 'size_t', 'uint8_t', 'uint16_t', 'uint32_t', 'uint64_t', 'int8_t', 'int16_t', 'int32_t', 'int64_t'):
-                    linhas.append(f"    {tipo_limpo} {arg_name} = ({tipo_limpo})nondet_int();")
-                else:
-                    linhas.append(f"    {tipo_limpo} {arg_name}{{}};")
-                args_call.append(arg_name)
-        linhas.append(f"    {fn_name}({', '.join(args_call)});")
-
-    linhas.append("    return 0;")
-    linhas.append("}\n")
-    return "\n".join(linhas)
+_ABERTURA_HARNESS_CPP = [
+    "// ==========================================================================",
+    "// HARNESS SIMBÓLICO GERADO PELO ESBMC C++ HOMOGENIZER (MÓDULO SEM MAIN)",
+    "// ==========================================================================",
+    "int __esbmc_main() {",
+]
 
 
 def _injetar_mocks_boost_e_headers_compatibilidade(temp_dir: str) -> str:
@@ -3193,6 +3144,8 @@ def sanitizar_cpp(caminho_arquivo: str, temp_dir: str, tem_flag_function: bool =
     4. Para headers realmente ausentes (ex: gerados por CMake como `config.hpp` ou bibliotecas externas),
        sintetiza templates (`Dyad<T>`), classes, constantes e funções chamadas;
     5. Se o arquivo for uma biblioteca sem `main()` (ex: `my_lib.cpp`), gera um `int main()` simbólico.
+
+    Returns (generated files, functions the entry harness could not call).
     """
     mock_boost_dir = _injetar_mocks_boost_e_headers_compatibilidade(temp_dir)
 
@@ -3255,6 +3208,7 @@ def sanitizar_cpp(caminho_arquivo: str, temp_dir: str, tem_flag_function: bool =
 
     dir_arquivo = sub_dir_repo or os.path.dirname(caminho_arquivo)
     arquivos_gerados = []
+    nao_exercitadas = []
 
     stubs_classes_e_templates = _extrair_templates_e_classes_ausentes(codigo_original, codigo_headers_locais)
 
@@ -3326,11 +3280,9 @@ def sanitizar_cpp(caminho_arquivo: str, temp_dir: str, tem_flag_function: bool =
 
     if not tem_flag_function and not _tem_funcao_main(codigo_atual):
         funcoes_livres = _extrair_funcoes_livres_cpp(codigo_original)
-        harness_main = _gerar_harness_main_cpp(funcoes_livres)
-        codigo_atual = codigo_atual + "\n" + harness_main
-        with open(caminho_arquivo, 'w', encoding='utf-8') as f:
-            f.write(codigo_atual)
+        comando = ['clang', '-fsyntax-only', '-x', 'c++'] + [a for d in include_dirs for a in ('-I', d)]
+        nao_exercitadas = montar_harness(caminho_arquivo, codigo_atual, funcoes_livres, _ABERTURA_HARNESS_CPP, comando)
         if not arquivos_gerados:
             arquivos_gerados.append("symbolic_main_harness")
 
-    return arquivos_gerados
+    return arquivos_gerados, nao_exercitadas

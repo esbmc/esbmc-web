@@ -7,6 +7,7 @@ from sanitizers.caminhos import contido_em, remover_links_externos
 from sanitizers.c_sanitizer import sanitizar_c
 from sanitizers import cpp_sanitizer
 from sanitizers.cpp_sanitizer import sanitizar_cpp
+from sanitizers.harness_args import declarar_argumento
 from sanitizers.python_sanitizer import gerar_harness_python, precisa_homogeneizar_v2, sanitizar_python
 
 
@@ -71,21 +72,47 @@ class TestCSanitizer:
         assert 'int main(void)' in text
         assert 'add(' in text.split('int main(void)')[1]
 
+    def test_harness_declares_arguments_with_their_own_unconstrained_types(self):
+        decls = [line.strip() for decl in ('const unsigned long x', 'double d', 'struct s v', 'S s', 'int &r', 'int',
+                                           'const char *p', 'unsigned char *u', 'int a[]', 'void *q', 'int n = 3')
+                 for line in declarar_argumento(decl, 'v')]
+        assert decls == ['unsigned long v;', 'double v;', 'struct s v;', 'S v;', 'int v;', 'int v;',
+                         'char v[16];', 'v[15] = 0;', 'unsigned char v[16];', 'int v[16];', 'unsigned char v[16];',
+                         'int v;']
+
+    def test_harness_calls_every_function_and_drops_calls_that_do_not_compile(self, tmp_path):
+        f = tmp_path / 'codigo.c'
+        f.write_text(''.join(f'int f{i}(int x){{ return x; }}\n' for i in range(7))
+                     + '#if 0\nint legacy(int x){ return x; }\n#endif\n')
+        _, skipped = sanitizar_c(str(f), str(tmp_path))
+        harness = f.read_text().split('int main(void)')[1]
+        assert skipped == ['legacy']
+        assert all(f'f{i}(' in harness for i in range(7)) and 'legacy(' not in harness
+
     def test_keeps_existing_main(self, tmp_path):
         f = tmp_path / 'codigo.c'
         original = 'int main(void){ return 0; }\n'
         f.write_text(original)
-        assert not sanitizar_c(str(f), str(tmp_path))
+        assert sanitizar_c(str(f), str(tmp_path)) == ([], [])
         assert f.read_text() == original
 
     def test_mocks_missing_local_header(self, tmp_path):
         f = tmp_path / 'codigo.c'
         f.write_text('#include "missing.h"\nint main(void){ return 0; }\n')
-        created = sanitizar_c(str(f), str(tmp_path))
+        created, _ = sanitizar_c(str(f), str(tmp_path))
         assert (tmp_path / 'missing.h').is_file()
         assert str(tmp_path / 'missing.h') in created
 
 class TestCppSanitizer:
+    def test_harness_instantiates_template_parameters(self, tmp_path):
+        f = tmp_path / 'codigo.cpp'
+        f.write_text('template<typename U> U twice(U x){ return x + x; }\n'
+                     'template<class K>\nint first(K *p){ return 0; }\n')
+        _, skipped = sanitizar_cpp(str(f), str(tmp_path))
+        harness = f.read_text().split('int __esbmc_main()')[1]
+        assert not skipped
+        assert 'int _sym_arg_0_0;' in harness and 'int _sym_arg_1_0[16];' in harness
+
 
     @pytest.mark.parametrize('expression', [
         '(std::ostringstream{} << a[i]).str()',
