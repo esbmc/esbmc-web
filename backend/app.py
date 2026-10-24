@@ -238,11 +238,14 @@ def descrever_harness(info: dict) -> str:
     return linha + (f"; not exercised: {', '.join(nao_exercitadas)}\n" if nao_exercitadas else ".\n")
 
 
-def descrever_harness_c(nao_exercitadas: list) -> str:
-    """Log line for C/C++ harness calls dropped because they do not compile (#39)."""
-    if not nao_exercitadas:
+def descrever_harness_c(harness: Optional[dict]) -> str:
+    """Log line for a C/C++ entry harness, naming its assumption and what it left out (#39, #46)."""
+    if not harness:
         return ""
-    return f"[SYSTEM] [Entry Harness] Calls that do not compile were dropped; not exercised: {', '.join(nao_exercitadas)}\n"
+    linha = (f"[SYSTEM] [Entry Harness] calls {len(harness['raizes'])} root function(s) with unconstrained inputs "
+             "(pointers may be NULL); functions called inside the module are checked through their callers")
+    nao_exercitadas = harness['nao_exercitadas']
+    return linha + (f"; not exercised: {', '.join(nao_exercitadas)}\n" if nao_exercitadas else ".\n")
 
 
 def avaliar_status_teste(veredicto_obtido: str, veredicto_esperado: Optional[str]) -> Tuple[str, str]:
@@ -1277,10 +1280,11 @@ def iniciar_analise():
                     elif lang_mod == 'cpp':
                         with open(caminho_temp_mod, 'w', encoding='utf-8') as f:
                             f.write(cod_modulo)
-                        mocks_c, nao_exercitadas_mod = sanitizar_cpp(
+                        mocks_c, harness_mod = sanitizar_cpp(
                             caminho_temp_mod, temp_dir, tem_flag_function=('--function' in flags_recebidas), sub_dir_repo=sub_dir_repo
                         )
-                        TAREFAS_ATIVAS[task_id]["logs"] += descrever_harness_c(nao_exercitadas_mod)
+                        TAREFAS_ATIVAS[task_id]["logs"] += descrever_harness_c(harness_mod)
+                        nao_exercitadas_mod = harness_mod['nao_exercitadas'] if harness_mod else []
                         deps_modulo = mocks_c
                         modo_verif_mod = "Native C++ (C++20->C++14)"
                         arq_exec = nome_temp_mod
@@ -1288,10 +1292,11 @@ def iniciar_analise():
                     else:
                         with open(caminho_temp_mod, 'w', encoding='utf-8') as f:
                             f.write(cod_modulo)
-                        mocks_c, nao_exercitadas_mod = sanitizar_c(
+                        mocks_c, harness_mod = sanitizar_c(
                             caminho_temp_mod, temp_dir, tem_flag_function=('--function' in flags_recebidas), sub_dir_repo=sub_dir_repo
                         )
-                        TAREFAS_ATIVAS[task_id]["logs"] += descrever_harness_c(nao_exercitadas_mod)
+                        TAREFAS_ATIVAS[task_id]["logs"] += descrever_harness_c(harness_mod)
+                        nao_exercitadas_mod = harness_mod['nao_exercitadas'] if harness_mod else []
                         deps_modulo = mocks_c
                         modo_verif_mod = "Native C"
                         arq_exec = nome_temp_mod
@@ -1803,8 +1808,9 @@ def iniciar_analise():
                 TAREFAS_ATIVAS[task_id]["logs"] += "\n[SYSTEM] Running ESBMC C Homogenizer & Clang Auto-Healer...\n"
                 try:
                     tem_fn = '--function' in flags_recebidas
-                    mocks_criados, nao_exercitadas = sanitizar_c(caminho_original, temp_dir, tem_flag_function=tem_fn, sub_dir_repo=sub_dir_repo)
-                    TAREFAS_ATIVAS[task_id]["logs"] += descrever_harness_c(nao_exercitadas)
+                    mocks_criados, harness_c = sanitizar_c(caminho_original, temp_dir, tem_flag_function=tem_fn, sub_dir_repo=sub_dir_repo)
+                    TAREFAS_ATIVAS[task_id]["logs"] += descrever_harness_c(harness_c)
+                    nao_exercitadas = harness_c['nao_exercitadas'] if harness_c else []
                     with open(caminho_original, 'r', encoding='utf-8', errors='replace') as f:
                         codigo_para_dashboard = f.read()
                     if mocks_criados:
@@ -1818,8 +1824,9 @@ def iniciar_analise():
                 TAREFAS_ATIVAS[task_id]["logs"] += "\n[SYSTEM] Running ESBMC C++ Homogenizer & Clang Auto-Healer...\n"
                 try:
                     tem_fn = '--function' in flags_recebidas
-                    mocks_criados, nao_exercitadas = sanitizar_cpp(caminho_original, temp_dir, tem_flag_function=tem_fn, sub_dir_repo=sub_dir_repo)
-                    TAREFAS_ATIVAS[task_id]["logs"] += descrever_harness_c(nao_exercitadas)
+                    mocks_criados, harness_c = sanitizar_cpp(caminho_original, temp_dir, tem_flag_function=tem_fn, sub_dir_repo=sub_dir_repo)
+                    TAREFAS_ATIVAS[task_id]["logs"] += descrever_harness_c(harness_c)
+                    nao_exercitadas = harness_c['nao_exercitadas'] if harness_c else []
                     with open(caminho_original, 'r', encoding='utf-8', errors='replace') as f:
                         codigo_para_dashboard = f.read()
                     if mocks_criados:

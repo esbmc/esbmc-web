@@ -3145,7 +3145,7 @@ def sanitizar_cpp(caminho_arquivo: str, temp_dir: str, tem_flag_function: bool =
        synthesises templates (`Dyad<T>`), classes, constants and called functions;
     5. If the file is a library without `main()` (e.g. `my_lib.cpp`), generates a symbolic `int main()`.
 
-    Returns (generated files, functions the entry harness could not call).
+    Returns (generated files, entry harness summary from montar_harness or None).
     """
     mock_boost_dir = _injetar_mocks_boost_e_headers_compatibilidade(temp_dir)
 
@@ -3208,7 +3208,7 @@ def sanitizar_cpp(caminho_arquivo: str, temp_dir: str, tem_flag_function: bool =
 
     dir_arquivo = sub_dir_repo or os.path.dirname(caminho_arquivo)
     arquivos_gerados = []
-    nao_exercitadas = []
+    harness = None
 
     stubs_classes_e_templates = _extrair_templates_e_classes_ausentes(codigo_original, codigo_headers_locais)
 
@@ -3281,8 +3281,8 @@ def sanitizar_cpp(caminho_arquivo: str, temp_dir: str, tem_flag_function: bool =
     if not tem_flag_function and not _tem_funcao_main(codigo_atual):
         funcoes_livres = _extrair_funcoes_livres_cpp(codigo_original)
         comando = ['clang', '-fsyntax-only', '-x', 'c++'] + [a for d in include_dirs for a in ('-I', d)]
-        nao_exercitadas = montar_harness(caminho_arquivo, codigo_atual, funcoes_livres, _ABERTURA_HARNESS_CPP, comando)
+        harness = montar_harness(caminho_arquivo, codigo_atual, funcoes_livres, _ABERTURA_HARNESS_CPP, comando)
         if not arquivos_gerados:
             arquivos_gerados.append("symbolic_main_harness")
 
-    return arquivos_gerados, nao_exercitadas
+    return arquivos_gerados, harness
