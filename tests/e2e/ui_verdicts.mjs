@@ -211,6 +211,11 @@ try {
   const exited = new Promise((r) => (chrome.exitCode === null ? chrome.once('exit', r) : r()));
   chrome.kill();
   await exited;
-  rmSync(profile, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
+  // Chrome helpers can outlive the main process and keep writing; a leftover temp profile is harmless.
+  try {
+    rmSync(profile, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
+  } catch (e) {
+    console.error(`warning: could not remove ${profile}: ${e.code}`);
+  }
 }
 process.exit(failures ? 1 : 0);
