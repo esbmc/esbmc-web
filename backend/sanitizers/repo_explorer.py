@@ -2,18 +2,18 @@
 # -*- coding: utf-8 -*-
 """
 ESBMC Repository Explorer & Inter-Directory Dependency Slicer (RepoSlice-BMC)
-Desenvolvido para Dissertação de Mestrado (UFAM).
+Developed for a Master's dissertation (UFAM).
 
-Algoritmo em 4 Fases para Exploração e Verificação Formal de Repositórios Multi-Diretórios:
-  - Fase 1 (Repository Crawler & Symbol Graph): Varre recursivamente os diretórios do repositório
-    construindo o Grafo de Símbolos Globais (Funções, Classes, Headers e Módulos Internos).
-  - Fase 2 (Heuristic Target Prioritization): Classifica e ordena os módulos verificáveis por
-    criticidade simbólica (entrypoints, handlers HTTP, manipulação de memória/ponteiros, aritmética).
-  - Fase 3 (Inter-Directory Dependency Slicing): Realiza a fusão (inlining de AST em Python e
-    resolução cruzada de unidades de tradução em C/C++) das dependências que pertencem a outras
-    pastas do mesmo repositório, isolando apenas a fronteira externa para sanitização simbólica.
-  - Fase 4 (Batch Bounded Model Checking & CWE Aggregation): Executa o ESBMC com controle de
-    recursos por módulo e consolida as provas formais (SAFE) e contraexemplos (CWEs).
+4-phase algorithm for exploring and formally verifying multi-directory repositories:
+  - Phase 1 (Repository Crawler & Symbol Graph): recursively walks the repository's directories,
+    building the global symbol graph (functions, classes, headers and internal modules).
+  - Phase 2 (Heuristic Target Prioritization): ranks the verifiable modules by symbolic
+    criticality (entry points, HTTP handlers, memory/pointer manipulation, arithmetic).
+  - Phase 3 (Inter-Directory Dependency Slicing): merges the dependencies that live in other
+    folders of the same repository (AST inlining in Python, cross-resolution of translation units
+    in C/C++), isolating only the external boundary for symbolic sanitization.
+  - Phase 4 (Batch Bounded Model Checking & CWE Aggregation): runs ESBMC with per-module resource
+    limits and consolidates the formal proofs (SAFE) and counterexamples (CWEs).
 """
 
 import ast
@@ -36,9 +36,9 @@ PASTAS_HARNESS_PROFISSIONAIS = {
 
 
 def _extrair_diretivas_do_arquivo(conteudo: str) -> Tuple[Optional[str], List[str]]:
-    """Extrai diretivas de oráculo esperado e flags ESBMC comentadas no código fonte.
-    Exemplos aceitos:
-      // esbmc-expected: FAILED (ou SUCCESSFUL)
+    """Extract expected-oracle directives and ESBMC flags from comments in the source code.
+    Accepted examples:
+      // esbmc-expected: FAILED (or SUCCESSFUL)
       // esbmc-flags: --unwind 6 --memory-leak-check
       # esbmc-expected: VERIFICATION FAILED
       # esbmc-flags: --overflow-check
@@ -71,13 +71,13 @@ def _extrair_diretivas_do_arquivo(conteudo: str) -> Tuple[Optional[str], List[st
 
 
 def _extrair_manifesto_orquestrador(repo_dir: str) -> Dict[str, Dict[str, object]]:
-    """Analisa scripts orquestradores conhecidos do repositório (ex: verify.py do vLLM/AWS-Neuron
-    ou run_checks.sh dos labs da UNIFEI) e extrai o mapeamento de arquivos para seus vereditos e flags esperadas."""
+    """Parse known orchestrator scripts in the repository (e.g. vLLM/AWS-Neuron's verify.py
+    or the UNIFEI labs' run_checks.sh) and extract the mapping from files to their expected verdicts and flags."""
     mapa_manifesto: Dict[str, Dict[str, object]] = {}
     if not repo_dir or not os.path.isdir(repo_dir):
         return mapa_manifesto
 
-    # 1. Procura scripts de checagem shell (ex: run_checks.sh, check.sh, run_tests.sh)
+    # 1. Look for shell check scripts (e.g. run_checks.sh, check.sh, run_tests.sh)
     for root, _, files in os.walk(repo_dir):
         for f in files:
             if f.endswith('.sh') or f in ('run_checks', 'verify'):
@@ -89,7 +89,7 @@ def _extrair_manifesto_orquestrador(repo_dir: str) -> Dict[str, Dict[str, object
                         ln = linha.strip()
                         if ln.startswith('#') or not ln:
                             continue
-                        # Padrão: check labs/lab2/overflow.c "VERIFICATION FAILED"
+                        # Pattern: check labs/lab2/overflow.c "VERIFICATION FAILED"
                         m_check = re.search(r'(?:check|verify|run_test)\s+["\']?([^"\'\s]+\.(?:c|cpp|cc|py))["\']?\s+["\']?([^"\'\n]+)["\']?', ln, re.IGNORECASE)
                         if m_check:
                             arq_rel = m_check.group(1).replace('\\', '/').lower().lstrip('./')
@@ -102,7 +102,7 @@ def _extrair_manifesto_orquestrador(repo_dir: str) -> Dict[str, Dict[str, object
                             }
                             mapa_manifesto[os.path.basename(arq_rel)] = mapa_manifesto[arq_rel]
 
-                        # Padrão: esbmc labs/lab2/overflow.c --unwind 1 ...
+                        # Pattern: esbmc labs/lab2/overflow.c --unwind 1 ...
                         if 'esbmc ' in ln:
                             partes = ln.split()
                             arq_cand = None
@@ -120,13 +120,13 @@ def _extrair_manifesto_orquestrador(repo_dir: str) -> Dict[str, Dict[str, object
                 except Exception:
                     pass
 
-    # 2. Procura orquestrador verify.py (estilo vLLM / AWS-Neuron)
+    # 2. Look for a verify.py orchestrator (vLLM / AWS-Neuron style)
     verify_py_path = os.path.join(repo_dir, "verify.py")
     if os.path.isfile(verify_py_path):
         try:
             with open(verify_py_path, 'r', encoding='utf-8', errors='replace') as f_vpy:
                 conteudo_vpy = f_vpy.read()
-            # Encontra strings de arquivos .py ou .c referenciados
+            # Find strings naming referenced .py or .c files
             for m_arq in re.finditer(r'["\']([^"\']+\.(?:py|c|cpp))["\']', conteudo_vpy):
                 c_rel = m_arq.group(1).replace('\\', '/').lower().lstrip('./')
                 if c_rel not in mapa_manifesto:
@@ -153,7 +153,7 @@ def _eh_arquivo_teste_ou_ignorado(rel_path: str, incluir_testes: bool = False) -
     if fname.startswith(('esbmc_', 'sanitized_', 'codigo_esbmc', 'modulo_')):
         return True
     if not incluir_testes:
-        # Se estiver em pastas de testes clássicos sem ser modo de testes profissional
+        # In classic test folders, outside test-suite mode
         if any(p in ('regression', 'unit', 'disabled', 'benchmarks', 'benchmark') for p in partes[:-1]):
             return True
         if fname.endswith(('_test.py', '_tests.py', '_test.cpp', '_test.c', 'test.cpp', 'test.c')):
@@ -166,11 +166,11 @@ def _eh_arquivo_teste_ou_ignorado(rel_path: str, incluir_testes: bool = False) -
 
 
 # ==============================================================================
-# FASE 1 & 3 (PYTHON): GRAFO DE SÍMBOLOS E FUSÃO INTER-DIRETÓRIOS DE AST
+# PHASES 1 & 3 (PYTHON): SYMBOL GRAPH AND INTER-DIRECTORY AST MERGING
 # ==============================================================================
 
 def construir_indice_python_repositorio(repo_dir: str) -> Dict[str, object]:
-    """Constrói o Grafo de Símbolos Python de todas as pastas do repositório."""
+    """Build the Python symbol graph across every folder of the repository."""
     mapa_modulos: Dict[str, str] = {}
     mapa_funcoes: Dict[str, Tuple[str, ast.AST]] = {}
     mapa_classes: Dict[str, Tuple[str, ast.ClassDef]] = {}
@@ -219,11 +219,11 @@ def fundir_dependencias_internas_python(
     caminho_rel_alvo: str = "",
     indice_precalculado: Optional[Dict[str, object]] = None
 ) -> Tuple[str, List[str]]:
-    """Analisa a AST do arquivo Python alvo, identifica chamadas a funções e classes
-    definidas em OUTROS diretórios do mesmo repositório Git e realiza o Inlining de AST
-    (Fatiamento Inter-Modular) antes da passagem do Homogenizer v2.0.
+    """Parse the target Python file's AST, find calls to functions and classes defined
+    in OTHER directories of the same Git repository, and inline them into the AST
+    (inter-module slicing) before the Homogenizer v2.0 pass.
 
-    Retorna: (codigo_com_dependencias_fundidas, lista_de_simbolos_fundidos)
+    Returns: (code_with_merged_dependencies, list_of_merged_symbols)
     """
     try:
         arvore_alvo = ast.parse(codigo_alvo)
@@ -257,7 +257,7 @@ def fundir_dependencias_internas_python(
 
     rel_norm = caminho_rel_alvo.replace('\\', '/') if caminho_rel_alvo else ""
 
-    # Injeta até 6 funções/classes internas de outros diretórios do repositório
+    # Inject up to 6 internal functions/classes from other directories of the repository
     for simb in sorted(candidatos):
         if len(nos_injetados) >= 6:
             break
@@ -277,7 +277,7 @@ def fundir_dependencias_internas_python(
     if not nos_injetados:
         return codigo_alvo, []
 
-    # Insere as definições importadas de outros diretórios do repositório no início da AST
+    # Insert the definitions imported from other directories of the repository at the start of the AST
     arvore_alvo.body = nos_injetados + arvore_alvo.body
     ast.fix_missing_locations(arvore_alvo)
     try:
@@ -288,15 +288,15 @@ def fundir_dependencias_internas_python(
 
 
 # ==============================================================================
-# FASE 1 & 3 (C / C++): GRAFO DE UNIDADES DE TRADUÇÃO INTER-DIRETÓRIOS
+# PHASES 1 & 3 (C / C++): INTER-DIRECTORY TRANSLATION-UNIT GRAPH
 # ==============================================================================
 
 def resolver_fontes_dependentes_cpp(caminho_alvo: str, repo_dir: str) -> Tuple[List[str], List[str]]:
-    """Constrói o grafo de símbolos C/C++ através dos subdiretórios do repositório e descobre
-    quais arquivos `.cpp`/`.c` de outras pastas implementam as funções/classes declaradas nos
-    headers incluídos pelo arquivo alvo.
+    """Build the C/C++ symbol graph across the repository's subdirectories and find which
+    `.cpp`/`.c` files in other folders implement the functions/classes declared in the
+    headers the target file includes.
 
-    Retorna: (lista_caminhos_cpp_dependentes, lista_descricoes_vinculos)
+    Returns: (dependent_cpp_paths, link_descriptions)
     """
     if not repo_dir or not os.path.isdir(repo_dir) or not os.path.isfile(caminho_alvo):
         return [], []
@@ -367,7 +367,7 @@ def resolver_fontes_dependentes_cpp(caminho_alvo: str, repo_dir: str) -> Tuple[L
             except Exception:
                 continue
 
-            # Ignora arquivos que tenham #include via macro (ex: #include NV_IPC_CONFIG_H) ou função `main()`
+            # Skip files with a macro #include (e.g. #include NV_IPC_CONFIG_H) or a `main()` function
             if re.search(r'^\s*#include\s+[A-Z_][A-Z0-9_]*\b', conteudo_aux, flags=re.MULTILINE):
                 continue
             sem_coment = re.sub(r'//.*?$|/\*.*?\*/', '', conteudo_aux, flags=re.DOTALL | re.MULTILINE)
@@ -377,7 +377,7 @@ def resolver_fontes_dependentes_cpp(caminho_alvo: str, repo_dir: str) -> Tuple[L
             stem_aux = os.path.splitext(fname)[0].lower()
             rel_sem_ext = os.path.splitext(rel_p)[0].lower()
 
-            # Critério 1: O arquivo .cpp/.c corresponde exatamente ao sufixo de caminho do header incluído
+            # Criterion 1: the .cpp/.c file matches the included header's path suffix exactly
             if stem_aux in stem_para_caminhos:
                 caminhos_esperados = stem_para_caminhos[stem_aux]
                 if any(rel_sem_ext.endswith(c_esp) for c_esp in caminhos_esperados):
@@ -385,8 +385,8 @@ def resolver_fontes_dependentes_cpp(caminho_alvo: str, repo_dir: str) -> Tuple[L
                     descricoes_vinculos.append(f"{rel_p} (implementa {stem_aux}.h)")
                     continue
 
-            # Critério 2: Mesmo header específico em comum resolvendo função específica
-            # Aplicado estritamente para arquivos do mesmo subsistema/módulo (evita puxar symex/solvers/ASTs não relacionados)
+            # Criterion 2: the same specific header in common, resolving a specific function
+            # Applied strictly to files of the same subsystem/module (avoids pulling in unrelated symex/solvers/ASTs)
             rel_alvo = os.path.relpath(alvo_abs, repo_dir).replace('\\', '/')
             partes_alvo = [p for p in rel_alvo.split('/') if p]
             sub_alvo = f"{partes_alvo[0]}/{partes_alvo[1]}" if len(partes_alvo) >= 2 and partes_alvo[0] in ('src', 'lib', 'source', 'pkg', 'core') else (partes_alvo[0] if partes_alvo else "")
@@ -412,22 +412,22 @@ def resolver_fontes_dependentes_cpp(caminho_alvo: str, repo_dir: str) -> Tuple[L
 
 
 # ==============================================================================
-# FASE 2: DESCOBERTA E PRIORIZAÇÃO HEURÍSTICA DE MÓDULOS DO REPOSITÓRIO
+# PHASE 2: HEURISTIC DISCOVERY AND PRIORITIZATION OF REPOSITORY MODULES
 # ==============================================================================
 
 def classificar_grau_prioridade_modulo(rel_path: str, conteudo: str, linguagem: str) -> Tuple[int, str, int, str]:
-    """Classifica o arquivo de acordo com a Matriz Canônica de Graus do ESBMC-web (Graus 5 a 0),
-    generalizando formalmente a metodologia do LSVerifier (arXiv:2311.05281) para C, C++ e Python.
+    """Classify the file on ESBMC-web's canonical grade matrix (grades 5 to 0),
+    generalising the LSVerifier methodology (arXiv:2311.05281) to C, C++ and Python.
 
-    Escala de Graus de Prioridade do ESBMC-web:
-      - Grau 5: Risco Crítico de Memória / Ponteiros / Anulabilidade (CWE-476, CWE-416, CWE-824)
-      - Grau 4: Limites de Buffers, Vetores e Indexação (CWE-119, CWE-120, CWE-787, CWE-125)
-      - Grau 3: Ciclo de Vida de Recursos, Alocação e Exceções (CWE-415, CWE-401, CWE-755, CWE-20)
-      - Grau 2: Concorrência, Sincronização e Condições de Corrida (CWE-362, CWE-667, CWE-820)
-      - Grau 1: Integridade Numérica e Aritmética (CWE-369, CWE-190, CWE-191)
-      - Grau 0: Lógica Pura, Estruturas e Funções Auxiliares
+    ESBMC-web priority grades:
+      - Grade 5: critical memory / pointer / nullability risk (CWE-476, CWE-416, CWE-824)
+      - Grade 4: buffer, array and indexing bounds (CWE-119, CWE-120, CWE-787, CWE-125)
+      - Grade 3: resource lifetime, allocation and exceptions (CWE-415, CWE-401, CWE-755, CWE-20)
+      - Grade 2: concurrency, synchronisation and race conditions (CWE-362, CWE-667, CWE-820)
+      - Grade 1: numeric and arithmetic integrity (CWE-369, CWE-190, CWE-191)
+      - Grade 0: pure logic, data structures and helper functions
 
-    Retorna: (grau, nome_grau, score_numerico, resumo_motivos)
+    Returns: (grade, grade_name, numeric_score, reason_summary)
     """
     norm = rel_path.lower()
     motivos: List[str] = []
@@ -528,7 +528,7 @@ def classificar_grau_prioridade_modulo(rel_path: str, conteudo: str, linguagem: 
 
 
 def calcular_score_criticidade_modulo(rel_path: str, conteudo: str, linguagem: str) -> Tuple[int, str]:
-    """Calcula a pontuação de criticidade formal de um arquivo para priorizar a exploração."""
+    """Compute a file's formal criticality score to prioritise exploration."""
     grau, nome_grau, score, resumo = classificar_grau_prioridade_modulo(rel_path, conteudo, linguagem)
     return score, f"Grade {grau} ({nome_grau}) | {resumo}"
 
@@ -540,10 +540,10 @@ def descobrir_alvos_verificaveis_repositorio(
     max_arquivos: int = 8,
     modo_suite_profissional: bool = False
 ) -> List[Dict[str, object]]:
-    """Varre todos os diretórios do repositório, filtra os módulos verificáveis da linguagem
-    selecionada (ou todas as linguagens C, C++ e Python simultaneamente quando linguagem='all'),
-    suporta orquestradores de suítes de teste (verify.py, run_checks.sh), extrai diretivas de
-    oráculo (expected verdict) e retorna os alvos de forma estratificada e priorizada."""
+    """Walk every directory of the repository, keep the verifiable modules of the selected
+    language (or C, C++ and Python together when linguagem='all'), support test-suite
+    orchestrators (verify.py, run_checks.sh), extract oracle directives (expected verdict),
+    and return the targets stratified and prioritised."""
     if linguagem in ('all', 'polyglot', 'auto'):
         extensoes = ('.py', '.c', '.cpp', '.cc', '.cxx')
     elif linguagem == 'python':
@@ -556,11 +556,11 @@ def descobrir_alvos_verificaveis_repositorio(
     candidatos = []
     lang_counts: Dict[str, int] = {'c': 0, 'cpp': 0, 'python': 0}
 
-    # 1. Analisa orquestradores e manifestos presentes no repositório (estilo vLLM, AWS-Neuron, UNIFEI)
+    # 1. Parse orchestrators and manifests in the repository (vLLM, AWS-Neuron, UNIFEI style)
     manifesto_orquestrador = _extrair_manifesto_orquestrador(repo_dir)
 
     filtro_norm = filtro_subpasta.strip().strip('/\\').replace('\\', '/').lower()
-    # Se o filtro apontar para um arquivo exato (ex: api/channels_api.py), usa o diretório pai dele como filtro de pasta
+    # If the filter names an exact file (e.g. api/channels_api.py), use its parent directory as the folder filter
     if filtro_norm.endswith(('.py', '.c', '.cpp', '.h', '.hpp')) and '/' in filtro_norm:
         filtro_norm = os.path.dirname(filtro_norm)
     elif filtro_norm.endswith(('.py', '.c', '.cpp', '.h', '.hpp')):
@@ -611,10 +611,10 @@ def descobrir_alvos_verificaveis_repositorio(
             dir_rel = os.path.dirname(rel_p) or "(root)"
             motivos_lista = [m.strip() for m in resumo_m.split(',') if m.strip()] or ["Core Module"]
 
-            # Extração de diretivas embutidas no cabeçalho do código
+            # Extract directives embedded in the code's header
             exp_dir, flags_dir = _extrair_diretivas_do_arquivo(conteudo)
 
-            # Consulta no manifesto do orquestrador
+            # Look up the orchestrator manifest
             info_orq = manifesto_orquestrador.get(rel_p.lower()) or manifesto_orquestrador.get(os.path.basename(rel_p).lower())
             exp_orq = info_orq.get('expected_verdict') if info_orq else None
             flags_orq = info_orq.get('custom_flags') if info_orq else []
@@ -658,9 +658,9 @@ def descobrir_alvos_verificaveis_repositorio(
                 'oraculo_origem': oraculo_origem
             })
 
-    # Round-Robin Estratificado em Dois Níveis:
-    # Nível 1: Linguagem ('c', 'cpp', 'python') -> garante que TODAS as linguagens do repositório sejam verificadas!
-    # Nível 2: Diretório ('dir') dentro de cada linguagem -> garante cobertura de todas as pastas!
+    # Two-level stratified round-robin:
+    # Level 1: language ('c', 'cpp', 'python') -> ensures ALL of the repository's languages are verified!
+    # Level 2: directory ('dir') within each language -> ensures every folder is covered!
     todos_diretorios = {str(c['dir']) for c in candidatos}
     filas_por_linguagem: Dict[str, List[Dict[str, object]]] = {}
 
@@ -714,7 +714,7 @@ def descobrir_alvos_verificaveis_repositorio(
     return selecionados
 
 
-# Alias de compatibilidade
+# Compatibility alias
 descubrir_alvos_verificaveis_repositorio = descobrir_alvos_verificaveis_repositorio
 
 
