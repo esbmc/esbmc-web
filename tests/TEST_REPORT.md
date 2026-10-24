@@ -31,7 +31,7 @@ Baseline: `main` @ `d17af99` · Run date: 2026-10-18 · Branch: `test/comprehens
 | F12 | LaTeX table / CSV (exploration only) | Copy LaTeX / Download CSV | exploration summary | Generated; inherits wrong verdicts |
 | F13 | Timeout | `--timeout` field | ESBMC `--timeout` + watchdog | Backend correct; UI shows success (D3) |
 | F14 | Cancellation | Stop Analysis | `/cancelar/<id>` | **Reported as success** (D2, D3) |
-| F15 | Health / help | startup overlay, help modal | `/health`, `/help` | Works (`solver` string in `/health` is hard-coded) |
+| F15 | Health / help | startup overlay, help modal | `/health`, `/help` | Works; `/health` reports 503 when ESBMC is missing (#41) |
 | F16 | Professional test-suite mode / oracles | — | `test_suite_mode`, `avaliar_status_teste` | Unit-tested only |
 | F17 | Windows launchers, port auto-free | `.bat`, `runner.sh` | — | Not testable here |
 
@@ -151,7 +151,7 @@ Further defects found and fixed while fixing the above:
 - **Python harness scope:** the harness is appended only when a module has no module-level code of its own (program mode otherwise). A buggy function the program never calls is therefore not checked in that case.
   - Harness calls run sequentially, so a function that always raises hides the checks on the functions called after it.
   - `nondet_str()` combined with string methods tends to time out.
-- `/health` hard-codes `"solver": "Z3 v4.8.12 + Bitwuzla"` regardless of what is installed.
+- `/health` hard-coded `"solver": "Z3 v4.8.12 + Bitwuzla"` and reported ready without ESBMC (fixed in #41).
 
 ## 7. Conclusion
 

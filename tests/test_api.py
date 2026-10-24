@@ -4,10 +4,21 @@ import app as backend_app
 from conftest import requires_esbmc, wait_for_task
 
 
-def test_health_reports_ready(client):
+@requires_esbmc
+def test_health_reports_ready_with_the_installed_version(client):
     body = client.get('/health').get_json()
     assert body['status'] == 'ready'
-    assert 'esbmc_version' in body
+    assert body['esbmc_version'].startswith('ESBMC version')
+    assert 'solver' not in body
+
+
+def test_health_reports_unavailable_without_esbmc(client, monkeypatch):
+    monkeypatch.setenv('PATH', '/nonexistent')
+    resp = client.get('/health')
+    assert resp.status_code == 503
+    body = resp.get_json()
+    assert body['status'] == 'unavailable' and body['error']
+    assert 'esbmc_version' not in body
 
 
 def test_status_of_unknown_task_is_404(client):
