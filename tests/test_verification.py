@@ -263,6 +263,16 @@ class TestSingleFilePython:
         res = result(analyse(client, {'language': 'python', 'codigo': code, 'flags': []}))
         assert res['verdict'] == 'FAILED'
 
+    @pytest.mark.parametrize('code', [
+        'def f(n: int) -> int:\n    return 10 // n\n\n\nx: int = nondet_int()\nf(x)\n',
+        'l = [1, 2, 3]\ni: int = nondet_int()\nif i >= 0:\n    y = l[i]\n',
+    ], ids=['zero-division', 'index-error'])
+    def test_uncaught_exception_is_a_violation(self, client, code):
+        """ESBMC 8.6 aborts writing the JSON report for these traces (esbmc/esbmc#9094, #40)."""
+        res = result(analyse(client, {'language': 'python', 'codigo': code, 'flags': []}))
+        assert res['verdict'] == 'FAILED'
+        assert has_violation(res)
+
     def test_harness_explores_negative_inputs(self, client):
         code = 'import os\n\ndef f(n: int) -> int:\n    assert n >= 0\n    return n\n'
         res = result(analyse(client, {'language': 'python', 'codigo': code, 'flags': []}))

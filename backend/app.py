@@ -781,7 +781,8 @@ def iniciar_analise():
                 funcao_alvo_extra=None,
                 modo_puro_raw=False,
                 pular_fontes_dependentes=False,
-                flags_custom_override=None
+                flags_custom_override=None,
+                sem_relatorio_json=False
             ):
                 flags_ativas = list(flags_custom_override) if flags_custom_override is not None else list(flags_recebidas)
                 lang_efetiva = lang_override or linguagem
@@ -941,7 +942,8 @@ def iniciar_analise():
                 if timeout_efetivo and '--timeout' not in comando:
                     comando.extend(['--timeout', f'{int(timeout_efetivo)}s'])
 
-                comando.append('--generate-json-report')
+                if not sem_relatorio_json:
+                    comando.append('--generate-json-report')
 
                 # Melhoria 4 de Fidelidade: Registra o comando CLI limpo e reprodutível do ESBMC
                 cli_limpo = [os.path.basename(c) if (c.startswith('/') or '\\' in c) else c for c in comando]
@@ -1062,7 +1064,32 @@ def iniciar_analise():
                         funcao_alvo_extra=funcao_alvo_extra,
                         modo_puro_raw=modo_puro_raw,
                         pular_fontes_dependentes=True,
-                        flags_custom_override=flags_custom_override
+                        flags_custom_override=flags_custom_override,
+                        sem_relatorio_json=sem_relatorio_json
+                    )
+
+                # ESBMC 8.6 aborts writing the JSON report for Python exception traces (esbmc/esbmc#9094, #40).
+                if (
+                    not sem_relatorio_json
+                    and processo.returncode == 70
+                    and "Building error trace" in texto_stdout
+                    and "uncaught exception" in texto_stdout
+                ):
+                    TAREFAS_ATIVAS[task_id]["logs"] += (
+                        "\n[SYSTEM] ESBMC crashed while writing the JSON report; re-running without --generate-json-report...\n"
+                    )
+                    return rodar_esbmc(
+                        arquivo_alvo,
+                        usou_homogenizer=usou_homogenizer,
+                        is_fallback=is_fallback,
+                        caminho_rel_repo=caminho_rel_repo,
+                        timeout_por_modulo=timeout_por_modulo,
+                        lang_override=lang_override,
+                        funcao_alvo_extra=funcao_alvo_extra,
+                        modo_puro_raw=modo_puro_raw,
+                        pular_fontes_dependentes=pular_fontes_dependentes,
+                        flags_custom_override=flags_custom_override,
+                        sem_relatorio_json=True
                     )
 
                 return texto_stdout, processo.returncode
