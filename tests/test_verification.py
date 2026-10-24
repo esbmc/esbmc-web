@@ -213,9 +213,54 @@ class TestEntryHarness:
 
     @pytest.mark.parametrize('language, header', [('c', '#include <string.h>\n'), ('cpp', '#include <cstring>\n')])
     def test_string_parameter_is_null_terminated(self, client, language, header):
-        code = header + 'unsigned long g(const char *s){ return strlen(s); }\n'
+        code = header + 'unsigned long g(const char *s){ return s ? strlen(s) : 0; }\n'
         res = result(analyse(client, {'language': language, 'codigo': code, 'flags': ['--unwind', '17']}))
         assert res['verdict'] == 'SUCCESSFUL'
+
+
+    @pytest.mark.parametrize('language', ['c', 'cpp'])
+    def test_null_pointer_argument_is_explored(self, client, language):
+        res = result(analyse(client, {'language': language, 'codigo': 'void g(int *p){ *p = 1; }\n', 'flags': []}))
+        assert res['verdict'] == 'FAILED'
+
+    @pytest.mark.parametrize('language', ['c', 'cpp'])
+    def test_guarded_pointer_is_successful(self, client, language):
+        code = 'void g(int *p){ if (p) *p = 1; }\n'
+        res = result(analyse(client, {'language': language, 'codigo': code, 'flags': []}))
+        assert res['verdict'] == 'SUCCESSFUL'
+
+    def test_helper_is_checked_only_in_its_calling_context(self, client):
+        code = ('static int get(int *a, int i){ return a[i]; }\n'
+                'int api(int i){ int a[4] = {0}; if (i >= 0 && i < 4) return get(a, i); return -1; }\n')
+        status = analyse(client, {'language': 'c', 'codigo': code, 'flags': []})
+        assert result(status)['verdict'] == 'SUCCESSFUL'
+        assert 'through their callers' in status['logs']
+
+    def test_unreachable_static_function_makes_the_verdict_partial(self, client):
+        code = 'static int dead(int x){ return x; }\nint api(int x){ return x; }\n'
+        status = analyse(client, {'language': 'c', 'codigo': code, 'flags': []})
+        assert result(status)['verdict'] == 'PARTIAL'
+        assert 'not exercised: dead' in status['logs']
+
+    def test_function_called_only_from_disabled_code_is_still_checked(self, client):
+        code = ('void dump(int i){ int a[2]; a[i] = 1; }\n'
+                'void api(int x){\n#if 0\n  dump(0);\n#endif\n}\n')
+        res = result(analyse(client, {'language': 'c', 'codigo': code, 'flags': []}))
+        assert res['verdict'] == 'FAILED'
+
+    def test_static_array_parameter_is_never_null(self, client):
+        code = 'int first(int a[static 4]){ return a[0]; }\n'
+        res = result(analyse(client, {'language': 'c', 'codigo': code, 'flags': []}))
+        assert res['verdict'] == 'SUCCESSFUL'
+
+    @pytest.mark.parametrize('body', [
+        'int even(int n);\nint odd(int n){ assert(n != 3); return n ? even(n - 1) : 0; }\n'
+        'int even(int n){ return n ? odd(n - 1) : 1; }\n',
+        'static void cb(int x){ assert(x != 3); }\nvoid (*table[])(int) = { cb };\nint api(void){ return 0; }\n',
+    ], ids=['entry-less-cycle', 'address-taken'])
+    def test_function_without_a_direct_caller_is_still_called(self, client, body):
+        res = result(analyse(client, {'language': 'c', 'codigo': '#include <assert.h>\n' + body, 'flags': []}))
+        assert res['verdict'] == 'FAILED'
 
 
 class TestSingleFilePython:

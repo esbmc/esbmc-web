@@ -1,3 +1,4 @@
+import re
 import subprocess
 
 import pytest
@@ -7,7 +8,7 @@ from sanitizers.caminhos import contido_em, remover_links_externos
 from sanitizers.c_sanitizer import sanitizar_c
 from sanitizers import cpp_sanitizer
 from sanitizers.cpp_sanitizer import sanitizar_cpp
-from sanitizers.harness_args import declarar_argumento
+from sanitizers.harness_args import GrafoDeChamadas, declarar_argumento, escolher_raizes
 from sanitizers.python_sanitizer import gerar_harness_python, precisa_homogeneizar_v2, sanitizar_python
 
 
@@ -74,26 +75,83 @@ class TestCSanitizer:
 
     def test_harness_declares_arguments_with_their_own_unconstrained_types(self):
         decls = [line.strip() for decl in ('const unsigned long x', 'double d', 'struct s v', 'S s', 'int &r', 'int',
-                                           'const char *p', 'unsigned char *u', 'int a[]', 'void *q', 'int n = 3')
+                                           'int n = 3')
                  for line in declarar_argumento(decl, 'v')]
-        assert decls == ['unsigned long v;', 'double v;', 'struct s v;', 'S v;', 'int v;', 'int v;',
-                         'char v[16];', 'v[15] = 0;', 'unsigned char v[16];', 'int v[16];', 'unsigned char v[16];',
-                         'int v;']
+        assert decls == ['unsigned long v;', 'double v;', 'struct s v;', 'S v;', 'int v;', 'int v;', 'int v;']
 
-    def test_harness_calls_every_function_and_drops_calls_that_do_not_compile(self, tmp_path):
+    @pytest.mark.parametrize('decl, lines', [
+        ('const char *p', ['char v_buf[16];', 'v_buf[15] = 0;', 'char *v = nondet_harness_null() ? 0 : v_buf;']),
+        ('unsigned char *u', ['unsigned char v_buf[16];', 'unsigned char *v = nondet_harness_null() ? 0 : v_buf;']),
+        ('int a[]', ['int v_buf[16];', 'int *v = nondet_harness_null() ? 0 : v_buf;']),
+        ('void *q', ['unsigned char v_buf[16];', 'unsigned char *v = nondet_harness_null() ? 0 : v_buf;']),
+        ('int a[static 4]', ['int v_buf[16];', 'int *v = v_buf;']),
+    ])
+    def test_harness_pointer_is_null_or_a_buffer(self, decl, lines):
+        assert [line.strip() for line in declarar_argumento(decl, 'v')] == lines
+
+    def test_harness_calls_roots_and_drops_calls_that_do_not_compile(self, tmp_path):
         f = tmp_path / 'codigo.c'
         f.write_text(''.join(f'int f{i}(int x){{ return x; }}\n' for i in range(7))
+                     + 'int top(int x){ return f0(x) + f1(x); }\n'
                      + '#if 0\nint legacy(int x){ return x; }\n#endif\n')
-        _, skipped = sanitizar_c(str(f), str(tmp_path))
-        harness = f.read_text().split('int main(void)')[1]
-        assert skipped == ['legacy']
-        assert all(f'f{i}(' in harness for i in range(7)) and 'legacy(' not in harness
+        _, harness = sanitizar_c(str(f), str(tmp_path))
+        calls = f.read_text().split('int main(void)')[1]
+        assert harness == {'raizes': ['f2', 'f3', 'f4', 'f5', 'f6', 'top'], 'nao_exercitadas': ['legacy']}
+        assert 'top(' in calls and 'f0(' not in calls and 'legacy(' not in calls
+
+    @pytest.mark.parametrize('code, roots, skipped', [
+        ('static int h(int x){ return x; }\nint api(int x){ return h(x); }\n', ['api'], []),
+        ('static int dead(int x){ return x; }\nint api(int x){ return x; }\n', ['api'], ['dead']),
+        ('int g(int x){ return g(x - 1); }\n', ['g'], []),
+        ('int b(int);\nint a(int x){ return b(x); }\nint b(int x){ return a(x); }\n', ['a'], []),
+        ('static void cb(int x){ }\nvoid (*t)(int) = cb;\nvoid run(void){ cb(1); }\n', ['cb', 'run'], []),
+        ('int h(int x){ return x; }\nint api(void){ const char *s = "h(1)"; return 0; }\n', ['h', 'api'], []),
+        ('void dbg(int i){ }\nvoid api(int x){\n#if 0\n  dbg(0);\n#endif\n}\n', ['dbg', 'api'], []),
+        ('void helper(int i){ }\nvoid api(int x){ void helper(int); }\n', ['helper', 'api'], []),
+        ('int check(int x){ return x; }\nvoid helper(int i){ }\nstatic void dead(int x){ if (check(x)) { helper(0); } }\n',
+         ['check', 'helper'], ['dead']),
+        ('static int h(int x){ return x; }\nint api(void){ auto l = [](){ return h(1); }; return 0; }\n',
+         ['h', 'api'], []),
+        ('void helper(int i){ }\nlong api(int x){ return sizeof(helper(0), 1); }\n', ['helper', 'api'], []),
+        ('void helper(int i){ }\nvoid api(int x){ (void)noexcept(helper(0)); }\n', ['helper', 'api'], []),
+        ('int helper(int i){ return i; }\nvoid api(int x){ decltype(helper(0)) y = 0; }\n', ['helper', 'api'], []),
+        ('int helper(void){ return 0; }\nvoid api(int x, int y = helper()){ }\n', ['helper', 'api'], []),
+        ('namespace ext { void helper(int); }\nvoid helper(int i){ }\nvoid api(int x){ ext::helper(x); }\n',
+         ['helper', 'api'], []),
+        ('void helper(int i){ }\nvoid api(int x){ struct L { static void m(){ helper(0); } }; }\n',
+         ['helper', 'api'], []),
+        ('void helper(int i){ }\nvoid api(int x){ if constexpr (false) helper(0); }\n', ['helper', 'api'], []),
+        ('void helper(int i){ }\nint api(int x){ return __builtin_choose_expr(0, (helper(0), 1), 2); }\n',
+         ['helper', 'api'], []),
+        ('int helper(int i){ return i; }\nint api(int x){ return __builtin_constant_p(helper(0)); }\n',
+         ['helper', 'api'], []),
+    ], ids=['helper', 'dead-static', 'recursion', 'entry-less-cycle', 'address-taken', 'call-in-string',
+            'disabled-call', 'block-prototype', 'call-before-brace', 'call-in-lambda', 'sizeof',
+            'noexcept', 'decltype', 'default-argument', 'other-namespace', 'local-class', 'if-constexpr', 'choose-expr', 'constant-p'])
+    def test_harness_chooses_roots_from_the_call_graph(self, tmp_path, code, roots, skipped):
+        nomes = re.findall(r'^(?:static )?\w+ \*?(\w+)\(\w+[^;{]*\{', code, re.MULTILINE)
+        f = tmp_path / 'm.cpp'
+        f.write_text(code)
+        grafo = GrafoDeChamadas.ler(str(f), code, ['-x', 'c++', '-std=c++17'], nomes)
+        assert escolher_raizes(nomes, grafo) == (roots, skipped)
+
+    def test_member_definitions_and_calls_are_not_free_function_calls(self, tmp_path):
+        code = ('void helper(int i){ }\nvoid run(int);\nstruct A { void run(); void helper(int); };\n'
+                'void A::run(){ helper(0); }\nvoid run(int x){ }\nvoid api(A *p){ p-> helper(0); }\n')
+        f = tmp_path / 'm.cpp'
+        f.write_text(code)
+        nomes = ['helper', 'run', 'api']
+        assert escolher_raizes(nomes, GrafoDeChamadas.ler(str(f), code, ['-x', 'c++'], nomes)) == (nomes, [])
+
+    def test_harness_falls_back_to_calling_every_function_without_an_ast(self, tmp_path):
+        grafo = GrafoDeChamadas.ler(str(tmp_path / 'missing.c'), 'int a(void);', ['-x', 'c'], ['a', 'b'])
+        assert escolher_raizes(['a', 'b'], grafo) == (['a', 'b'], [])
 
     def test_keeps_existing_main(self, tmp_path):
         f = tmp_path / 'codigo.c'
         original = 'int main(void){ return 0; }\n'
         f.write_text(original)
-        assert sanitizar_c(str(f), str(tmp_path)) == ([], [])
+        assert sanitizar_c(str(f), str(tmp_path)) == ([], None)
         assert f.read_text() == original
 
     def test_mocks_missing_local_header(self, tmp_path):
@@ -108,10 +166,10 @@ class TestCppSanitizer:
         f = tmp_path / 'codigo.cpp'
         f.write_text('template<typename U> U twice(U x){ return x + x; }\n'
                      'template<class K>\nint first(K *p){ return 0; }\n')
-        _, skipped = sanitizar_cpp(str(f), str(tmp_path))
-        harness = f.read_text().split('int __esbmc_main()')[1]
-        assert not skipped
-        assert 'int _sym_arg_0_0;' in harness and 'int _sym_arg_1_0[16];' in harness
+        _, harness = sanitizar_cpp(str(f), str(tmp_path))
+        calls = f.read_text().split('int __esbmc_main()')[1]
+        assert harness['nao_exercitadas'] == []
+        assert 'int _sym_arg_0_0;' in calls and 'int _sym_arg_1_0_buf[16];' in calls
 
 
     @pytest.mark.parametrize('expression', [

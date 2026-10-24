@@ -203,7 +203,7 @@ _ABERTURA_HARNESS_C = [
 def sanitizar_c(caminho_arquivo: str, temp_dir: str, tem_flag_function: bool = False, sub_dir_repo: str = None):
     """Homogeneizador e Sanitizador Inteligente para C (C11).
 
-    Returns (generated files, functions the entry harness could not call).
+    Returns (generated files, entry harness summary from montar_harness or None).
     """
     with open(caminho_arquivo, 'r', encoding='utf-8', errors='replace') as f:
         codigo_original = f.read()
@@ -220,7 +220,7 @@ def sanitizar_c(caminho_arquivo: str, temp_dir: str, tem_flag_function: bool = F
 
     dir_arquivo = sub_dir_repo or os.path.dirname(caminho_arquivo)
     arquivos_gerados = []
-    nao_exercitadas = []
+    harness = None
 
     for inc in includes_encontrados:
         if inc in STDLIB_C:
@@ -286,8 +286,8 @@ def sanitizar_c(caminho_arquivo: str, temp_dir: str, tem_flag_function: bool = F
     if not tem_flag_function and not _tem_funcao_main(codigo_atual):
         funcoes_definidas = _extrair_funcoes_definidas_c(codigo_original)
         comando = ['clang', '-fsyntax-only', '-x', 'c'] + [a for d in include_dirs for a in ('-I', d)]
-        nao_exercitadas = montar_harness(caminho_arquivo, codigo_atual, funcoes_definidas, _ABERTURA_HARNESS_C, comando)
+        harness = montar_harness(caminho_arquivo, codigo_atual, funcoes_definidas, _ABERTURA_HARNESS_C, comando)
         if not arquivos_gerados:
             arquivos_gerados.append("symbolic_main_harness")
 
-    return arquivos_gerados, nao_exercitadas
+    return arquivos_gerados, harness
