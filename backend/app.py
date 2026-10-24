@@ -2018,16 +2018,19 @@ def iniciar_analise():
 @app.route('/health', methods=['GET'])
 def health_check():
     try:
-        proc = subprocess.run(['esbmc', '--version'], capture_output=True, text=True, timeout=5)
-        ver = (proc.stdout + proc.stderr).strip() or "ESBMC 8.4.0"
-    except Exception:
-        ver = "ESBMC 8.4.0 (WSL2)"
-    return jsonify({
-        "status": "ready",
-        "esbmc_version": ver,
-        "solver": "Z3 v4.8.12 + Bitwuzla",
-        "engine": "RepoSlice-BMC v2026 (Polyglot C/C++/Python)"
-    })
+        proc = subprocess.run(['esbmc', '--version'], capture_output=True, text=True,
+                              timeout=5, check=False)
+        ver = (proc.stdout + proc.stderr).strip()
+        if proc.returncode == 0 and ver:
+            return jsonify({
+                "status": "ready",
+                "esbmc_version": ver,
+                "engine": "RepoSlice-BMC v2026 (Polyglot C/C++/Python)"
+            })
+        erro = ver or f"esbmc --version exited with code {proc.returncode}"
+    except (OSError, subprocess.SubprocessError) as e:
+        erro = str(e)
+    return jsonify({"status": "unavailable", "error": erro}), 503
 
 
 @app.route('/status/<task_id>', methods=['GET'])
