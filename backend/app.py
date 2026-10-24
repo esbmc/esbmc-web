@@ -20,8 +20,8 @@ from typing import Optional, Tuple, List, Dict, Any
 
 
 def _encerrar_arvore_processo(proc):
-    """Encerra de forma imediata e isolada apenas a árvore do subprocesso ESBMC/Z3,
-    jamais enviando sinais ao grupo de processos do servidor Flask principal."""
+    """Immediately kill only the ESBMC/Z3 subprocess tree, never signalling
+    the process group of the main Flask server."""
     if not proc:
         return
     try:
@@ -42,9 +42,9 @@ def _encerrar_arvore_processo(proc):
 
 
 def normalizar_url_e_subpasta_git(git_url: str, repo_subdir_filter: str = "", main_file_path: str = ""):
-    """Detecta se o usuário colou uma URL do GitHub apontando para subpastas (/tree/)
-    ou arquivos específicos (/blob/), extraindo o repositório base clonável pelo Git
-    e preenchendo automaticamente os filtros de subdiretório e arquivo correspondentes."""
+    """Detect a GitHub URL pointing at a subfolder (/tree/) or a specific file (/blob/),
+    extract the cloneable base repository, and fill in the matching subdirectory
+    and file filters."""
     if not git_url:
         return git_url, repo_subdir_filter, main_file_path
 
@@ -112,9 +112,9 @@ def _fim_do_bloco(codigo: str, inicio: int, limite: int = JANELA_CORPO_FUNCAO) -
 
 
 def descobrir_funcao_alvo_principal(codigo: str, linguagem: str):
-    """Descobre automaticamente a função pública de maior complexidade lógica (CFG/branches/ponteiros)
-    em um módulo C, C++ ou Python quando o ESBMC gera 0 VCCs (prova vazia / ausência de main()),
-    permitindo re-executar o ESBMC com '--function <nome_funcao>' para forçar geração real de VCCs no Z3."""
+    """Find the public function with the highest logical complexity (CFG/branches/pointers)
+    in a C, C++ or Python module when ESBMC generates 0 VCCs (vacuous proof / no main()),
+    so ESBMC can be re-run with '--function <name>' to force real VCC generation."""
     if not codigo:
         return None, 0
 
@@ -143,7 +143,7 @@ def descobrir_funcao_alvo_principal(codigo: str, linguagem: str):
             pass
         return None, 0
 
-    # Para C e C++: busca definições de funções livres (não-membros de classes C++ com ::)
+    # C and C++: look for free function definitions (not C++ class members with ::)
     padrao_fn = re.compile(
         r'(?:^|\n)\s*(?:[A-Za-z_][A-Za-z0-9_*\s]+?)\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(([^;{}]*)\)\s*\{',
         re.MULTILINE
@@ -246,8 +246,8 @@ def descrever_harness_c(nao_exercitadas: list) -> str:
 
 
 def avaliar_status_teste(veredicto_obtido: str, veredicto_esperado: Optional[str]) -> Tuple[str, str]:
-    """Avalia o status de um teste comparando o veredito obtido pelo ESBMC contra o oráculo esperado.
-    Retorna (codigo_status, rotulo_formatado)."""
+    """Grade a test by comparing ESBMC's verdict against the expected oracle.
+    Returns (status_code, formatted_label)."""
     obtido_norm = _normalizar_veredito(veredicto_obtido)
     if not veredicto_esperado or veredicto_esperado == "-":
         if obtido_norm == "FAILED":
@@ -573,14 +573,14 @@ def iniciar_analise():
             dependencias = dados.get('dependencies', [])
             is_git = bool(git_url and (main_file_path_in_repo or explore_repo))
 
-            # Salva sempre as dependências extras enviadas pelo usuário (se houver)
+            # Always save any extra dependencies uploaded by the user
             for dep in dependencias:
                 nome_seguro = os.path.basename(dep['filename'])
                 caminho_dep = os.path.join(temp_dir, nome_seguro)
                 with open(caminho_dep, 'w', encoding='utf-8') as f:
                     f.write(dep['content'])
 
-            # --- 1. EXTRAÇÃO E CLONAGEM DO REPOSITÓRIO (PARA ANÁLISE MULTI-DIRETÓRIO) ---
+            # --- 1. REPOSITORY EXTRACTION AND CLONING (FOR MULTI-DIRECTORY ANALYSIS) ---
             sub_dir_repo = None
             deps_internas_fundidas = []
             if is_git:
@@ -617,8 +617,8 @@ def iniciar_analise():
                     else:
                         raise Exception(f"Target file '{main_file_path_in_repo}' not found in repository.")
 
-                    # Se for Python de repositório Git, executa o Slicing Inter-Diretórios (RepoSlice-BMC)
-                    # APENAS se NÃO estiver no modo Strict Pure ESBMC (Baseline SV-COMP)!
+                    # For Python from a Git repository, run inter-directory slicing (RepoSlice-BMC)
+                    # ONLY when NOT in Strict Pure ESBMC mode (SV-COMP baseline)!
                     if is_raw_esbmc:
                         TAREFAS_ATIVAS[task_id]["logs"] += (
                             f"[SYSTEM] [Strict Pure ESBMC Baseline] Bypassing RepoSlice-BMC Cross-Directory Slicing & Homogenizer v2.0.\n"
@@ -652,7 +652,7 @@ def iniciar_analise():
                 with open(caminho_original, 'w', encoding='utf-8') as f:
                     f.write(codigo_para_dashboard)
 
-            # --- 1.5 AUXILIAR DE EXTRAÇÃO DE MÉTRICAS FORMAIS E CONTRAEXEMPLO Z3 ---
+            # --- 1.5 HELPER FOR EXTRACTING FORMAL METRICS AND THE Z3 COUNTEREXAMPLE ---
             def extrair_metricas_e_contraexemplo_esbmc(texto_esbmc: str, rel_path: str):
                 goto_times = re.findall(r'GOTO program creation time:\s*([0-9.]+)s', texto_esbmc)
                 ssa_assigns = (
@@ -673,7 +673,7 @@ def iniciar_analise():
                 solver_t = f"{float(bmc_times[-1]):.3f}s" if bmc_times else "<0.010s"
                 k_depth = int(iters[-1]) if iters else 1
 
-                # Extração de Contraexemplo Z3 (Root-Cause Witness)
+                # Z3 counterexample extraction (root-cause witness)
                 viol_prop = ""
                 viol_loc = ""
                 z3_vars = []
@@ -743,9 +743,9 @@ def iniciar_analise():
                 return (texto + "\n" + texto2 if concatenar else texto2), rc2
 
             def _obter_relatorio_esbmc_json(diretorio_temp):
-                """Localiza e carrega o arquivo de relatório gerado pelo ESBMC (--generate-json-report).
-                Prioriza estritamente 'report.json' e ignora arquivos JSON do próprio repositório Git
-                (como CMakePresets.json, package.json, tsconfig.json, etc.)."""
+                """Locate and load the report file written by ESBMC (--generate-json-report).
+                Strictly prefers 'report.json' and ignores JSON files from the Git repository itself
+                (such as CMakePresets.json, package.json, tsconfig.json)."""
                 if not diretorio_temp or not os.path.isdir(diretorio_temp):
                     return None, None
                 rep = os.path.join(diretorio_temp, 'report.json')
@@ -770,7 +770,7 @@ def iniciar_analise():
                         continue
                 return None, None
 
-            # --- 2. FUNÇÃO INTERNA PARA RODAR ESBMC ---
+            # --- 2. INNER FUNCTION THAT RUNS ESBMC ---
             def rodar_esbmc(
                 arquivo_alvo,
                 usou_homogenizer=False,
@@ -798,8 +798,8 @@ def iniciar_analise():
                                     comando.append(nome_dep)
                         else:
                             if not pular_fontes_dependentes:
-                                # Para repositórios Git C/C++, resolve tanto diretórios de include quanto Unidades de Tradução (.cpp/.c)
-                                # através de múltiplos diretórios usando o algoritmo RepoSlice-BMC (resolver_fontes_dependentes_cpp)
+                                # For C/C++ Git repositories, resolve both include directories and translation units (.cpp/.c)
+                                # across multiple directories using the RepoSlice-BMC algorithm (resolver_fontes_dependentes_cpp)
                                 alvo_ref = os.path.join(temp_dir, caminho_rel_repo or main_file_path_in_repo or arquivo_alvo)
                                 try:
                                     res_cpp = resolver_fontes_dependentes_cpp(alvo_ref, temp_dir)
@@ -808,7 +808,7 @@ def iniciar_analise():
                                     fontes_adicionadas = []
                                     for aux_src in fontes_dependentes:
                                         rel_aux = os.path.relpath(aux_src, temp_dir).replace('\\', '/')
-                                        # NUNCA passa o próprio arquivo alvo duas vezes (ex: codigo.cpp copiado de arith_tools.cpp)
+                                        # NEVER pass the target file itself twice (e.g. codigo.cpp copied from arith_tools.cpp)
                                         if (
                                             os.path.abspath(aux_src) == os.path.abspath(os.path.join(temp_dir, arquivo_alvo))
                                             or (caminho_rel_repo and rel_aux == caminho_rel_repo)
@@ -867,7 +867,7 @@ def iniciar_analise():
                                 '-D', 'BOOST_ALL_NO_LIB',
                                 '-D', 'YAML_CPP_STATIC_DEFINE'
                             ])
-                            # Se o arquivo alvo tem o harness __esbmc_main gerado pelo homogenizer e o usuário não passou --function
+                            # If the target file has the homogenizer-generated __esbmc_main harness and the user did not pass --function
                             if not any(f.startswith('--function') for f in flags_ativas) and not funcao_alvo_extra:
                                 try:
                                     alvo_caminho_check = os.path.join(temp_dir, arquivo_alvo)
@@ -887,7 +887,7 @@ def iniciar_analise():
                 ]
                 usuario_escolheu_estrategia = len(estrategias_usuario) > 0
 
-                # Se o usuário definiu um --timeout manual nos parâmetros, respeita esse valor no watchdog também
+                # If the user set a manual --timeout, the watchdog honours it too
                 timeout_efetivo = timeout_por_modulo
                 if '--timeout' in flags_ativas:
                     idx_t = flags_ativas.index('--timeout')
@@ -898,8 +898,8 @@ def iniciar_analise():
                         except ValueError:
                             pass
                 elif timeout_efetivo is None and ('--incremental-bmc' in flags_ativas or '--k-induction' in flags_ativas):
-                    # Salvaguarda: se o usuário escolheu incremental-bmc/k-induction sem passar --timeout,
-                    # aplica um timeout seguro de 30s para evitar desenrolamento infinito sem fim
+                    # Safeguard: if the user chose incremental-bmc/k-induction without --timeout,
+                    # apply a safe 30s timeout to avoid unbounded unwinding
                     timeout_efetivo = 30.0
 
                 while i < len(flags_ativas):
@@ -945,7 +945,7 @@ def iniciar_analise():
                 if not sem_relatorio_json:
                     comando.append('--generate-json-report')
 
-                # Melhoria 4 de Fidelidade: Registra o comando CLI limpo e reprodutível do ESBMC
+                # Fidelity improvement 4: log the clean, reproducible ESBMC command line
                 cli_limpo = [os.path.basename(c) if (c.startswith('/') or '\\' in c) else c for c in comando]
                 TAREFAS_ATIVAS[task_id]["last_cli"] = ' '.join(cli_limpo)
 
@@ -1038,7 +1038,7 @@ def iniciar_analise():
                     TAREFAS_ATIVAS[task_id]["logs"] += msg_to
                     texto_stdout += msg_to
 
-                # Detecção e Fallback para Colisão Interna de Multi-Translation-Units no ESBMC 8.4.0
+                # Detect and fall back on ESBMC 8.4.0's internal multi-translation-unit collision
                 if (
                     not pular_fontes_dependentes
                     and not modo_puro_raw
@@ -1095,7 +1095,7 @@ def iniciar_analise():
                 return texto_stdout, processo.returncode
 
             # ==========================================================
-            # MODO ESPECIAL: EXPLORAÇÃO MULTI-DIRETÓRIO DE REPOSITÓRIO (RepoSlice-BMC)
+            # SPECIAL MODE: MULTI-DIRECTORY REPOSITORY EXPLORATION (RepoSlice-BMC)
             # ==========================================================
             if is_git and explore_repo:
                 raw_max_repo = dados.get('max_repo_files')
@@ -1138,7 +1138,7 @@ def iniciar_analise():
                     TAREFAS_ATIVAS[task_id]["logs"] += "[SYSTEM] [Professional Suite Engine] Professional Test Suite Mode Active (Testbeds & Verification Oracles enabled)!\n"
                 TAREFAS_ATIVAS[task_id]["logs"] += "================================================================================\n"
 
-                # Descobre os alvos verificáveis do repositório com suporte a orquestradores profissionais:
+                # Discover the repository's verifiable targets, with support for test orchestrators:
                 alvos_all = descobrir_alvos_verificaveis_repositorio(
                     temp_dir, 'all', filtro_subpasta=repo_subdir_filter, max_arquivos=max_repo_files, modo_suite_profissional=modo_suite_profissional
                 )
@@ -1148,7 +1148,7 @@ def iniciar_analise():
                 lang_counts = alvos_all[0].get('lang_counts', {})
                 langs_presentes = [k for k, v in lang_counts.items() if v > 0]
 
-                # Melhoria 5: Se o usuário escolheu um filtro específico de linguagem no repositório (Only C, Only C++, Only Python)
+                # Improvement 5: the user chose a repository language filter (Only C, Only C++, Only Python)
                 if repo_lang_filter in ('c', 'cpp', 'python') and lang_counts.get(repo_lang_filter, 0) > 0:
                     TAREFAS_ATIVAS[task_id]["logs"] += (
                         f"[SYSTEM] [RepoSlice-BMC] Single-Language Repository Filter Active: ONLY {repo_lang_filter.upper()} "
@@ -1299,7 +1299,7 @@ def iniciar_analise():
 
                     combined_code_preview.append(f"// ==================== MODULE [{idx_a}/{len(alvos)}] ({lang_mod.upper()}): {rel_path} ====================\n{cod_exibido}")
 
-                    # Inferência e união de flags de orquestrador / diretivas comentadas
+                    # Infer and merge flags from the orchestrator / comment directives
                     flags_modulo_base = list(flags_recebidas)
                     flags_repo, flags_ignoradas = filtrar_flags_do_repositorio(alvo_info.get('custom_flags', []))
                     if flags_ignoradas:
@@ -1311,7 +1311,7 @@ def iniciar_analise():
                         if grupo[0] not in flags_modulo_base:
                             flags_modulo_base.extend(grupo)
 
-                    # Inferência inteligente de concorrência por análise estática rápida
+                    # Infer concurrency through a quick static analysis
                     if lang_mod in ('c', 'cpp') and re.search(r'\bpthread_|\bstd::thread|\bstd::atomic\b', cod_modulo):
                         if '--context-bound' not in flags_modulo_base:
                             flags_modulo_base.extend(['--context-bound', '2'])
@@ -1320,7 +1320,7 @@ def iniciar_analise():
 
                     timeout_primario = 10 if (lang_mod in ('c', 'cpp') and '--incremental-bmc' in flags_modulo_base) else 16
 
-                    # FASE 1: Contratos Funcionais (Asserções e Invariantes)
+                    # PHASE 1: functional contracts (assertions and invariants)
                     fase_rotulo = "Phase 1 (Contracts)" if modo_fases in ('1', 'both') else "Phase 2 (Safety)"
                     txt_mod, rc_mod = rodar_esbmc(
                         arq_exec,
@@ -1336,10 +1336,10 @@ def iniciar_analise():
                     p1_failed = classificar_veredito(txt_mod, rc_mod, False) == "FAILED"
                     p1_success = ("VERIFICATION SUCCESSFUL" in txt_mod)
 
-                    # FASE 2: Safety & Aritmética (--overflow-check, --memory-leak-check)
+                    # PHASE 2: safety & arithmetic (--overflow-check, --memory-leak-check)
                     if modo_fases in ('2', 'both') and not is_raw_esbmc and not TAREFAS_ATIVAS[task_id].get("cancel_requested"):
                         if p1_failed:
-                            # A Fase 1 já descobriu bug funcional com contraexemplo Z3!
+                            # Phase 1 already found a functional bug with a Z3 counterexample!
                             fase_rotulo = "Phase 1 (Contract Violated)"
                         else:
                             flags_p2 = list(flags_modulo_base)
@@ -1414,7 +1414,7 @@ def iniciar_analise():
                         )
                     metricas_mod = extrair_metricas_e_contraexemplo_esbmc(txt_mod, rel_path)
 
-                    # Melhoria 1 de Fidelidade ESBMC: Detector Anti-Vacuidade (0 VCCs) + Auto-Entrypoint (--function)
+                    # ESBMC fidelity improvement 1: anti-vacuity detector (0 VCCs) + auto entry point (--function)
                     if (
                         not is_raw_esbmc
                         and not TAREFAS_ATIVAS[task_id].get("cancel_requested")
@@ -1518,7 +1518,7 @@ def iniciar_analise():
 
                     ultimo_cli_mod = TAREFAS_ATIVAS[task_id].get("last_cli", f"esbmc {arq_exec}")
 
-                    # Exibe o Card de Diagnóstico de Contraexemplo Z3 sempre que houver falha!
+                    # Show the Z3 counterexample diagnostic card whenever there is a failure!
                     if mod_violations > 0 or "VERIFICATION FAILED" in txt_mod:
                         TAREFAS_ATIVAS[task_id]["logs"] += (
                             f"\n   ╔══════════════════════════════════════════════════════════════════════════╗\n"
@@ -1534,7 +1534,7 @@ def iniciar_analise():
                             f"   ╚══════════════════════════════════════════════════════════════════════════╝\n"
                         )
 
-                    # Melhoria 2 de Fidelidade ESBMC: Taxonomia Oficial de 4 Vereditos SV-COMP
+                    # ESBMC fidelity improvement 2: official SV-COMP 4-verdict taxonomy
                     teve_erro_bruto = (
                         is_raw_esbmc
                         and mod_violations == 0
@@ -1623,7 +1623,7 @@ def iniciar_analise():
                         "homogenized_code": cod_exibido
                     })
 
-                    # Atualiza o placar ao vivo para a barra de progresso e prévia em tempo real no HTML
+                    # Update the live scoreboard for the progress bar and real-time preview in the HTML
                     total_pass_live = sum(1 for r in repo_exploration_summary if r.get("test_status_code", "").startswith("PASS_"))
                     total_regr_live = sum(1 for r in repo_exploration_summary if r.get("test_status_code") == "REGRESSION_FAILED")
                     TAREFAS_ATIVAS[task_id]["progresso"].update({
@@ -1636,7 +1636,7 @@ def iniciar_analise():
                         "partial_summary": list(repo_exploration_summary)
                     })
 
-                # Melhoria 4: Gera Tabela Científica Consolidada + Código LaTeX (UFAM / IEEE / Springer) + CSV no Log Final
+                # Improvement 4: build the consolidated scientific table + LaTeX code (UFAM / IEEE / Springer) + CSV in the final log
                 tempo_total_repo = time.time() - tempo_inicio_repo
                 total_safe = sum(1 for r in repo_exploration_summary if "SAFE" in r["status"] or "SOUND" in r["status"])
                 total_viol = sum(1 for r in repo_exploration_summary if r["violations"] > 0)
@@ -1764,7 +1764,7 @@ def iniciar_analise():
                 return
 
             # ==========================================================
-            # ETAPA 1: SANITIZAÇÃO E HOMOGENEIZAÇÃO DETERMINÍSTICA (ARQUIVO ÚNICO)
+            # STEP 1: DETERMINISTIC SANITIZATION AND HOMOGENIZATION (SINGLE FILE)
             # ==========================================================
             arquivo_alvo = main_file_path_in_repo if (is_git and main_file_path_in_repo and is_raw_esbmc) else nome_arquivo_principal
             usou_homogenizer_v2 = False
@@ -1830,7 +1830,7 @@ def iniciar_analise():
                     TAREFAS_ATIVAS[task_id]["logs"] += f"[ERROR] C++ Sanitizer failed: {str(e)}\n"
 
             # ==========================================================
-            # ETAPA 2: VERIFICAÇÃO ESBMC (+ FALLBACK AUTOMÁTICO V2 PARA PYTHON)
+            # STEP 2: ESBMC VERIFICATION (+ AUTOMATIC V2 FALLBACK FOR PYTHON)
             # ==========================================================
             texto_final, returncode = rodar_esbmc(
                 arquivo_alvo,
@@ -1844,7 +1844,7 @@ def iniciar_analise():
                     lambda flags: rodar_esbmc(arquivo_alvo, usou_homogenizer=usou_homogenizer_v2, flags_custom_override=flags)
                 )
 
-            # --- 3. PARSING DOS RESULTADOS GERAIS (DASHBOARD) ---
+            # --- 3. PARSING THE OVERALL RESULTS (DASHBOARD) ---
             dashboard_data = []
             arquivo_report_json = os.path.join(temp_dir, 'report.json')
             caminho_rep_sf, dados_rep_sf = _obter_relatorio_esbmc_json(temp_dir)
@@ -1876,7 +1876,7 @@ def iniciar_analise():
                 )
             verificacao_sucesso = veredito == "SUCCESSFUL"
 
-            # Garante que quando o ESBMC tiver sucesso sem vulnerabilidades, o Dashboard receba o status OK!
+            # When ESBMC succeeds with no vulnerabilities, make sure the dashboard gets the OK status!
             if verificacao_sucesso and not any(isinstance(r, dict) and r.get("status") == "violation" for r in dashboard_data):
                 if not dashboard_data:
                     dashboard_data = [{

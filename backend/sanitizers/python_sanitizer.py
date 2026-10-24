@@ -9,7 +9,7 @@ MODULOS_PADRAO_ESBMC = {
 
 
 class LightImportFlattener(ast.NodeTransformer):
-    """Achatador leve de imports para quando o usuário sobe os próprios arquivos de stub (.py) na aba Dependencies."""
+    """Lightweight import flattener for when the user uploads their own stub files (.py) in the Dependencies tab."""
 
     def __init__(self, temp_dir: str):
         self.temp_dir = temp_dir
@@ -37,8 +37,8 @@ class LightImportFlattener(ast.NodeTransformer):
         if not node.module:
             return node
 
-        # Se o usuário enviou um stub local (ex: basehandlers.py) para `from framework import basehandlers`,
-        # achata para `import basehandlers` para o ESBMC resolvê-lo no temp_dir
+        # If the user uploaded a local stub (e.g. basehandlers.py) for `from framework import basehandlers`,
+        # flatten it to `import basehandlers` so ESBMC resolves it in temp_dir
         novos_imports = []
         restantes = []
         for n in node.names:
@@ -63,24 +63,24 @@ def precisa_homogeneizar_v2(
     is_git: bool = False,
     is_harness: bool = False
 ) -> Tuple[bool, str]:
-    """Detecta se o código Python precisa do ESBMC Homogenizer v2.0 (VeriBee).
+    """Detect whether the Python code needs the ESBMC Homogenizer v2.0 (VeriBee).
 
-    Retorna (True, motivo) quando:
-      - O código possui imports de frameworks/módulos externos que não existem em `temp_dir`;
-      - O código vem de um repositório Git profissional (classes/handlers/APIs sem `assert` top-level);
-      - O código define classes ou funções profissionais mas não possui harness/assertions de entrada.
+    Returns (True, reason) when:
+      - the code imports external frameworks/modules that do not exist in `temp_dir`;
+      - the code comes from a Git repository (classes/handlers/APIs with no top-level `assert`);
+      - the code defines classes or functions but has no entry harness/assertions.
 
-    Retorna (False, motivo) quando o código já é um harness formal (pastas harness/verification/tests),
-    ou possui assertions/entrypoint, ou o repositório contém stubs locais (stubs.py, torch_stubs.py, etc.).
+    Returns (False, reason) when the code is already a formal harness (harness/verification/tests folders),
+    has assertions or an entry point, or the repository contains local stubs (stubs.py, torch_stubs.py, etc.).
     """
     try:
         tree = ast.parse(codigo_fonte)
     except SyntaxError:
-        return False, "Erro de sintaxe no código original"
+        return False, "Syntax error in the original code"
 
-    # Se já foi homogeneizado pelo VeriBee, não precisa homogeneizar novamente
+    # Already homogenized by VeriBee; no need to homogenize again
     if "_esbmc_get_int_arg" in codigo_fonte or "verify_security_contracts" in codigo_fonte:
-        return False, "Código já homogeneizado pelo VeriBee v2.0"
+        return False, "Code already homogenized by VeriBee v2.0"
 
     imports_faltantes = []
     tem_assert = False
@@ -95,7 +95,7 @@ def precisa_homogeneizar_v2(
         elif isinstance(node, ast.Expr) and isinstance(node.value, ast.Call):
             tem_chamada_toplevel = True
         elif isinstance(node, ast.If):
-            # Verifica `if __name__ == "__main__":`
+            # Check for `if __name__ == "__main__":`
             for sub in ast.walk(node):
                 if isinstance(sub, (ast.Assert, ast.Call)):
                     tem_chamada_toplevel = True
@@ -103,14 +103,14 @@ def precisa_homogeneizar_v2(
     # A repository test harness that runs its own entry code is kept as is; one that only defines
     # functions still gets calls appended, otherwise nothing in it would execute.
     if is_harness and (tem_assert or tem_chamada_toplevel):
-        return False, "Harness formal de teste profissional (preservando asserções e stubs nativos)"
+        return False, "Formal test harness (keeping its assertions and native stubs)"
 
     for sub in ast.walk(tree):
         if isinstance(sub, ast.Import):
             for alias in sub.names:
                 mod_root = alias.name.split('.')[0]
                 if mod_root not in MODULOS_PADRAO_ESBMC:
-                    # Verifica se o repositório possui o stub (ex: torch_stubs.py, nki_stubs.py, stubs.py ou mod_root.py)
+                    # Check whether the repository has the stub (e.g. torch_stubs.py, nki_stubs.py, stubs.py or mod_root.py)
                     tem_stub = False
                     if temp_dir and os.path.isdir(temp_dir):
                         candidatos_stubs = [
@@ -143,15 +143,15 @@ def precisa_homogeneizar_v2(
                     imports_faltantes.append(mod_name)
 
     if imports_faltantes:
-        return True, f"Dependências externas detectadas ({', '.join(sorted(set(imports_faltantes))[:5])})"
+        return True, f"External dependencies detected ({', '.join(sorted(set(imports_faltantes))[:5])})"
 
     if is_git and tem_classe_ou_funcao and not tem_assert:
-        return True, "Módulo de repositório Git sem harness formal (gerando contratos simbólicos VeriBee)"
+        return True, "Git repository module without a formal harness (generating VeriBee symbolic contracts)"
 
     if tem_classe_ou_funcao and not tem_assert and not tem_chamada_toplevel:
-        return True, "Classes/Funções sem ponto de entrada ou assertivas (gerando contratos simbólicos VeriBee)"
+        return True, "Classes/functions without an entry point or assertions (generating VeriBee symbolic contracts)"
 
-    return False, "Código Python autossuficiente ou com stubs fornecidos"
+    return False, "Self-contained Python code, or stubs provided"
 
 
 NONDET_POR_TIPO = {
@@ -207,9 +207,9 @@ def sanitizar_python(
     is_git: bool = False,
     is_harness: bool = False
 ) -> dict:
-    """Executa a sanitização/homogeneização Python de forma inteligente.
+    """Run Python sanitization/homogenization.
 
-    Retorna um dicionário com metadados da sanitização:
+    Returns a dictionary of sanitization metadata:
       {
         'usou_homogenizer_v2': bool,
         'motivo': str,
@@ -241,7 +241,7 @@ def sanitizar_python(
             'codigo_final': codigo_final
         }
 
-    # Caso contrário, aplica apenas o achatamento leve para preservar stubs manuais enviados pelo usuário
+    # Otherwise apply only the lightweight flattening, preserving manual stubs uploaded by the user
     tree = ast.parse(codigo_fonte)
     flattener = LightImportFlattener(temp_dir=temp_dir)
     tree_modificada = flattener.visit(tree)

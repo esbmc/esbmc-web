@@ -6,7 +6,7 @@ document.addEventListener('DOMContentLoaded', () => {
         .replace(/>/g, '&gt;')
         .replace(/"/g, '&quot;')
         .replace(/'/g, '&#039;');
-    // --- Variáveis Globais e Constantes ---
+    // --- Global Variables and Constants ---
     const analisarBtn = document.getElementById('analisarBtn');
     const esbmcFlags = document.querySelectorAll('.esbmc-flag');
     const esbmcParams = document.querySelectorAll('.esbmc-param');
@@ -15,7 +15,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const cCppDependencies = document.getElementById('c-cpp-dependencies');
     const dependencyListContainer = document.getElementById('dependency-files-list-container');
     
-    // --- Variáveis do Git ---
+    // --- Git Variables ---
     const gitRepoUrl = document.getElementById('gitRepoUrl');
     const gitMainFile = document.getElementById('gitMainFile');
     const fetchRepoBtn = document.getElementById('fetchRepoBtn');
@@ -29,13 +29,13 @@ document.addEventListener('DOMContentLoaded', () => {
     const dependencyContainer = document.getElementById('c-cpp-dependencies');
     const editorButtons = document.querySelector('.editor-botoes-container');
 
-    // --- Variáveis dos Botões do Editor ---
+    // --- Editor Button Variables ---
     const btnLimparEditor = document.getElementById('btnLimparEditor');
     const btnSelecionarTudo = document.getElementById('btnSelecionarTudo');
     const btnCopiarCodigo = document.getElementById('btnCopiarCodigo');
     let dependencyFiles = []; 
 
-    // --- Variáveis das Abas e Resultados ---
+    // --- Tab and Result Variables ---
     const tabsContainer = document.getElementById('tabs-container');
     const tabDashboard = document.getElementById('tab-dashboard');
     const tabRawText = document.getElementById('tab-raw-text');
@@ -52,7 +52,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const graphmlReportPre = document.getElementById('graphml-report-pre');
     const resultadoTexto = document.getElementById('resultado-texto');
 
-    // --- Elementos do Relatório de Bug & Fluxo de Execução (Padrão GitHub ESBMC) ---
+    // --- Bug Report & Execution Trace Elements (ESBMC GitHub Format) ---
     const tabBugReport = document.getElementById('tab-bug-report');
     const bugReportContainer = document.getElementById('bug-report-container');
     const bugReportPre = document.getElementById('bug-report-pre');
@@ -74,7 +74,7 @@ document.addEventListener('DOMContentLoaded', () => {
     let latestSelectedEngineMode = 'assisted';
     let latestMainFileAnalyzed = 'main.c';
 
-    // --- Variáveis do Módulo de Métricas e Histórico (Padrão Codacy) ---
+    // --- Metrics and History Module Variables (Codacy Style) ---
     const tabMetricsHistory = document.getElementById('tab-metrics-history');
     const metricsHistoryContainer = document.getElementById('metrics-history-container');
     const btnOpenMetricsHeader = document.getElementById('btnOpenMetricsHeader');
@@ -99,7 +99,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const helpTextContent = document.getElementById('help-text-content');
     const modalCloseBtn = document.querySelector('.modal-close-btn');
 
-    // --- Inicialização do Editor CodeMirror ---
+    // --- CodeMirror Editor Initialization ---
     const editor = CodeMirror.fromTextArea(document.getElementById('codigoInput'), {
         lineNumbers: true,
         mode: 'text/x-c++src', 
@@ -109,7 +109,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const editorWrapper = editor.getWrapperElement();
 
     // =========================================================================
-    // ⏳ SISTEMA DE PROGRESSÃO E LOADING (NOVO)
+    // ⏳ PROGRESS AND LOADING SYSTEM (NEW)
     // =========================================================================
     
     function showLoadingOverlay(texto, percent = null) {
@@ -120,11 +120,11 @@ document.addEventListener('DOMContentLoaded', () => {
         if (textElement && texto) textElement.textContent = texto;
         
         if (percent !== null) {
-            // Trava a animação infinita CSS e usa o tamanho exato da %
+            // Stop the infinite CSS animation and use the exact percentage width
             progressBarValue.style.animation = 'none';
             progressBarValue.style.width = `${percent}%`;
         } else {
-            // Restaura a animação infinita para ações sem % (ex: carregar um ficheiro)
+            // Restore the infinite animation for actions without a percentage (e.g. loading a file)
             progressBarValue.style.animation = 'indeterminate-progress 1.5s ease-in-out infinite';
             progressBarValue.style.width = '100%';
         }
@@ -137,7 +137,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // =========================================================================
-    // 🟢 1. MONITOR DE STATUS DO SERVIDOR (Silencioso e Não-Bloqueante)
+    // 🟢 1. SERVER STATUS MONITOR (Silent and Non-Blocking)
     // =========================================================================
     const serverStatusBadge = document.getElementById('server-status-badge');
     const serverStatusDot = document.getElementById('server-status-dot');
@@ -186,7 +186,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 return;
             }
         } catch (err) {
-            // Silencioso - mantem estado indicativo sem bloquear o usuario
+            // Silent: keep an indicative state without blocking the user
         }
         if (serverStatusBadge && serverStatusDot && serverStatusText) {
             serverStatusBadge.style.background = '#fef3c7';
@@ -200,7 +200,7 @@ document.addEventListener('DOMContentLoaded', () => {
     checkServerHealth();
 
     // =========================================================================
-    // 📊 2. PAINEL DE PROGRESSO EM TEMPO REAL (1/12, 2/12...) + TABELA AO VIVO
+    // 📊 2. REAL-TIME PROGRESS PANEL (1/12, 2/12...) + LIVE TABLE
     // =========================================================================
     const analysisProgressContainer = document.createElement('div');
     analysisProgressContainer.id = 'analysis-progress-container';
@@ -253,7 +253,7 @@ document.addEventListener('DOMContentLoaded', () => {
     btnContainer.parentElement.insertBefore(analysisProgressContainer, btnContainer.nextSibling);
 
     // =========================================================================
-    // 🎯 3. PERFIS CIENTÍFICOS DE VERIFICAÇÃO (1-CLICK PRESETS)
+    // 🎯 3. SCIENTIFIC VERIFICATION PROFILES (1-CLICK PRESETS)
     // =========================================================================
     document.querySelectorAll('.preset-profile-btn').forEach(btn => {
         btn.addEventListener('click', () => {
@@ -304,7 +304,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (previewTbody) previewTbody.innerHTML = '';
     }
 
-    // --- Lógica das Abas de Opções ---
+    // --- Options Tab Logic ---
     const optionsTabButtons = document.querySelectorAll('.opcoes-tab-btn');
     const optionsTabPanes = document.querySelectorAll('.opcoes-tab-pane');
 
@@ -399,7 +399,7 @@ document.addEventListener('DOMContentLoaded', () => {
         toggleLanguageOptions();
     }
 
-    // --- PROGRESSÃO: Carregar arquivo do Git (COM %) ---
+    // --- PROGRESS: Load a file from Git (WITH %) ---
     async function fetchAndLoadFile(filePath) {
         const url = gitRepoUrl.value.trim();
         if (!url) return;
@@ -407,7 +407,7 @@ document.addEventListener('DOMContentLoaded', () => {
         gitFetchStatus.textContent = 'Loading file content...';
         gitFetchStatus.className = '';
         
-        // Inicia a overlay travada em 0%
+        // Start the overlay pinned at 0%
         showLoadingOverlay(`Downloading file: ${filePath}... 0%`, 0); 
 
         try {
@@ -423,20 +423,20 @@ document.addEventListener('DOMContentLoaded', () => {
 
             const taskId = data.task_id;
             
-            // Pergunta ao servidor a cada meio segundo o estado do download
+            // Ask the server for the download state every half second
             const poll = setInterval(async () => {
                 try {
                     const res = await fetch(`http://127.0.0.1:5000/fetch-repo-status/${taskId}`);
                     const statusData = await res.json();
 
                     if (statusData.status === 'running') {
-                        // Atualiza a barra de carregamento no ecrã
+                        // Update the on-screen loading bar
                         showLoadingOverlay(`Downloading file: ${filePath}... ${statusData.progress}%`, statusData.progress);
                     } else if (statusData.status === 'completed') {
                         clearInterval(poll);
                         hideLoadingOverlay();
                         
-                        // Ficheiro descarregado com sucesso, injeta no editor
+                        // File downloaded successfully; load it into the editor
                         editor.setValue(statusData.content || '');
                         autoSelectLanguage(filePath);
                         gitFetchStatus.textContent = 'File loaded successfully.';
@@ -608,7 +608,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
-    // --- PROGRESSÃO: Clonar repositório do Git (COM %) ---
+    // --- PROGRESS: Clone a Git repository (WITH %) ---
     fetchRepoBtn.addEventListener('click', async () => {
         normalizarGithubUrlFrontend();
         const url = gitRepoUrl.value.trim();
@@ -651,7 +651,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
             const taskId = data.task_id;
             
-            // Polling: Pergunta ao servidor a cada 0.5 segundos quantos % já clonou
+            // Polling: ask the server every 0.5 seconds what percentage has been cloned
             const poll = setInterval(async () => {
                 try {
                     const res = await fetch(`http://127.0.0.1:5000/fetch-repo-status/${taskId}`);
@@ -864,7 +864,7 @@ document.addEventListener('DOMContentLoaded', () => {
     let pollInterval = null;
     const cancelarBtn = document.getElementById('cancelarBtn');
 
-    // --- PROGRESSÃO: Analisador ESBMC ---
+    // --- PROGRESS: ESBMC Analyser ---
     analisarBtn.addEventListener('click', async () => {
         const codigo = editor.getValue();
         const gitUrlValue = gitRepoUrl.value.trim();
@@ -897,7 +897,7 @@ document.addEventListener('DOMContentLoaded', () => {
         graphmlReportContainer.style.display = 'none';
         if (metricsHistoryContainer) metricsHistoryContainer.style.display = 'none';
         
-        // ... (dentro do analisarBtn.addEventListener, sensivelmente na linha 250) ...
+        // ... (inside analisarBtn.addEventListener, around line 250) ...
         
         // ...
         tabsContainer.style.display = 'flex';
@@ -927,7 +927,7 @@ document.addEventListener('DOMContentLoaded', () => {
         cancelarBtn.style.display = 'block';
         cancelarBtn.textContent = 'Stop Analysis & Consolidate Results';
 
-        // ATIVA O PAINEL DE PROGRESSO EM TEMPO REAL
+        // ENABLE THE REAL-TIME PROGRESS PANEL
         initLiveProgressPanel(
             selectedEngineMode === 'raw_esbmc'
                 ? 'Running 100% Strict Pure ESBMC (Baseline SV-COMP without Homogenizer)...'
@@ -1230,7 +1230,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
             }
         } catch (error) {
-            console.error("Erro ao verificar status:", error);
+            console.error("Error checking status:", error);
         }
     }
 
@@ -1280,12 +1280,12 @@ document.addEventListener('DOMContentLoaded', () => {
         analisarBtn.style.display = 'block';
         cancelarBtn.style.display = 'none';
         cancelarBtn.disabled = false;
-        analysisProgressContainer.style.display = 'none'; // DESATIVA A BARRA INLINE
+        analysisProgressContainer.style.display = 'none'; // DISABLE THE INLINE BAR
         validateInputs(); 
     }     
 
     // =========================================================================
-    // 🐞 GERADOR DE RELATÓRIO DE FLUXO DE EXECUÇÃO & BUG REPORT (GITHUB ESBMC)
+    // 🐞 EXECUTION TRACE & BUG REPORT GENERATOR (ESBMC GITHUB)
     // =========================================================================
     function buildESBMCBugReportMarkdown(resultsArray, codigoFonte, repoExplorationSummary = null, violationDetails = []) {
         const esbmcVer = window.esbmcServerVersion || 'unknown (the server did not report an ESBMC version)';
@@ -1304,7 +1304,7 @@ document.addEventListener('DOMContentLoaded', () => {
             ? resultsArray.find(res => res.status === 'violation')
             : null;
 
-        // Determina o arquivo principal e código mínimo
+        // Determine the main file and minimal code
         let targetFile = latestMainFileAnalyzed || (lang === 'python' ? 'main.py' : (lang === 'c' ? 'main.c' : 'main.cpp'));
         let codeSnippet = codigoFonte || '';
         let cmdLine = '';
@@ -1324,7 +1324,7 @@ document.addEventListener('DOMContentLoaded', () => {
             cmdLine = `esbmc ${targetFile} ${flagStr}`.trim();
         }
 
-        // Título e Propriedade Violada
+        // Title and violated property
         let primaryViolation = null;
         if (violationDetails && violationDetails.length > 0) {
             primaryViolation = violationDetails[0];
@@ -1361,7 +1361,7 @@ document.addEventListener('DOMContentLoaded', () => {
             });
         }
 
-        // Montagem do Markdown no formato exato das issues do esbmc/esbmc
+        // Build the Markdown in the exact format of esbmc/esbmc issues
         const md = [];
         md.push(`### What went wrong`);
         md.push(`False alarm or verification failure (VERIFICATION FAILED: Property violation / counterexample found).`);
@@ -1463,7 +1463,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // =========================================================================
-    // 📄 GERADOR DE RELATÓRIO PDF FORMAL (PADRÃO GITHUB ESBMC / WRONG RESULT)
+    // 📄 FORMAL PDF REPORT GENERATOR (ESBMC GITHUB FORMAT / WRONG RESULT)
     // =========================================================================
     function generateBugReportPdf() {
         if (!latestBugReportData || !latestBugReportMarkdown) {
@@ -1476,7 +1476,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const dataFormatada = now.toLocaleDateString('en-GB') + ' ' + now.toLocaleTimeString('en-GB');
 
 
-        // Extrai números de linha com violação
+        // Extract the line numbers with violations
         const violationLines = (data.violationDetails || []).map(v => parseInt(v.line, 10)).filter(n => !isNaN(n));
         const codeLines = (data.codeSnippet || '').split('\n');
         let codeHtml = '<table class="code-table" style="width:100%; border-collapse:collapse; font-family:\'Fira Code\', Consolas, monospace; font-size:10.5px;">';
@@ -1651,7 +1651,7 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
 
-        // Sempre copia o markdown 100% completo para a área de transferência do usuário
+        // Always copy the complete Markdown to the user's clipboard
         navigator.clipboard.writeText(latestBugReportMarkdown).catch(() => {});
 
         const title = latestBugReportTitle || '[ESBMC Reproducer] Verification Failure';
@@ -1975,7 +1975,7 @@ document.addEventListener('DOMContentLoaded', () => {
             cardPassos.textContent = resultsArray[0]?.steps?.length || 0;
         }
 
-        // Se for exploração de suíte de testes profissional com oráculos esperados:
+        // Test-suite exploration with expected oracles:
         if (repoExplorationSummary && Array.isArray(repoExplorationSummary) && repoExplorationSummary.length > 0) {
             const hasOracles = repoExplorationSummary.some(it => it.expected_verdict && it.expected_verdict !== '-');
             const regressions = repoExplorationSummary.filter(it => it.test_status_code === 'REGRESSION_FAILED');
@@ -2016,7 +2016,7 @@ document.addEventListener('DOMContentLoaded', () => {
             codigoContainer.appendChild(lineElement);
         });
 
-        // --- Ativação do Relatório de Reprodução de Bug (GitHub ESBMC) ---
+        // --- Enable the Bug Reproduction Report (ESBMC GitHub) ---
         const failingRepoModules = (repoExplorationSummary || []).filter(item => {
             const s = String(item.status || '');
             return s.startsWith('VIOLATION') || s.startsWith('RAW ERROR') || (item.test_status_code === 'REGRESSION_FAILED');
@@ -2039,7 +2039,7 @@ document.addEventListener('DOMContentLoaded', () => {
             if (bugReportActionBar) bugReportActionBar.style.display = 'none';
         }
 
-        // --- Registro Automático no Histórico de Qualidade (Padrão Codacy) ---
+        // --- Automatic Entry in the Quality History (Codacy Style) ---
         if (!skipHistoryRecord) {
             let runVerdict = 'SAFE';
             if (repoExplorationSummary && Array.isArray(repoExplorationSummary) && repoExplorationSummary.length > 0) {
@@ -2119,7 +2119,7 @@ document.addEventListener('DOMContentLoaded', () => {
     modalCloseBtn.addEventListener('click', () => { helpModal.style.display = 'none'; });
     window.addEventListener('click', (event) => { if (event.target == helpModal) helpModal.style.display = 'none'; });
 
-    // --- Modal do Código Homogeneizado & Fatiado (Input ESBMC/Z3) ---
+    // --- Homogenized & Sliced Code Modal (ESBMC/Z3 Input) ---
     function abrirModalHomogeneizado(item) {
         const modal = document.getElementById('homogenizedModal');
         const modalCode = document.getElementById('homogenizedModalCode');
@@ -2175,7 +2175,7 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     // =========================================================================
-    // 📊 MÓDULO DE MÉTRICAS, HISTÓRICO E GRÁFICOS NO PADRÃO CODACY
+    // 📊 METRICS, HISTORY AND CHARTS MODULE (CODACY STYLE)
     // =========================================================================
 
     function getVerificationHistory() {
@@ -2185,7 +2185,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const parsed = JSON.parse(raw);
             return Array.isArray(parsed) ? parsed : [];
         } catch (e) {
-            console.warn('Erro ao carregar histórico Codacy do localStorage:', e);
+            console.warn('Error loading Codacy history from localStorage:', e);
             return [];
         }
     }
@@ -2194,7 +2194,7 @@ document.addEventListener('DOMContentLoaded', () => {
         try {
             localStorage.setItem(STORAGE_KEY_CODACY_HISTORY, JSON.stringify(list));
         } catch (e) {
-            console.warn('Erro ao salvar histórico Codacy no localStorage:', e);
+            console.warn('Error saving Codacy history to localStorage:', e);
         }
     }
 
@@ -2855,7 +2855,7 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    // Inicializa métricas Codacy ao carregar
+    // Initialize Codacy metrics on load
     renderCodacyMetricsView();
 
 });
