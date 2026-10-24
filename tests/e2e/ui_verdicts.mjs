@@ -187,13 +187,21 @@ const profile = mkdtempSync(join(tmpdir(), 'esbmc-web-e2e-'));
 const chrome = spawn(CHROME, [
   '--headless=new', '--remote-debugging-port=0', `--user-data-dir=${profile}`,
   '--no-first-run', '--allow-file-access-from-files', 'about:blank',
-], { stdio: 'ignore' });
+], { stdio: ['ignore', 'ignore', 'pipe'] });
+let chromeStderr = '';
+chrome.stderr.on('data', (d) => { chromeStderr = (chromeStderr + d).slice(-4000); });
 
 let failures = 0;
 try {
   const portFile = join(profile, 'DevToolsActivePort');
-  for (let i = 0; i < 50 && !existsSync(portFile); i++) await sleep(200);
-  const port = readFileSync(portFile, 'utf8').split('\n')[0];
+  const readPort = () => (existsSync(portFile) ? readFileSync(portFile, 'utf8').split('\n')[0] : '');
+  // Cold Chrome starts on CI runners can take well over 10s.
+  let port = readPort();
+  for (let i = 0; i < 300 && !port && chrome.exitCode === null; i++) {
+    await sleep(200);
+    port = readPort();
+  }
+  if (!port) throw new Error(`Chrome did not start (exit code ${chrome.exitCode}):\n${chromeStderr}`);
   let page;
   for (let i = 0; i < 50 && !page; i++) {
     try { page = await cdp(port); } catch { await sleep(200); }
