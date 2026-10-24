@@ -1,49 +1,49 @@
 #!/bin/bash
 
 echo "============================================="
-echo "  A iniciar o servidor backend do ESBMC-Web... "
+echo "  Starting the ESBMC-Web backend server... "
 echo "============================================="
 
-# Força o Linux a reconhecer as pastas onde instalámos o ESBMC e o Clang
+# Make sure Linux finds the folders where ESBMC and Clang were installed
 export PATH="/usr/local/bin:/usr/bin:/bin:$PATH"
 
-# Garante que o terminal está na pasta correta
+# Make sure the terminal is in the right folder
 cd "$(dirname "$0")"
 
-# Remove o ambiente virtual se ele estiver corrompido
+# Remove the virtual environment if it is corrupted
 if [ -d "venv" ] && [ ! -f "venv/bin/python3" ]; then
-    echo "Ambiente virtual corrompido. A remover para recriar..."
+    echo "Virtual environment is corrupted. Removing it to recreate..."
     rm -rf venv
 fi
 
-# Verifica pacotes do Ubuntu
+# Check Ubuntu packages
 if ! dpkg -l | grep -q "python3-venv"; then
-    echo "Aviso: O pacote python3-venv não foi detetado."
+    echo "Warning: the python3-venv package was not detected."
     sudo apt-get update
     sudo apt-get install -y python3-venv python3-pip
 fi
 
-# Cria o ambiente virtual
+# Create the virtual environment
 if [ ! -d "venv" ]; then
-    echo "A criar o ambiente virtual (venv)..."
+    echo "Creating the virtual environment (venv)..."
     python3 -m venv venv --copies
     if [ $? -ne 0 ]; then
         python3 -m venv venv
         if [ $? -ne 0 ]; then
-            echo "ERRO CRÍTICO: Não foi possível criar o venv."
+            echo "CRITICAL ERROR: could not create the venv."
             read dummy
             exit 1
         fi
     fi
 fi
 
-# Instala dependências
-echo "A verificar e a atualizar as dependências..."
+# Install dependencies
+echo "Checking and updating dependencies..."
 ./venv/bin/python3 -m pip install --upgrade pip
 ./venv/bin/python3 -m pip install -r backend/requirements.txt
 
-# Garante que a porta 5000 está livre (elimina processos zombies anteriores)
-echo "A verificar e a libertar a porta 5000..."
+# Make sure port 5000 is free (kill leftover zombie processes)
+echo "Checking and freeing port 5000..."
 if command -v fuser >/dev/null 2>&1; then
     fuser -k 5000/tcp 2>/dev/null || true
 fi
@@ -52,7 +52,7 @@ for p in $(ss -tulpn 'sport = :5000' 2>/dev/null | grep -o 'pid=[0-9]*' | cut -d
 done
 sleep 1
 
-# Inicia o servidor Flask
-echo "A iniciar o servidor Flask..."
+# Start the Flask server
+echo "Starting the Flask server..."
 cd backend
 ../venv/bin/python3 app.py

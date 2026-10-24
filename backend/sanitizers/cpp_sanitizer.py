@@ -51,11 +51,11 @@ CPP_KEYWORDS = {
 
 
 def descubrir_headers_e_includes_no_diretorio(root_dir: str):
-    """Percorre recursivamente `root_dir` (ex: repositório Git clonado) e retorna:
-    - `include_dirs`: lista ordenada de diretórios e raízes de include (ex: `src/`, `include/`)
-      filtrando diretórios que sombreiam headers padrão da libc/STL (como `openssllib/include` ou `verification/stubs`)
-    - `headers_existentes`: conjunto de nomes e caminhos relativos de headers reais
-    - `fontes_auxiliares`: lista de arquivos .cpp/.c auxiliares (sem `main` e sem testes)
+    """Walk `root_dir` (e.g. a cloned Git repository) recursively and return:
+    - `include_dirs`: ordered list of include directories and roots (e.g. `src/`, `include/`),
+      skipping directories that shadow standard libc/STL headers (such as `openssllib/include` or `verification/stubs`)
+    - `headers_existentes`: set of names and relative paths of real headers
+    - `fontes_auxiliares`: list of auxiliary .cpp/.c files (no `main`, no tests)
     """
     include_dirs_raizes = set()
     include_dirs_folhas = set()
@@ -97,7 +97,7 @@ def descubrir_headers_e_includes_no_diretorio(root_dir: str):
         if any(seg in rel_dir for seg in SEGMENTOS_IGNORADOS):
             continue
 
-        # Verifica se este diretório sombreia headers padrão do sistema (ex: stdio.h, string.h, algorithm, type_traits)
+        # Check whether this directory shadows standard system headers (e.g. stdio.h, string.h, algorithm, type_traits)
         nomes_lower = {fn.lower() for fn in filenames}
         sombreia_sistema = bool(nomes_lower & HEADERS_SISTEMA_SOMBREADOS) or any(seg in rel_dir for seg in SEGMENTOS_IGNORADOS)
 
@@ -109,8 +109,8 @@ def descubrir_headers_e_includes_no_diretorio(root_dir: str):
                 headers_existentes.add(rel_p)
                 if not sombreia_sistema:
                     include_dirs_folhas.add(dirpath)
-                    # Adiciona também os diretórios ancestrais até `root_abs` (ex: `src/`, `.../libspdm/include`)
-                    # para resolver includes com prefixo relativo como `#include "nv/pldm/task.h"` ou `#include "hal/base.h"`
+                    # Also add the ancestor directories up to `root_abs` (e.g. `src/`, `.../libspdm/include`)
+                    # to resolve includes with a relative prefix such as `#include "nv/pldm/task.h"` or `#include "hal/base.h"`
                     anc = os.path.dirname(dirpath)
                     while anc and len(anc) >= len(root_abs) and anc != root_abs:
                         anc_rel = os.path.relpath(anc, root_abs).replace('\\', '/').lower()
@@ -132,7 +132,7 @@ def descubrir_headers_e_includes_no_diretorio(root_dir: str):
                 except Exception:
                     pass
 
-    # Ordena priorizando os diretórios ancestrais/raízes (`src`, `include`, `library`) seguidos das folhas
+    # Sort ancestor/root directories (`src`, `include`, `library`) first, then the leaves
     raizes_ordenadas = sorted(include_dirs_raizes, key=lambda p: (p.count(os.sep), p))
     folhas_ordenadas = sorted(include_dirs_folhas - include_dirs_raizes, key=lambda p: (p.count(os.sep), p))
     todos_includes = (raizes_ordenadas + folhas_ordenadas)[:85]
@@ -160,13 +160,13 @@ def _tem_funcao_main(codigo: str) -> bool:
 
 
 def _extrair_funcoes_livres_cpp(codigo: str):
-    """Extrai funções livres definidas no arquivo C++ (para geração de harness `main()`)."""
-    # 1. Remove qualquer cabeçalho de compatibilidade ou stubs injetados previamente
+    """Extract the free functions defined in a C++ file (for generating a `main()` harness)."""
+    # 1. Remove any previously injected compatibility header or stubs
     codigo_limpo = re.sub(r'// === BOOST & COMPILER VISIBILITY.*?#endif\s*\n', '', codigo, flags=re.DOTALL)
     codigo_limpo = re.sub(r'// === AUTO-HEALED DECLARATIONS.*?// ===', '// ===', codigo_limpo, flags=re.DOTALL)
     codigo_limpo = re.sub(r'//.*?$|/\*.*?\*/', '', codigo_limpo, flags=re.DOTALL | re.MULTILINE)
 
-    # 2. Remove blocos inteiros de namespace std e namespace boost
+    # 2. Remove whole namespace std and namespace boost blocks
     codigo_limpo = re.sub(r'\bnamespace\s+(?:std|boost)\s*\{.*?\}\s*(?:/\*.*?\*/)?', '', codigo_limpo, flags=re.DOTALL)
 
     codigo_sem_classes = re.sub(
@@ -202,12 +202,12 @@ def _extrair_funcoes_livres_cpp(codigo: str):
 
 
 def _extrair_templates_e_classes_ausentes(codigo: str, codigo_headers_locais: str) -> str:
-    """Detecta classes de template (`Dyad<int> obj(...)`) e classes comuns ausentes,
-    gerando stubs C++ completos com os métodos invocados nas variáveis correspondentes."""
+    """Detect missing template classes (`Dyad<int> obj(...)`) and ordinary classes,
+    generating full C++ stubs with the methods invoked on the corresponding variables."""
     combinado_definido = codigo + "\n" + codigo_headers_locais
     definidos = set(re.findall(r'\b(?:class|struct|typedef|using)\s+([A-Za-z_][A-Za-z0-9_]*)', combinado_definido))
 
-    # 1. Encontra todas as chamadas de métodos `obj.metodo(...)` no código
+    # 1. Find every method call `obj.method(...)` in the code
     metodos_por_var = {}
     for m_call in re.finditer(r'\b([A-Za-z_][A-Za-z0-9_]*)\.([A-Za-z_][A-Za-z0-9_]*)\s*\(', codigo):
         var_name, meth_name = m_call.group(1), m_call.group(2)
@@ -215,7 +215,7 @@ def _extrair_templates_e_classes_ausentes(codigo: str, codigo_headers_locais: st
 
     stubs = []
 
-    # 2. Detecta uso de Classes Template: ex. `Dyad<int> dyadInt(1, 2);`
+    # 2. Detect uses of template classes, e.g. `Dyad<int> dyadInt(1, 2);`
     templates_usados = {}
     for m_tpl in re.finditer(r'\b([A-Z][A-Za-z0-9_]*)\s*<([^>;{}]+)>\s+([A-Za-z_][A-Za-z0-9_]*)', codigo):
         tpl_name, _, var_name = m_tpl.group(1), m_tpl.group(2), m_tpl.group(3)
@@ -242,7 +242,7 @@ def _extrair_templates_e_classes_ausentes(codigo: str, codigo_headers_locais: st
         linhas_tpl.append("};\n")
         stubs.append("\n".join(linhas_tpl))
 
-    # 3. Detecta uso de Classes Não-Template: ex. `MyClass obj(1, 2);` ou `MyClass obj;`
+    # 3. Detect uses of non-template classes, e.g. `MyClass obj(1, 2);` or `MyClass obj;`
     classes_usadas = {}
     for m_cls in re.finditer(r'^[ \t]*([A-Z][A-Za-z0-9_]*)\s+([a-z_][A-Za-z0-9_]*)\s*(?:\(|;|=\{|\{)', codigo, re.MULTILINE):
         cls_name, var_name = m_cls.group(1), m_cls.group(2)
@@ -268,8 +268,8 @@ def _extrair_templates_e_classes_ausentes(codigo: str, codigo_headers_locais: st
 
 
 def _remover_clausulas_requires_cpp20(codigo: str) -> str:
-    """Remove cláusulas `requires(...)` do C++20 (com parênteses balanceados aninhados)
-    preservando a contagem de linhas para compatibilidade com o front-end Clang C++14 do ESBMC."""
+    """Remove C++20 `requires(...)` clauses (with nested balanced parentheses),
+    preserving the line count for ESBMC's C++14 Clang front end."""
     resultado = []
     i = 0
     n = len(codigo)
@@ -280,7 +280,7 @@ def _remover_clausulas_requires_cpp20(codigo: str) -> str:
             resultado.append(codigo[i:])
             break
         resultado.append(codigo[i:m.start()])
-        # Avança até o '(' inicial e balanceia os parênteses
+        # Advance to the opening '(' and balance the parentheses
         pos_abre = m.end() - 1
         profundidade = 0
         j = pos_abre
@@ -302,11 +302,11 @@ def _remover_clausulas_requires_cpp20(codigo: str) -> str:
 
 
 def _sanitizar_constructos_rtti_e_headers_padrao(codigo: str, eh_header: bool = False) -> str:
-    """Transpila constructos C++17/C++20 (`requires(...)`, `if constexpr`, `consteval`, `std::is_*_v`)
-    para C++14 compatível com ESBMC. Não substitui valores, não remove expressões nem includes e não
-    contorna verificações de limites do usuário: isso altera o veredito (#17)."""
+    """Transpile C++17/C++20 constructs (`requires(...)`, `if constexpr`, `consteval`, `std::is_*_v`)
+    to ESBMC-compatible C++14. It does not substitute values, remove expressions or includes, or
+    bypass the user's bounds checks: that would change the verdict (#17)."""
     codigo_limpo = codigo
-    # Transpilação Sintática C++20 / C++17 -> C++14:
+    # Syntactic transpilation C++20 / C++17 -> C++14:
     if 'requires' in codigo_limpo:
         codigo_limpo = _remover_clausulas_requires_cpp20(codigo_limpo)
     if 'constexpr' in codigo_limpo:
@@ -324,7 +324,7 @@ def _sanitizar_constructos_rtti_e_headers_padrao(codigo: str, eh_header: bool = 
     if '[[' in codigo_limpo:
         codigo_limpo = re.sub(r'\[\[\s*(?:likely|unlikely|maybe_unused|nodiscard(?:\([^\)]*\))?)\s*\]\]', '', codigo_limpo)
 
-    # Transpilação de inicialização explícita de std::unique_ptr em std::array (C++14/ESBMC)
+    # Transpile explicit std::unique_ptr initialisation in std::array (C++14/ESBMC)
     codigo_limpo = re.sub(
         r'(\bstd::array\s*<\s*std::unique_ptr\s*<[^>]+>\s*,\s*[^>]+>\s+[A-Za-z0-9_]+)\s*\{\s*\}\s*;',
         r'\1;',
@@ -332,16 +332,16 @@ def _sanitizar_constructos_rtti_e_headers_padrao(codigo: str, eh_header: bool = 
     )
     codigo_limpo = re.sub(r'\bchunk_storage\s*\{\s*\}\s*;', 'chunk_storage;', codigo_limpo)
 
-    # Transpilação de comparações em as_string() para irep_idt
+    # Transpile as_string() comparisons to irep_idt
     codigo_limpo = re.sub(r'(\bas_string\s*\(\s*\))\s*<=\s*([A-Za-z0-9_.]+)', r'\1.compare(\2) <= 0', codigo_limpo)
     codigo_limpo = re.sub(r'(\bas_string\s*\(\s*\))\s*>=\s*([A-Za-z0-9_.]+)', r'\1.compare(\2) >= 0', codigo_limpo)
     codigo_limpo = re.sub(r'(\bas_string\s*\(\s*\))\s*<\s*([A-Za-z0-9_.]+)', r'\1.compare(\2) < 0', codigo_limpo)
     codigo_limpo = re.sub(r'(\bas_string\s*\(\s*\))\s*>\s*([A-Za-z0-9_.]+)', r'\1.compare(\2) > 0', codigo_limpo)
 
-    # Substituição de std::addressof(...) -> (&(...))
+    # Replace std::addressof(...) -> (&(...))
     codigo_limpo = re.sub(r'\bstd::addressof\s*\(([^()]+)\)', r'(&(\1))', codigo_limpo)
 
-    # Transpilação de emplace_back para compatibilidade com std::vector da libc ESBMC
+    # Transpile emplace_back for compatibility with the ESBMC libc std::vector
     codigo_limpo = re.sub(
         r'(\bcomponents\s*\(\s*\))\.emplace_back\s*\(\s*([^()]+)\s*\)',
         r'\1.push_back(struct_union_typet::componentt(\2))',
@@ -355,7 +355,7 @@ def _sanitizar_constructos_rtti_e_headers_padrao(codigo: str, eh_header: bool = 
 
     codigo_limpo = re.sub(r'\bstd::time_t\b', 'time_t', codigo_limpo)
     codigo_limpo = re.sub(r'(\b[A-Za-z0-9_]+)\.data\s*\(\s*\)', r'(&\1[0])', codigo_limpo)
-    # Transpilação de begin(c) e end(c) em containers
+    # Transpile begin(c) and end(c) on containers
     codigo_limpo = re.sub(r'\bbegin\s*\(\s*([A-Za-z0-9_]+)\s*\)', r'(const_cast<decltype(\1)&>(\1)).begin()', codigo_limpo)
     codigo_limpo = re.sub(r'\bend\s*\(\s*([A-Za-z0-9_]+)\s*\)', r'(const_cast<decltype(\1)&>(\1)).end()', codigo_limpo)
 
@@ -374,8 +374,8 @@ def _sanitizar_constructos_rtti_e_headers_padrao(codigo: str, eh_header: bool = 
 
 
 def _sanitizar_headers_cpp20_recursivo(temp_dir: str):
-    """Percorre recursivamente os headers (.h, .hpp, .hxx, .hh) do repositório clonado uma única vez
-    e transpila constructos C++20 (`requires(...)`, `if constexpr`, `consteval`, `std::is_*_v`) para C++14."""
+    """Walk the cloned repository's headers (.h, .hpp, .hxx, .hh) once and transpile
+    C++20 constructs (`requires(...)`, `if constexpr`, `consteval`, `std::is_*_v`) to C++14."""
     marker_path = os.path.join(temp_dir, '.esbmc_cpp20_headers_transpiled')
     if os.path.exists(marker_path):
         return
@@ -403,7 +403,7 @@ def _sanitizar_headers_cpp20_recursivo(temp_dir: str):
 
 
 def _diagnosticar_erros_clang_cpp(caminho_arquivo: str, include_dirs: list):
-    """Executa `clang -fsyntax-only -x c++` com todos os diretórios `-I` do projeto."""
+    """Run `clang -fsyntax-only -x c++` with all of the project's `-I` directories."""
     tipos_faltantes = set()
     funcoes_faltantes = set()
     constantes_faltantes = set()
@@ -442,16 +442,16 @@ def _diagnosticar_erros_clang_cpp(caminho_arquivo: str, include_dirs: list):
 
 _ABERTURA_HARNESS_CPP = [
     "// ==========================================================================",
-    "// HARNESS SIMBÓLICO GERADO PELO ESBMC C++ HOMOGENIZER (MÓDULO SEM MAIN)",
+    "// SYMBOLIC HARNESS GENERATED BY THE ESBMC C++ HOMOGENIZER (MODULE WITHOUT MAIN)",
     "// ==========================================================================",
     "int __esbmc_main() {",
 ]
 
 
 def _injetar_mocks_boost_e_headers_compatibilidade(temp_dir: str) -> str:
-    """Cria um diretório de headers de compatibilidade Boost e STL (mock_boost)
-    dentro de `temp_dir` para contornar limitações da libc embutida do ESBMC (esbmclibc)
-    quando repositórios C++ utilizam Boost (ex: boost/program_options.hpp, boost/config.hpp)."""
+    """Create a directory of Boost and STL compatibility headers (mock_boost) inside
+    `temp_dir`, working around limitations of ESBMC's built-in libc (esbmclibc)
+    when C++ repositories use Boost (e.g. boost/program_options.hpp, boost/config.hpp)."""
     mock_dir = os.path.join(temp_dir, 'mock_boost')
     boost_dir = os.path.join(mock_dir, 'boost')
     os.makedirs(boost_dir, exist_ok=True)
@@ -726,7 +726,7 @@ def _injetar_mocks_boost_e_headers_compatibilidade(temp_dir: str) -> str:
             with open(p_sub_f, 'w', encoding='utf-8') as f:
                 f.write("#pragma once\n#include <boost/filesystem.hpp>\n")
 
-    # 3. Headers leves de formatação e logging (fmtlib) para compatibilidade esbmclibc
+    # 3. Lightweight formatting and logging headers (fmtlib) for esbmclibc compatibility
     fmt_dir = os.path.join(mock_dir, 'fmt')
     os.makedirs(fmt_dir, exist_ok=True)
     fmt_mock_content = (
@@ -873,8 +873,8 @@ def _injetar_mocks_boost_e_headers_compatibilidade(temp_dir: str) -> str:
             with open(pf, 'w', encoding='utf-8') as f:
                 f.write("#pragma once\n#include <fmt/format.h>\n")
 
-    # 4. Headers STL ausentes na libc embutida do ESBMC (esbmclibc):
-    # Concorrência/Threading: atomic, mutex, shared_mutex, condition_variable, thread, system_error
+    # 4. STL headers missing from ESBMC's built-in libc (esbmclibc):
+    # Concurrency/threading: atomic, mutex, shared_mutex, condition_variable, thread, system_error
     atomic_p = os.path.join(mock_dir, 'atomic')
     if not os.path.exists(atomic_p):
         with open(atomic_p, 'w', encoding='utf-8') as f:
@@ -1216,7 +1216,7 @@ def _injetar_mocks_boost_e_headers_compatibilidade(temp_dir: str) -> str:
                 "}\n"
             )
 
-    # Contêineres STL com nós baseados em ponteiro (evita 'incomplete type' em classes AST recursivas)
+    # Pointer-based node STL containers (avoid 'incomplete type' in recursive AST classes)
     map_p = os.path.join(mock_dir, 'map')
     if not os.path.exists(map_p):
         with open(map_p, 'w', encoding='utf-8') as f:
@@ -1458,7 +1458,7 @@ def _injetar_mocks_boost_e_headers_compatibilidade(temp_dir: str) -> str:
                 "}\n"
             )
 
-    # string_view leve compatível com inicialização por 1 argumento const char*
+    # Lightweight string_view supporting single-argument const char* initialisation
     sv_p = os.path.join(mock_dir, 'string_view')
     if not os.path.exists(sv_p):
         with open(sv_p, 'w', encoding='utf-8') as f:
@@ -1573,7 +1573,7 @@ def _injetar_mocks_boost_e_headers_compatibilidade(temp_dir: str) -> str:
                 "}\n"
             )
 
-    # functional genérico (std::function<R(Args...)>, std::hash, std::reference_wrapper)
+    # Generic functional (std::function<R(Args...)>, std::hash, std::reference_wrapper)
     func_p = os.path.join(mock_dir, 'functional')
     if not os.path.exists(func_p):
         with open(func_p, 'w', encoding='utf-8') as f:
@@ -2174,7 +2174,7 @@ def _injetar_mocks_boost_e_headers_compatibilidade(temp_dir: str) -> str:
                 "#endif\n"
             )
 
-    # String com correções para limitações da libc interna do ESBMC
+    # String with fixes for limitations of ESBMC's internal libc
     str_p = os.path.join(mock_dir, 'string')
     if not os.path.exists(str_p):
         import glob
@@ -2346,7 +2346,7 @@ def _injetar_mocks_boost_e_headers_compatibilidade(temp_dir: str) -> str:
             except Exception:
                 pass
 
-    # Mock de <regex> para compatibilidade com esbmclibc
+    # <regex> mock for esbmclibc compatibility
     regex_mock_p = os.path.join(mock_dir, 'regex')
     if not os.path.exists(regex_mock_p):
         with open(regex_mock_p, 'w', encoding='utf-8') as f_reg:
@@ -2382,7 +2382,7 @@ def _injetar_mocks_boost_e_headers_compatibilidade(temp_dir: str) -> str:
                 "}\n"
             )
 
-    # Mock de <algorithm> com std::all_of, std::any_of, std::none_of para compatibilidade com esbmclibc
+    # <algorithm> mock with std::all_of, std::any_of, std::none_of for esbmclibc compatibility
     algo_p = os.path.join(mock_dir, 'algorithm')
     if not os.path.exists(algo_p):
         with open(algo_p, 'w', encoding='utf-8') as f_alg:
@@ -2413,7 +2413,7 @@ def _injetar_mocks_boost_e_headers_compatibilidade(temp_dir: str) -> str:
                 "#endif\n"
             )
 
-    # Mock de <definitions.h> para compatibilidade com esbmclibc e evitar símbolos indefinidos
+    # <definitions.h> mock for esbmclibc compatibility, avoiding undefined symbols
     def_mock_p = os.path.join(mock_dir, 'definitions.h')
     if not os.path.exists(def_mock_p):
         with open(def_mock_p, 'w', encoding='utf-8') as f_def:
@@ -2453,7 +2453,7 @@ def _injetar_mocks_boost_e_headers_compatibilidade(temp_dir: str) -> str:
                 "#endif\n"
             )
 
-    # esbmc_force_compat.h para ser pré-incluído com --include-file
+    # esbmc_force_compat.h, to be pre-included with --include-file
     force_compat_p = os.path.join(mock_dir, 'esbmc_force_compat.h')
     if not os.path.exists(force_compat_p):
         with open(force_compat_p, 'w', encoding='utf-8') as f:
@@ -2681,7 +2681,7 @@ def _injetar_mocks_boost_e_headers_compatibilidade(temp_dir: str) -> str:
                 + suffix_content
             )
 
-    # Mocks para dependências do ESBMC e bibliotecas modernas C++
+    # Mocks for ESBMC dependencies and modern C++ libraries
     ac_cfg_p = os.path.join(mock_dir, 'ac_config.h')
     if not os.path.exists(ac_cfg_p):
         with open(ac_cfg_p, 'w', encoding='utf-8') as f:
@@ -3136,23 +3136,23 @@ def _remover_shims_std_nativos(mock_dir: str) -> None:
 
 
 def sanitizar_cpp(caminho_arquivo: str, temp_dir: str, tem_flag_function: bool = False, sub_dir_repo: str = None):
-    """Homogeneizador e Sanitizador Inteligente para C++ (C++14).
+    """Homogenizer and sanitizer for C++ (C++14).
 
-    1. Injeta mocks leves de compatibilidade STL/Boost (mock_boost) para esbmclibc;
-    2. Descobre recursivamente todos os headers reais (`.h`/`.hpp`) do repositório Git clonado;
-    3. NUNCA sobrescreve headers que já existem no repositório (como `dyad.h` ou `my_lib.h`);
-    4. Para headers realmente ausentes (ex: gerados por CMake como `config.hpp` ou bibliotecas externas),
-       sintetiza templates (`Dyad<T>`), classes, constantes e funções chamadas;
-    5. Se o arquivo for uma biblioteca sem `main()` (ex: `my_lib.cpp`), gera um `int main()` simbólico.
+    1. Injects lightweight STL/Boost compatibility mocks (mock_boost) for esbmclibc;
+    2. Recursively discovers every real header (`.h`/`.hpp`) in the cloned Git repository;
+    3. NEVER overwrites headers that already exist in the repository (such as `dyad.h` or `my_lib.h`);
+    4. For headers that are genuinely missing (e.g. CMake-generated `config.hpp` or external libraries),
+       synthesises templates (`Dyad<T>`), classes, constants and called functions;
+    5. If the file is a library without `main()` (e.g. `my_lib.cpp`), generates a symbolic `int main()`.
 
-    Returns (generated files, functions the entry harness could not call).
+    Returns (generated files, entry harness summary from montar_harness or None).
     """
     mock_boost_dir = _injetar_mocks_boost_e_headers_compatibilidade(temp_dir)
 
     with open(caminho_arquivo, 'r', encoding='utf-8', errors='replace') as f:
         codigo_original = f.read()
 
-    # Rebaixa constructos C++20 no arquivo principal
+    # Lower C++20 constructs in the main file
     codigo_sanitizado = _sanitizar_constructos_rtti_e_headers_padrao(codigo_original)
     if codigo_sanitizado != codigo_original:
         codigo_original = codigo_sanitizado
@@ -3175,7 +3175,7 @@ def sanitizar_cpp(caminho_arquivo: str, temp_dir: str, tem_flag_function: bool =
     if mock_boost_dir and os.path.isdir(mock_boost_dir) and mock_boost_dir not in include_dirs:
         include_dirs.insert(0, mock_boost_dir)
 
-    # Lê e também rebaixa constructos C++20 nos headers reais do repositório (ex: dyad.h ou string_pool.h)
+    # Read and also lower C++20 constructs in the repository's real headers (e.g. dyad.h or string_pool.h)
     codigo_headers_locais = ""
     arquivos_headers_processados = set()
     for inc_dir in include_dirs:
@@ -3208,7 +3208,7 @@ def sanitizar_cpp(caminho_arquivo: str, temp_dir: str, tem_flag_function: bool =
 
     dir_arquivo = sub_dir_repo or os.path.dirname(caminho_arquivo)
     arquivos_gerados = []
-    nao_exercitadas = []
+    harness = None
 
     stubs_classes_e_templates = _extrair_templates_e_classes_ausentes(codigo_original, codigo_headers_locais)
 
@@ -3216,7 +3216,7 @@ def sanitizar_cpp(caminho_arquivo: str, temp_dir: str, tem_flag_function: bool =
         if inc in STDLIB_CPP:
             continue
 
-        # Se o header JÁ EXISTE em qualquer pasta do repositório Git ou nas dependências, NÃO cria mock!
+        # If the header ALREADY EXISTS in any folder of the Git repository or the dependencies, do NOT mock it!
         if _header_existe_no_projeto(inc, temp_dir, dir_arquivo, headers_existentes):
             continue
 
@@ -3226,22 +3226,22 @@ def sanitizar_cpp(caminho_arquivo: str, temp_dir: str, tem_flag_function: bool =
         os.makedirs(os.path.dirname(caminho_mock), exist_ok=True)
 
         with open(caminho_mock, 'w', encoding='utf-8') as f:
-            f.write(f"// MOCK AUTOMÁTICO GERADO PELO ESBMC C++ HOMOGENIZER PARA: {inc}\n")
+            f.write(f"// AUTOMATIC MOCK GENERATED BY THE ESBMC C++ HOMOGENIZER FOR: {inc}\n")
             f.write("#pragma once\n")
             f.write("#include <cstdint>\n#include <cstddef>\n\n")
             if stubs_classes_e_templates:
                 f.write(stubs_classes_e_templates + "\n")
-                stubs_classes_e_templates = ""  # Injeta apenas no primeiro mock header
+                stubs_classes_e_templates = ""  # Inject only into the first mock header
 
         arquivos_gerados.append(caminho_mock)
 
-    # Se não havia header ausente, mas faltavam templates/classes no próprio arquivo
+    # No header was missing, but templates/classes were missing from the file itself
     if stubs_classes_e_templates:
         with open(caminho_arquivo, 'w', encoding='utf-8') as f:
             f.write("// === AUTO-SYNTHESIZED TEMPLATE/CLASS STUBS ===\n" + stubs_classes_e_templates + "\n" + codigo_original)
         codigo_original = open(caminho_arquivo, 'r', encoding='utf-8').read()
 
-    # Auto-Healer via Clang Diagnostics (apenas para funções realmente chamadas com `ident(...)`, tipos e headers sugeridos)
+    # Auto-healer via Clang diagnostics (only for functions actually called as `ident(...)`, types, and suggested headers)
     tipos, funcoes_cand, constantes, headers_sugeridos = _diagnosticar_erros_clang_cpp(caminho_arquivo, include_dirs)
     novos = []
 
@@ -3264,7 +3264,7 @@ def sanitizar_cpp(caminho_arquivo: str, temp_dir: str, tem_flag_function: bool =
 
     for fn in sorted(funcoes_cand):
         if fn not in CPP_KEYWORDS:
-            # Só injeta função se `fn(...)` for chamada como função livre (e NÃO for uma variável local `Tipo fn(...)`)
+            # Only inject a function if `fn(...)` is called as a free function (and is NOT a local variable `Type fn(...)`)
             eh_declaracao_var = bool(re.search(rf'\b[A-Za-z_][A-Za-z0-9_<>:,\s\*&]*\s+{re.escape(fn)}\s*\(', codigo_original))
             eh_chamada_func = bool(re.search(rf'(?<![A-Za-z0-9_\.>])\b{re.escape(fn)}\s*\(', codigo_original))
             if eh_chamada_func and not eh_declaracao_var:
@@ -3281,8 +3281,8 @@ def sanitizar_cpp(caminho_arquivo: str, temp_dir: str, tem_flag_function: bool =
     if not tem_flag_function and not _tem_funcao_main(codigo_atual):
         funcoes_livres = _extrair_funcoes_livres_cpp(codigo_original)
         comando = ['clang', '-fsyntax-only', '-x', 'c++'] + [a for d in include_dirs for a in ('-I', d)]
-        nao_exercitadas = montar_harness(caminho_arquivo, codigo_atual, funcoes_livres, _ABERTURA_HARNESS_CPP, comando)
+        harness = montar_harness(caminho_arquivo, codigo_atual, funcoes_livres, _ABERTURA_HARNESS_CPP, comando)
         if not arquivos_gerados:
             arquivos_gerados.append("symbolic_main_harness")
 
-    return arquivos_gerados, nao_exercitadas
+    return arquivos_gerados, harness

@@ -1,22 +1,22 @@
 @echo off
-title Inicializador ESBMC-Web
+title ESBMC-Web Launcher
 echo ==========================================
-echo A iniciar o ESBMC-Web...
+echo Starting ESBMC-Web...
 echo ==========================================
 
-:: Garante que o Windows reconhece a pasta atual
+:: Make sure Windows uses the current folder
 cd /d "%~dp0"
 
-:: Limpa quebras de linha do Windows (CRLF para LF) que causam bugs no Linux
+:: Strip Windows line endings (CRLF to LF), which break the scripts on Linux
 wsl -e bash -c "sed -i 's/\r$//' runner.sh"
 wsl -e bash -c "sed -i 's/\r$//' backend/requirements.txt"
 
-:: Executa o script do Linux e mantém a janela aberta
+:: Run the Linux script and keep the window open
 start "Backend ESBMC-Web" cmd /k "wsl -e bash runner.sh"
 
-echo A aguardar que o servidor backend inicie...
+echo Waiting for the backend server to start...
 timeout /t 5 /nobreak > nul
 
-:: Abre a interface grafica no navegador padrao
+:: Open the web interface in the default browser
 start "" "frontend\index.html"
 exit
