@@ -273,6 +273,7 @@ from sanitizers.cpp_sanitizer import sanitizar_cpp, descubrir_headers_e_includes
 from sanitizers.c_sanitizer import sanitizar_c, descubrir_headers_e_includes_c
 from sanitizers.caminhos import contido_em, remover_links_externos
 from sanitizers.repo_explorer import (
+    FusaoPythonIncompleta,
     construir_indice_python_repositorio,
     fundir_dependencias_internas_python,
     resolver_fontes_dependentes_cpp,
@@ -628,15 +629,17 @@ def iniciar_analise():
                             f"[SYSTEM] [Strict Pure ESBMC Baseline] Target file '{main_file_path_in_repo}' will be verified 100% unmodified!\n"
                         )
                     elif linguagem == 'python':
-                        codigo_fundido, deps_internas_fundidas = fundir_dependencias_internas_python(
-                            codigo_para_dashboard, temp_dir, main_file_path_in_repo
-                        )
+                        try:
+                            codigo_para_dashboard, deps_internas_fundidas = fundir_dependencias_internas_python(
+                                codigo_para_dashboard, temp_dir, main_file_path_in_repo
+                            )
+                        except FusaoPythonIncompleta as e:
+                            TAREFAS_ATIVAS[task_id]["logs"] += f"[SYSTEM] [RepoSlice-BMC] Cross-directory slicing skipped: {e}\n"
                         if deps_internas_fundidas:
                             TAREFAS_ATIVAS[task_id]["logs"] += (
                                 f"[SYSTEM] [RepoSlice-BMC] Cross-directory AST Slicing fused {len(deps_internas_fundidas)} "
                                 f"internal repository symbol(s): {', '.join(deps_internas_fundidas)}\n"
                             )
-                            codigo_para_dashboard = codigo_fundido
                 else:
                     codigo_para_dashboard = ""
             else:
@@ -1258,9 +1261,13 @@ def iniciar_analise():
                         cod_exibido = cod_modulo
                         deps_modulo = ["Raw Unmodified Source"]
                     elif lang_mod == 'python':
-                        cod_modulo, deps_modulo = fundir_dependencias_internas_python(
-                            cod_modulo, temp_dir, rel_path, indice_precalculado=indice_py_repo
-                        )
+                        try:
+                            cod_modulo, deps_modulo = fundir_dependencias_internas_python(
+                                cod_modulo, temp_dir, rel_path, indice_precalculado=indice_py_repo
+                            )
+                        except FusaoPythonIncompleta as e:
+                            deps_modulo = []
+                            TAREFAS_ATIVAS[task_id]["logs"] += f"[SYSTEM] [RepoSlice-BMC] Slicing skipped for {rel_path}: {e}\n"
                         if deps_modulo:
                             TAREFAS_ATIVAS[task_id]["logs"] += (
                                 f"[SYSTEM] [RepoSlice-BMC] Fused {len(deps_modulo)} internal symbol(s): {', '.join(deps_modulo)}\n"

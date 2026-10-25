@@ -17,9 +17,12 @@ Developed for a Master's dissertation (UFAM).
 """
 
 import ast
+import builtins
 import os
+import posixpath
 import re
-from typing import Dict, List, Set, Tuple, Optional
+import symtable
+from typing import Dict, FrozenSet, List, NamedTuple, Set, Tuple, Optional
 
 
 PASTAS_SISTEMA = {
@@ -169,14 +172,131 @@ def _eh_arquivo_teste_ou_ignorado(rel_path: str, incluir_testes: bool = False) -
 # PHASES 1 & 3 (PYTHON): SYMBOL GRAPH AND INTER-DIRECTORY AST MERGING
 # ==============================================================================
 
+MAX_DEFINICOES_FUNDIDAS = 40
+
+# Module attributes such as __name__ and __file__ would describe the target once copied, so they are left unresolved.
+_NOMES_IMPLICITOS = frozenset(dir(builtins)) - {'__name__', '__doc__', '__spec__', '__loader__', '__package__'}
+_ERROS_DE_ANALISE = (SyntaxError, ValueError, RecursionError, MemoryError)
+
+
+class FusaoPythonIncompleta(Exception):
+    """The in-repository dependencies of a module cannot all be copied into it."""
+
+
+class _Unidade(NamedTuple):
+    """A top-level statement (a single alias, for imports) and the module-level names it binds and reads."""
+    stmt: ast.stmt
+    liga: FrozenSet[str]
+    le_agora: FrozenSet[str]
+    le_depois: FrozenSet[str]
+
+
+def _nome_modulo_python(rel_path: str) -> str:
+    partes = os.path.splitext(rel_path)[0].split('/')
+    if partes[-1] == '__init__':
+        partes.pop()
+    return '.'.join(partes)
+
+
+def _importacao_isolada(stmt: ast.stmt, alias: ast.alias) -> ast.stmt:
+    if isinstance(stmt, ast.ImportFrom):
+        return ast.ImportFrom(module=stmt.module, names=[alias], level=stmt.level)
+    return ast.Import(names=[alias])
+
+
+def _variaveis_de_compreensao(stmt: ast.stmt) -> Set[str]:
+    """Comprehension variables, which symtable reports as module-level names since PEP 709."""
+    nomes: Set[str] = set()
+    if isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+        return nomes
+    pilha: List[ast.AST] = [stmt]
+    while pilha:
+        for filho in ast.iter_child_nodes(pilha.pop()):
+            if isinstance(filho, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.Lambda)):
+                continue
+            if isinstance(filho, ast.comprehension):
+                nomes.update(n.id for n in ast.walk(filho.target) if isinstance(n, ast.Name))
+            pilha.append(filho)
+    return nomes
+
+
+def _analisar_nomes(stmt: ast.stmt) -> _Unidade:
+    """Read binding and use from symtable. Class bodies run with the statement; function bodies and
+    annotations run later, so their reads only matter if the function is used."""
+    tabela = symtable.symtable(ast.unparse(stmt), '<slice>', 'exec')
+    liga: Set[str] = set()
+    le_agora: Set[str] = set()
+    le_depois: Set[str] = set()
+    for s in tabela.get_symbols():
+        if s.is_assigned() or s.is_imported():
+            liga.add(s.get_name())
+        if s.is_referenced():
+            le_agora.add(s.get_name())
+    pilha = [(t, t.get_type() == 'class') for t in tabela.get_children()]
+    while pilha:
+        t, agora = pilha.pop()
+        for s in t.get_symbols():
+            if s.is_declared_global():
+                liga.add(s.get_name())
+            if s.is_global() and (s.is_referenced() or s.is_declared_global()):
+                (le_agora if agora else le_depois).add(s.get_name())
+        pilha.extend((f, agora and f.get_type() == 'class') for f in t.get_children())
+    locais = _variaveis_de_compreensao(stmt)
+    return _Unidade(stmt, frozenset(liga - locais), frozenset(le_agora - locais), frozenset(le_depois - locais))
+
+
+def _eh_guarda_main(stmt: ast.stmt) -> bool:
+    teste = getattr(stmt, 'test', None)
+    return (isinstance(stmt, ast.If) and isinstance(teste, ast.Compare)
+            and isinstance(teste.left, ast.Name) and teste.left.id == '__name__'
+            and len(teste.ops) == 1 and isinstance(teste.ops[0], ast.Eq)
+            and isinstance(teste.comparators[0], ast.Constant) and teste.comparators[0].value == '__main__')
+
+
+def _unidades_do_modulo(tree: ast.Module, sem_guarda_main: bool = True) -> Tuple[List[_Unidade], Set[str]]:
+    """Split a module into units, leaving out its `if __name__ == '__main__'` block unless told
+    otherwise; also return its __future__ features."""
+    unidades: List[_Unidade] = []
+    futuros: Set[str] = set()
+    for stmt in tree.body:
+        if isinstance(stmt, ast.ImportFrom) and stmt.module == '__future__':
+            futuros.update(a.name for a in stmt.names)
+        elif isinstance(stmt, (ast.Import, ast.ImportFrom)):
+            for alias in stmt.names:
+                liga = frozenset() if alias.name == '*' else frozenset({alias.asname or alias.name.split('.')[0]})
+                unidades.append(_Unidade(_importacao_isolada(stmt, alias), liga, frozenset(), frozenset()))
+        elif not (sem_guarda_main and _eh_guarda_main(stmt)):
+            unidades.append(_analisar_nomes(stmt))
+    return unidades, futuros
+
+
+def _alcance_imediato(unidades: List[_Unidade]) -> List[FrozenSet[str]]:
+    """For each unit, the module-level names it can touch while it runs, following the bodies of
+    the module's own functions it calls or decorates with."""
+    le_depois_de: Dict[str, Set[str]] = {}
+    for unidade in unidades:
+        for nome in unidade.liga:
+            le_depois_de.setdefault(nome, set()).update(unidade.le_depois)
+    alcances = []
+    for unidade in unidades:
+        alcance = set(unidade.le_agora)
+        fila = list(alcance)
+        while fila:
+            for nome in le_depois_de.get(fila.pop(), ()):
+                if nome not in alcance:
+                    alcance.add(nome)
+                    fila.append(nome)
+        alcances.append(frozenset(alcance))
+    return alcances
+
+
 def construir_indice_python_repositorio(repo_dir: str) -> Dict[str, object]:
-    """Build the Python symbol graph across every folder of the repository."""
-    mapa_modulos: Dict[str, str] = {}
-    mapa_funcoes: Dict[str, Tuple[str, ast.AST]] = {}
-    mapa_classes: Dict[str, Tuple[str, ast.ClassDef]] = {}
+    """Build the Python symbol graph across every folder of the repository, keyed by dotted module name.
+    A module that cannot be read or analysed maps to None."""
+    modulos: Dict[str, Optional[Dict[str, object]]] = {}
 
     if not repo_dir or not os.path.isdir(repo_dir):
-        return {'modulos': mapa_modulos, 'funcoes': mapa_funcoes, 'classes': mapa_classes}
+        return {'modulos': modulos}
 
     for dirpath, dirnames, filenames in os.walk(repo_dir):
         dirnames[:] = [d for d in dirnames if d not in PASTAS_IGNORADAS and not d.startswith('.')]
@@ -185,32 +305,99 @@ def construir_indice_python_repositorio(repo_dir: str) -> Dict[str, object]:
                 continue
             full_path = os.path.join(dirpath, fname)
             rel_path = os.path.relpath(full_path, repo_dir).replace('\\', '/')
-            if _eh_arquivo_teste_ou_ignorado(rel_path):
+            # Package __init__ files are never verification targets, but they do re-export names.
+            if fname != '__init__.py' and _eh_arquivo_teste_ou_ignorado(rel_path):
                 continue
-
-            mod_dot = os.path.splitext(rel_path)[0].replace('/', '.')
-            mod_base = os.path.splitext(fname)[0]
-            mapa_modulos[mod_dot] = full_path
-            mapa_modulos[mod_base] = full_path
-
             try:
                 with open(full_path, 'r', encoding='utf-8', errors='replace') as f:
-                    source = f.read()
-                tree = ast.parse(source)
-                for stmt in tree.body:
-                    if isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                        if not stmt.name.startswith('__') and stmt.name != 'main':
-                            mapa_funcoes[stmt.name] = (rel_path, stmt)
-                    elif isinstance(stmt, ast.ClassDef):
-                        mapa_classes[stmt.name] = (rel_path, stmt)
-            except Exception:
-                continue
+                    unidades, futuros = _unidades_do_modulo(ast.parse(f.read()))
+                modulos[_nome_modulo_python(rel_path)] = {
+                    'rel': rel_path, 'unidades': unidades, 'alcances': _alcance_imediato(unidades), 'futuros': futuros
+                }
+            except (OSError, *_ERROS_DE_ANALISE):
+                modulos[_nome_modulo_python(rel_path)] = None
 
-    return {
-        'modulos': mapa_modulos,
-        'funcoes': mapa_funcoes,
-        'classes': mapa_classes
-    }
+    return {'modulos': modulos}
+
+
+def _modulos_e_pacotes(modulos: Dict[str, object]) -> Set[str]:
+    conhecidos = set(modulos)
+    for nome in modulos:
+        partes = nome.split('.')
+        conhecidos.update('.'.join(partes[:i]) for i in range(1, len(partes)))
+    return conhecidos
+
+
+def _origem_interna(modulos: Dict[str, object], conhecidos: Set[str], rel_importador: str,
+                    importacao: ast.stmt) -> Optional[Tuple[str, Optional[str]]]:
+    """For a single-alias import, return (repository module, name), with name None when the import
+    takes a whole module, or None when it refers to nothing in the repository.
+
+    Absolute imports are tried against every ancestor folder of the importer, as if that folder
+    were on sys.path, from the innermost outwards.
+    """
+    pacote = _nome_modulo_python(rel_importador).split('.') if rel_importador else []
+    if rel_importador and not rel_importador.endswith('__init__.py'):
+        pacote = pacote[:-1]
+    alias = importacao.names[0]
+
+    if isinstance(importacao, ast.Import):
+        for i in range(len(pacote), -1, -1):
+            if '.'.join(pacote[:i] + [alias.name]) in conhecidos:
+                return '.'.join(pacote[:i] + [alias.name]), None
+        return None
+
+    if importacao.level:
+        if importacao.level - 1 > len(pacote):
+            raise FusaoPythonIncompleta(f"relative import beyond the repository root in {rel_importador}")
+        bases = [pacote[:len(pacote) - importacao.level + 1]]
+    else:
+        bases = [pacote[:i] for i in range(len(pacote), -1, -1)]
+    for base in bases:
+        modulo = '.'.join(base + ([importacao.module] if importacao.module else []))
+        submodulo = f'{modulo}.{alias.name}'.lstrip('.')
+        if submodulo in conhecidos:
+            return submodulo, None
+        if modulo in modulos:
+            return modulo, alias.name
+    if importacao.level:
+        raise FusaoPythonIncompleta(f"relative import in {rel_importador} is outside the indexed repository")
+    return None
+
+
+def _simbolo_importado(origem: Tuple[str, Optional[str]], alias: ast.alias, rel: str) -> Tuple[str, str]:
+    modulo, nome = origem
+    if nome is None:
+        raise FusaoPythonIncompleta(f"{rel} imports '{modulo}' as a whole")
+    if nome == '*':
+        raise FusaoPythonIncompleta(f"{rel} star-imports from '{modulo}'")
+    if alias.asname and alias.asname != nome:
+        raise FusaoPythonIncompleta(f"'{nome}' is imported from '{modulo}' under another name in {rel}")
+    return modulo, nome
+
+
+def _rejeitar_importacoes_internas_aninhadas(modulos: Dict[str, object], conhecidos: Set[str], rel: str, stmt: ast.stmt):
+    for no in ast.walk(stmt):
+        if no is not stmt and isinstance(no, (ast.Import, ast.ImportFrom)) and getattr(no, 'module', '') != '__future__':
+            for alias in no.names:
+                if _origem_interna(modulos, conhecidos, rel, _importacao_isolada(no, alias)):
+                    raise FusaoPythonIncompleta(f"{rel}:{no.lineno} imports from the repository inside a block")
+
+
+def _assinatura_importacao(importacao: ast.stmt) -> str:
+    alias = importacao.names[0]
+    if isinstance(importacao, ast.Import) and not alias.asname:
+        return 'import ' + alias.name.split('.')[0]
+    return ast.dump(importacao)
+
+
+def _descrever_unidade(unidade: _Unidade, rel: str) -> str:
+    stmt = unidade.stmt
+    if isinstance(stmt, ast.ClassDef):
+        return f"class {stmt.name} [{rel}]"
+    if isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef)):
+        return f"{stmt.name}() [{rel}]"
+    return f"{', '.join(sorted(unidade.liga)) or 'statement'} [{rel}:{stmt.lineno}]"
 
 
 def fundir_dependencias_internas_python(
@@ -219,72 +406,170 @@ def fundir_dependencias_internas_python(
     caminho_rel_alvo: str = "",
     indice_precalculado: Optional[Dict[str, object]] = None
 ) -> Tuple[str, List[str]]:
-    """Parse the target Python file's AST, find calls to functions and classes defined
-    in OTHER directories of the same Git repository, and inline them into the AST
-    (inter-module slicing) before the Homogenizer v2.0 pass.
+    """Replace the target's `from <repo module> import ...` statements with the imported definitions
+    and everything they transitively need from the repository: callees, module-level names, the
+    statements that mutate those names, and the external imports they use.
 
     Returns: (code_with_merged_dependencies, list_of_merged_symbols)
+    Raises FusaoPythonIncompleta when the slice cannot be completed; the target is then left as is.
     """
     try:
         arvore_alvo = ast.parse(codigo_alvo)
-    except SyntaxError:
+    except _ERROS_DE_ANALISE:
         return codigo_alvo, []
 
     indice = indice_precalculado or construir_indice_python_repositorio(repo_dir)
-    mapa_funcoes: Dict[str, Tuple[str, ast.AST]] = indice.get('funcoes', {})  # type: ignore
-    mapa_classes: Dict[str, Tuple[str, ast.ClassDef]] = indice.get('classes', {})  # type: ignore
+    modulos: Dict[str, Optional[Dict[str, object]]] = indice.get('modulos', {})  # type: ignore
+    rel_alvo = posixpath.normpath(caminho_rel_alvo.replace('\\', '/')) if caminho_rel_alvo else ''
+    modulo_alvo = _nome_modulo_python(rel_alvo) if rel_alvo else None
+    conhecidos = _modulos_e_pacotes(modulos)
 
-    definidos_no_alvo: Set[str] = set()
-    for stmt in arvore_alvo.body:
-        if isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
-            definidos_no_alvo.add(stmt.name)
-
-    nomes_referenciados: Set[str] = set()
-    atributos_chamados: Set[str] = set()
-
-    for node in ast.walk(arvore_alvo):
-        if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Load):
-            nomes_referenciados.add(node.id)
-        elif isinstance(node, ast.Call):
-            if isinstance(node.func, ast.Name):
-                nomes_referenciados.add(node.func.id)
-            elif isinstance(node.func, ast.Attribute):
-                atributos_chamados.add(node.func.attr)
-
-    candidatos = (nomes_referenciados | atributos_chamados) - definidos_no_alvo
-    nos_injetados: List[ast.stmt] = []
-    simbolos_fundidos: List[str] = []
-
-    rel_norm = caminho_rel_alvo.replace('\\', '/') if caminho_rel_alvo else ""
-
-    # Inject up to 6 internal functions/classes from other directories of the repository
-    for simb in sorted(candidatos):
-        if len(nos_injetados) >= 6:
-            break
-        if simb in mapa_funcoes:
-            origem_rel, fn_node = mapa_funcoes[simb]
-            if origem_rel != rel_norm:
-                nos_injetados.append(fn_node)
-                simbolos_fundidos.append(f"{simb}() [{origem_rel}]")
-                definidos_no_alvo.add(simb)
-        elif simb in mapa_classes:
-            origem_rel, cls_node = mapa_classes[simb]
-            if origem_rel != rel_norm:
-                nos_injetados.append(cls_node)
-                simbolos_fundidos.append(f"class {simb} [{origem_rel}]")
-                definidos_no_alvo.add(simb)
-
-    if not nos_injetados:
-        return codigo_alvo, []
-
-    # Insert the definitions imported from other directories of the repository at the start of the AST
-    arvore_alvo.body = nos_injetados + arvore_alvo.body
-    ast.fix_missing_locations(arvore_alvo)
     try:
-        codigo_fundido = ast.unparse(arvore_alvo)
-        return codigo_fundido, simbolos_fundidos
-    except Exception:
+        unidades_alvo, futuros = _unidades_do_modulo(arvore_alvo, sem_guarda_main=False)
+    except _ERROS_DE_ANALISE as e:
+        raise FusaoPythonIncompleta(f"cannot analyse the target: {e}") from e
+
+    # Each top-level name of the merged program must come from exactly one origin.
+    origem_do_nome: Dict[str, str] = {}
+
+    def reservar(nome: str, origem: str):
+        anterior = origem_do_nome.setdefault(nome, origem)
+        if anterior != origem:
+            raise FusaoPythonIncompleta(f"'{nome}' from {origem} clashes with {anterior}")
+
+    importacoes_internas: List[Tuple[str, str]] = []
+    aliases_removidos: Set[int] = set()
+    nomes_lidos_alvo: Set[str] = set()
+    for unidade in unidades_alvo:
+        nomes_lidos_alvo |= unidade.le_agora | unidade.le_depois
+        if not isinstance(unidade.stmt, (ast.Import, ast.ImportFrom)):
+            _rejeitar_importacoes_internas_aninhadas(modulos, conhecidos, rel_alvo, unidade.stmt)
+            for nome in unidade.liga:
+                reservar(nome, rel_alvo or 'target')
+            continue
+        origem = _origem_interna(modulos, conhecidos, rel_alvo, unidade.stmt)
+        if origem is None:
+            for nome in unidade.liga:
+                reservar(nome, _assinatura_importacao(unidade.stmt))
+            continue
+        importacoes_internas.append(_simbolo_importado(origem, unidade.stmt.names[0], rel_alvo or 'the target'))
+        aliases_removidos.add(id(unidade.stmt.names[0]))
+
+    if not importacoes_internas:
         return codigo_alvo, []
+
+    selecionadas: Dict[str, Set[int]] = {}
+    dependencias: Dict[Optional[str], List[str]] = {modulo_alvo: []}
+    nomes_vistos: Set[Tuple[str, str]] = set()
+
+    def precisar(modulo: str, nome: str):
+        if (modulo, nome) in nomes_vistos:
+            return
+        nomes_vistos.add((modulo, nome))
+        if modulo == modulo_alvo:
+            raise FusaoPythonIncompleta(f"'{nome}' is imported back from the target")
+        info = modulos[modulo]
+        if info is None:
+            raise FusaoPythonIncompleta(f"cannot analyse module '{modulo}'")
+        unidades: List[_Unidade] = info['unidades']  # type: ignore
+        ligadoras = [i for i, u in enumerate(unidades) if nome in u.liga]
+        if not ligadoras:
+            if nome in _NOMES_IMPLICITOS:
+                return
+            raise FusaoPythonIncompleta(f"cannot find '{nome}' in {info['rel']}")
+        # Module code that touches a name while it runs may fill it (registries, initialisers), so it
+        # comes along. Imported modules are exempt: almost every statement reads one.
+        if not all(isinstance(unidades[i].stmt, (ast.Import, ast.ImportFrom)) for i in ligadoras):
+            ligadoras += [i for i, alcance in enumerate(info['alcances']) if nome in alcance]  # type: ignore
+        for i in ligadoras:
+            selecionar(modulo, i)
+
+    def selecionar(modulo: str, i: int):
+        escolhidas = selecionadas.setdefault(modulo, set())
+        if i in escolhidas:
+            return
+        info = modulos[modulo]
+        rel: str = info['rel']  # type: ignore
+        unidade: _Unidade = info['unidades'][i]  # type: ignore
+        dependencias.setdefault(modulo, [])
+        if isinstance(unidade.stmt, (ast.Import, ast.ImportFrom)):
+            origem = _origem_interna(modulos, conhecidos, rel, unidade.stmt)
+            if origem is not None:
+                origem_modulo, nome = _simbolo_importado(origem, unidade.stmt.names[0], rel)
+                dependencias[modulo].append(origem_modulo)
+                precisar(origem_modulo, nome)
+                return
+        escolhidas.add(i)
+        if sum(map(len, selecionadas.values())) > MAX_DEFINICOES_FUNDIDAS:
+            raise FusaoPythonIncompleta(f"more than {MAX_DEFINICOES_FUNDIDAS} definitions needed")
+        if isinstance(unidade.stmt, (ast.Import, ast.ImportFrom)):
+            for nome in unidade.liga:
+                reservar(nome, _assinatura_importacao(unidade.stmt))
+            return
+        _rejeitar_importacoes_internas_aninhadas(modulos, conhecidos, rel, unidade.stmt)
+        for nome in unidade.liga:
+            reservar(nome, rel)
+        for nome in sorted(unidade.le_agora | unidade.le_depois):
+            precisar(modulo, nome)
+
+    for modulo, nome in importacoes_internas:
+        if nome in nomes_lidos_alvo:
+            dependencias[modulo_alvo].append(modulo)
+            precisar(modulo, nome)
+
+    # Emit modules in the order Python would finish importing them.
+    ordem: List[str] = []
+    em_curso: Set[Optional[str]] = set()
+
+    def ordenar(modulo: Optional[str]):
+        if modulo in em_curso:
+            raise FusaoPythonIncompleta(f"circular import through '{modulo}'")
+        if modulo in ordem:
+            return
+        em_curso.add(modulo)
+        for dependencia in dependencias.get(modulo, []):
+            ordenar(dependencia)
+        em_curso.discard(modulo)
+        if modulo != modulo_alvo:
+            ordem.append(modulo)
+
+    ordenar(modulo_alvo)
+
+    copias: List[ast.stmt] = []
+    importacoes_emitidas: Set[str] = set()
+    simbolos_fundidos: List[str] = []
+    for modulo in ordem:
+        info = modulos[modulo]
+        novos = info['futuros'] - futuros  # type: ignore
+        if novos - {'annotations'}:
+            raise FusaoPythonIncompleta(f"{info['rel']} uses __future__ features the target does not: {', '.join(sorted(novos))}")
+        futuros |= novos
+        for i in sorted(selecionadas.get(modulo, ())):
+            unidade: _Unidade = info['unidades'][i]  # type: ignore
+            if isinstance(unidade.stmt, (ast.Import, ast.ImportFrom)):
+                if ast.dump(unidade.stmt) not in importacoes_emitidas:
+                    importacoes_emitidas.add(ast.dump(unidade.stmt))
+                    copias.append(unidade.stmt)
+            else:
+                copias.append(unidade.stmt)
+                simbolos_fundidos.append(_descrever_unidade(unidade, info['rel']))  # type: ignore
+
+    # The copies take the place of the first in-repository import, so earlier target code still runs first.
+    corpo: List[ast.stmt] = []
+    posicao = None
+    for stmt in arvore_alvo.body:
+        if isinstance(stmt, ast.ImportFrom) and stmt.module == '__future__':
+            continue
+        if isinstance(stmt, ast.ImportFrom) and any(id(a) in aliases_removidos for a in stmt.names):
+            posicao = len(corpo) if posicao is None else posicao
+            continue
+        corpo.append(stmt)
+    docstring = corpo[:1] if corpo and isinstance(corpo[0], ast.Expr) and isinstance(corpo[0].value, ast.Constant) \
+        and isinstance(corpo[0].value.value, str) else []
+    futuro = [ast.ImportFrom(module='__future__', names=[ast.alias(f) for f in sorted(futuros)], level=0)] if futuros else []
+    arvore_alvo.body = docstring + futuro + corpo[len(docstring):posicao] + copias + corpo[posicao:]
+    ast.fix_missing_locations(arvore_alvo)
+    return ast.unparse(arvore_alvo), simbolos_fundidos
 
 
 # ==============================================================================

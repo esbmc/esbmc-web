@@ -10,6 +10,8 @@ from sanitizers import cpp_sanitizer
 from sanitizers.cpp_sanitizer import sanitizar_cpp
 from sanitizers.harness_args import GrafoDeChamadas, declarar_argumento, escolher_raizes
 from sanitizers.python_sanitizer import gerar_harness_python, precisa_homogeneizar_v2, sanitizar_python
+from sanitizers import repo_explorer
+from sanitizers.repo_explorer import FusaoPythonIncompleta, fundir_dependencias_internas_python
 
 
 class TestPythonHomogenizerDecision:
@@ -269,3 +271,143 @@ def test_cpp_sanitizer_does_not_rewrite_headers_outside_work_dir(tmp_path):
     f.write_text('int main(){ return 0; }\n')
     sanitizar_cpp(str(f), str(work), sub_dir_repo=str(outside))
     assert header.read_text() == 'consteval int f(){ return 1; }\n'
+
+
+class TestPythonRepoSlicing:
+    HELPERS = (
+        'import re\n\n'
+        'LIMITE = len(re.findall("x", "xx"))\n\n'
+        'def _ajuda(n):\n    return n + LIMITE\n\n'
+        'def montar(n):\n    return _ajuda(n)\n'
+    )
+
+    @staticmethod
+    def repo(tmp_path, files):
+        for rel, text in files.items():
+            (tmp_path / rel).parent.mkdir(parents=True, exist_ok=True)
+            (tmp_path / rel).write_text(text)
+        return str(tmp_path)
+
+    def fuse(self, tmp_path, files, target):
+        return fundir_dependencias_internas_python(files[target], self.repo(tmp_path, files), target)
+
+    def test_copies_callees_module_names_and_imports(self, tmp_path):
+        files = {
+            'backend/pkg/helpers.py': self.HELPERS,
+            'backend/pkg/alvo.py': 'from pkg.helpers import montar\n\nassert montar(1) == 3\n',
+        }
+        code, symbols = self.fuse(tmp_path, files, 'backend/pkg/alvo.py')
+        assert 'pkg.helpers' not in code
+        assert [s.split()[0] for s in symbols] == ['LIMITE', '_ajuda()', 'montar()']
+        exec(compile(code, 'alvo.py', 'exec'), {'__name__': '__main__'})
+
+    def test_relative_import_and_re_export(self, tmp_path):
+        files = {
+            'pkg/__init__.py': 'from .helpers import montar\n',
+            'pkg/helpers.py': self.HELPERS,
+            'pkg/alvo.py': 'from . import montar\n\nassert montar(1) == 3\n',
+        }
+        code, _ = self.fuse(tmp_path, files, 'pkg/alvo.py')
+        exec(compile(code, 'alvo.py', 'exec'), {'__name__': '__main__'})
+
+    def test_external_module_is_left_alone(self, tmp_path):
+        files = {'lib/json.py': 'def loads(s):\n    return s\n',
+                 'app/alvo.py': 'from json import loads\n\nloads("1")\n'}
+        assert self.fuse(tmp_path, files, 'app/alvo.py') == (files['app/alvo.py'], [])
+
+    @pytest.mark.parametrize('target, reason', [
+        ('from pkg.helpers import nada\nnada()\n', "cannot find 'nada'"),
+        ('from pkg.helpers import montar\n\ndef _ajuda():\n    pass\nmontar(1)\n', "'_ajuda' from"),
+        ('from pkg.helpers import montar as m\nm(1)\n', 'under another name'),
+    ])
+    def test_incomplete_slice_raises(self, tmp_path, target, reason):
+        files = {'pkg/helpers.py': self.HELPERS, 'pkg/alvo.py': target}
+        with pytest.raises(FusaoPythonIncompleta, match=reason):
+            self.fuse(tmp_path, files, 'pkg/alvo.py')
+
+    def test_cap_raises_instead_of_truncating(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(repo_explorer, 'MAX_DEFINICOES_FUNDIDAS', 2)
+        files = {'pkg/helpers.py': self.HELPERS, 'pkg/alvo.py': 'from pkg.helpers import montar\nmontar(1)\n'}
+        with pytest.raises(FusaoPythonIncompleta, match='more than 2'):
+            self.fuse(tmp_path, files, 'pkg/alvo.py')
+
+    @pytest.mark.parametrize('helper, target', [
+        ('T = {}\nT["a"] = 1\ndef f():\n    return T["a"]\n', 'assert f() == 1'),
+        ('X = 1\nX = X + 1\ndef f():\n    return X\n', 'assert f() == 2'),
+        ('class A:\n    def m(self):\n        return B()\nclass B(A):\n    pass\nf = A\n', 'assert isinstance(f().m(), f)'),
+        ('N = 0\ndef f():\n    global N\n    N += 1\n    return N\n', 'assert f() == 1'),
+        ('try:\n    import json\nexcept ImportError:\n    json = None\ndef f():\n    return json.dumps(1)\n', 'assert f() == "1"'),
+        ('if True:\n    SEP = "/"\nelse:\n    SEP = "-"\ndef f():\n    return SEP\n', 'assert f() == "/"'),
+        ('T = [1, 2]\nD = [t * 2 for t in T]\ndef f():\n    return D\n', 'assert f() == [2, 4]'),
+        ('data = 5\ndef f(data):\n    return data\n', 'data = 1\nassert f(2) == 2'),
+        ('import os.path\ndef f():\n    return os.path.join("a", "b")\n', 'import os\nassert f() == os.path.join("a", "b")'),
+        ('R = {}\ndef reg(fn):\n    R[fn.__name__] = fn\n    return fn\n@reg\ndef a():\n    return 1\ndef f():\n    return R["a"]()\n',
+         'assert f() == 1'),
+        ('T = {}\nfor k in "ab":\n    T[k] = 1\ndef f():\n    return T["b"]\n', 'assert f() == 1'),
+        ('R = {}\ndef _fill():\n    R["a"] = 1\n_fill()\ndef f():\n    return R["a"]\n', 'assert f() == 1'),
+        ('R = {}\n_x = R.setdefault("a", 1)\ndef f():\n    return R["a"]\n', 'assert f() == 1'),
+        ('X = 1\nif __name__ == "__main__":\n    X = 3\ndef f():\n    return X\n', 'assert f() == 1'),
+        ('def f():\n    return 1\n', 'if __name__ == "__main__":\n    assert f() == 1'),
+    ])
+    def test_slice_runs_like_the_original(self, tmp_path, helper, target):
+        files = {'pkg/h.py': helper, 'pkg/alvo.py': f'from pkg.h import f\n{target}\n'}
+        code, _ = self.fuse(tmp_path, files, 'pkg/alvo.py')
+        assert 'pkg.h' not in code
+        exec(compile(code, 'alvo.py', 'exec'), {'__name__': '__main__'})
+
+    def test_dot_slash_target_path(self, tmp_path):
+        files = {'pkg/h.py': self.HELPERS, 'pkg/alvo.py': 'from .h import montar\nassert montar(1) == 3\n'}
+        code, _ = fundir_dependencias_internas_python(files['pkg/alvo.py'], self.repo(tmp_path, files), './pkg/alvo.py')
+        exec(compile(code, 'alvo.py', 'exec'), {'__name__': '__main__'})
+
+    @pytest.mark.parametrize('extra, target, reason', [
+        ({'pkg/h2.py': 'B = 5\ndef g():\n    return B\n', 'pkg/h.py': 'A, B = 1, 2\ndef f():\n    return A\n'},
+         'from pkg.h2 import g\nfrom pkg.h import f\ng()\nf()\n', "'B' from"),
+        ({'pkg/h.py': 'K = 10\ndef f():\n    return K\n'}, 'from pkg.h import f\nfor K in range(1):\n    pass\nf()\n', "'K' from"),
+        ({'pkg/a.py': 'from pkg.b import x\n', 'pkg/b.py': 'from pkg.a import x\n'}, 'from pkg.a import x\nx()\n', 'circular'),
+        ({'pkg/a.py': 'from pkg.a import x\n'}, 'from pkg.a import x\nx()\n', 'circular'),
+        ({'pkg/h.py': 'def f():\n    return nada\n'}, 'from pkg.h import f\nf()\n', "cannot find 'nada'"),
+        ({'pkg/h.py': 'def f():\n    pass\n'}, 'import pkg.h\nfrom pkg.h import f\nf()\n', 'as a whole'),
+        ({'pkg/h.py': 'def f():\n    pass\n'}, 'from pkg.h import f\ndef g():\n    from pkg.h import f\nf()\n', 'inside a block'),
+        ({'pkg/h.py': 'def f():\n    pass\n'}, 'from pkg.h import f\nif __name__ == "__main__":\n    from pkg.h import f\n', 'inside a block'),
+        ({'pkg/h.py': 'from __future__ import barry_as_FLUFL\ndef f():\n    pass\n'}, 'from pkg.h import f\nf()\n', 'barry_as_FLUFL'),
+        ({'pkg/h.py': 'def f():\n    return __file__\n'}, 'from pkg.h import f\nf()\n', "cannot find '__file__'"),
+        ({'pkg/h.py': 'X = 1\nif __name__ != "__main__":\n    X = 2\ndef f():\n    return X\n'}, 'from pkg.h import f\nf()\n', "cannot find '__name__'"),
+    ])
+    def test_unsound_slice_raises(self, tmp_path, extra, target, reason):
+        files = {**extra, 'pkg/alvo.py': target}
+        with pytest.raises(FusaoPythonIncompleta, match=reason):
+            self.fuse(tmp_path, files, 'pkg/alvo.py')
+
+    def test_copies_go_where_the_import_was(self, tmp_path):
+        files = {'pkg/h.py': 'import os\nMODO = os.environ.get("MODO_X", "lento")\n',
+                 'pkg/alvo.py': 'import os\nos.environ["MODO_X"] = "rapido"\nfrom pkg.h import MODO\nassert MODO == "rapido"\n'}
+        code, _ = self.fuse(tmp_path, files, 'pkg/alvo.py')
+        exec(compile(code, 'alvo.py', 'exec'), {'__name__': '__main__'})
+
+    def test_unread_import_of_unreadable_module_is_dropped(self, tmp_path):
+        files = {'pkg/bad.py': 'def (:\n', 'pkg/h.py': self.HELPERS,
+                 'pkg/alvo.py': 'from pkg.bad import z\nfrom pkg.h import montar\nassert montar(1) == 3\n'}
+        code, _ = self.fuse(tmp_path, files, 'pkg/alvo.py')
+        exec(compile(code, 'alvo.py', 'exec'), {'__name__': '__main__'})
+
+    def test_unreadable_module_does_not_abort_indexing(self, tmp_path):
+        files = {'pkg/h.py': self.HELPERS, 'pkg/alvo.py': 'from pkg.ruim import f\nf()\n'}
+        repo = self.repo(tmp_path, files)
+        (tmp_path / 'pkg' / 'ruim.py').symlink_to(tmp_path / 'missing.py')
+        assert repo_explorer.construir_indice_python_repositorio(repo)['modulos']['pkg.ruim'] is None
+        with pytest.raises(FusaoPythonIncompleta, match='cannot analyse'):
+            fundir_dependencias_internas_python(files['pkg/alvo.py'], repo, 'pkg/alvo.py')
+
+    @requires_esbmc
+    def test_esbmc_sees_the_copied_callees(self, tmp_path):
+        files = {
+            'pkg/helpers.py': 'def _ajuda(n: int) -> int:\n    return n + 1\n\ndef montar(n: int) -> int:\n    return _ajuda(n)\n',
+            'pkg/alvo.py': 'from pkg.helpers import montar\n\nassert montar(1) == 2\n',
+        }
+        code, _ = self.fuse(tmp_path, files, 'pkg/alvo.py')
+        out = tmp_path / 'out' / 'codigo.py'
+        out.parent.mkdir()
+        out.write_text(code)
+        proc = subprocess.run(['esbmc', str(out)], capture_output=True, text=True, timeout=120, check=False)
+        assert 'VERIFICATION SUCCESSFUL' in proc.stdout + proc.stderr
