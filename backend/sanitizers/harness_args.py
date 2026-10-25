@@ -2,11 +2,14 @@
 import re
 import subprocess
 from dataclasses import dataclass, field
+from typing import Optional
 
 _TIPOS_BASICOS = {'int', 'long', 'short', 'char', 'signed', 'unsigned',
                   'float', 'double', 'bool', '_Bool'}
 _TAMANHO_BUFFER = 16
 _ESCOLHA_NULL = 'nondet_harness_null'
+# Streams cannot be default-constructed; operator<< and >> take them by reference.
+_FLUXOS = {'ostream': 'std::cout', 'istream': 'std::cin'}
 
 
 def _tipo(decl: str, padrao: str) -> str:
@@ -36,7 +39,11 @@ def declarar_argumento(decl: str, nome: str) -> list:
         if re.search(r'\[\s*static\b', decl):
             return linhas + [f"    {tipo} *{nome} = {buf};"]
         return linhas + [f"    {tipo} *{nome} = {_ESCOLHA_NULL}() ? 0 : {buf};"]
-    return [f"    {_tipo(re.sub(r'&.*', '', decl).strip(), 'int')} {nome};"]
+    tipo = _tipo(re.sub(r'&.*', '', decl).strip(), 'int')
+    fluxo = _FLUXOS.get(tipo.replace(' ', '').removeprefix('std::'))
+    if fluxo and '&' in decl:
+        return [f"    {tipo} &{nome} = {fluxo};"]
+    return [f"    {tipo} {nome};"]
 
 
 def _chamada(idx: int, fn_name: str, params: list) -> list:
@@ -88,14 +95,23 @@ class GrafoDeChamadas:
     chama: dict = field(default_factory=dict)
     forcadas: set = field(default_factory=set)
     estaticas: set = field(default_factory=set)
+    funcoes: Optional[list] = None
 
     @classmethod
-    def ler(cls, caminho: str, codigo: str, args: list, nomes: list):  # pylint: disable=too-many-locals
-        """Build the graph; without libclang or an AST every function is a root."""
+    # pylint: disable-next=too-many-locals,too-many-arguments,too-many-positional-arguments
+    def ler(cls, caminho: str, codigo: str, args: list, nomes: list, inicio_usuario: int = 0):
+        """Build the graph; without libclang or an AST every function is a root.
+
+        `funcoes` lists the user's free-function definitions (from byte `inicio_usuario` on) with
+        qualified names and parameter declarations, so none is missed by text matching (#45).
+        """
         grafo = cls()
         try:
             from clang import cindex  # pylint: disable=import-outside-toplevel
-            tu = cindex.Index.create().parse(caminho, args=args, unsaved_files=[(caminho, codigo)])
+            linguagem = args[args.index('-x') + 1] if '-x' in args else 'c'
+            argumentos = list(args) + list(_includes_do_sistema(linguagem))
+            tu = cindex.Index.create().parse(caminho, args=argumentos,
+                                             unsaved_files=[(caminho, codigo)])
         except Exception:  # pylint: disable=broad-exception-caught
             grafo.forcadas = set(nomes)
             return grafo
@@ -123,27 +139,125 @@ class GrafoDeChamadas:
                 if alvo is not None:
                     chamadas.update(r.hash for r in _refs_do_callee(alvo, k))
                 if dono:
-                    grafo.chama.setdefault(dono, set()).add(no.referenced.spelling)
+                    alvo_nome = _qualificado(no.referenced.get_definition())
+                    grafo.chama.setdefault(dono, set()).add(alvo_nome)
                 else:
-                    grafo.forcadas.add(no.referenced.spelling)
+                    grafo.forcadas.add(_qualificado(no.referenced.get_definition()))
             if no.kind == k.DECL_REF_EXPR and no.hash not in chamadas and proprio(no.referenced):
-                grafo.forcadas.add(no.referenced.spelling)
+                grafo.forcadas.add(_qualificado(no.referenced.get_definition()))
             for filho in no.get_children():
                 visitar(filho, dono, chamadas)
 
         for c in do_modulo:
             if c.hash in proprias:
                 if c.storage_class == cindex.StorageClass.STATIC:
-                    grafo.estaticas.add(c.spelling)
+                    grafo.estaticas.add(_qualificado(c))
+                corpo = _qualificado(c)
                 for filho in c.get_children():
-                    visitar(filho, c.spelling if filho.kind == k.COMPOUND_STMT else None, set())
+                    visitar(filho, corpo if filho.kind == k.COMPOUND_STMT else None, set())
             else:
                 visitar(c, None, set())
         contagem = {}
         for c in definicoes:
-            contagem[c.spelling] = contagem.get(c.spelling, 0) + 1
+            contagem[_qualificado(c)] = contagem.get(_qualificado(c), 0) + 1
         grafo.forcadas |= {n for n, total in contagem.items() if total > 1}
+        membros = list(_membros_chamaveis(do_modulo, k))
+        grafo.forcadas |= {_qualificado(c) for c in membros}
+        grafo.funcoes = [(_qualificado(c), _parametros(c, k)) for c in definicoes + membros
+                         if c.extent.start.offset >= inicio_usuario
+                         and not _reservada(c.spelling)]
         return grafo
+
+
+_INCLUDES_DO_SISTEMA = {}
+
+
+def _includes_do_sistema(linguagem: str) -> tuple:
+    """The host clang's system include directories, which a pip-installed libclang lacks.
+
+    Without them standard types are invalid and spelled `int`. Only a successful query is cached.
+    """
+    if linguagem in _INCLUDES_DO_SISTEMA:
+        return _INCLUDES_DO_SISTEMA[linguagem]
+    try:
+        proc = subprocess.run(['clang', '-x', linguagem, '-E', '-v', '/dev/null'],
+                              capture_output=True, text=True, timeout=30, check=False)
+    except (OSError, subprocess.SubprocessError):
+        return ()
+    m = re.search(r'#include <\.\.\.> search starts here:\n(.*?)\nEnd of search list',
+                  proc.stderr, re.DOTALL)
+    diretorios = [d.strip() for d in m.group(1).splitlines()] if m else []
+    argumentos = tuple(a for d in diretorios if not d.endswith('(framework directory)')
+                       for a in ('-isystem', d))
+    if argumentos:
+        _INCLUDES_DO_SISTEMA[linguagem] = argumentos
+    return argumentos
+
+
+def _qualificado(c) -> str:
+    partes, pai = [c.spelling], c.semantic_parent
+    while pai is not None and pai.kind.name in ('NAMESPACE', 'STRUCT_DECL', 'CLASS_DECL'):
+        if pai.spelling:
+            partes.insert(0, pai.spelling)
+        pai = pai.semantic_parent
+    return '::'.join(partes)
+
+
+def _reservada(nome: str) -> bool:
+    return nome == 'main' or nome.startswith(('__ESBMC', '__esbmc', '__VERIFIER'))
+
+
+_PALAVRAS_DE_TIPO = {'const', 'volatile', 'struct', 'union', 'enum', 'class', 'typename',
+                     'register', 'restrict', '__restrict', 'static'}
+
+
+def _identificadores(texto: str) -> set:
+    return set(re.findall(r'[A-Za-z_]\w*', texto)) - _PALAVRAS_DE_TIPO
+
+
+def _parametros(c, k) -> list:
+    """Parameter declarations for the harness; template type parameters become int.
+
+    clang's type spelling is fully qualified, but it silently becomes `int` for a type it cannot
+    resolve. When the spelling misses a name the source declares, the source text is used.
+    """
+    modelos = {f.spelling for f in c.get_children() if f.kind == k.TEMPLATE_TYPE_PARAMETER}
+    decls = []
+    for i, p in enumerate(f for f in c.get_children() if f.kind == k.PARM_DECL):
+        textos = [t.spelling for t in p.get_tokens()]
+        if '=' in textos:
+            textos = textos[:textos.index('=')]
+        estatico = any(a == '[' and b == 'static' for a, b in zip(textos, textos[1:]))
+        fonte = ' '.join(t for t in textos if t != p.spelling)
+        tipo = p.type.spelling
+        if not _identificadores(fonte) <= _identificadores(tipo):
+            tipo = re.sub(r'\s*(::|<|>|,)\s*', r'\1', re.sub(r'\[.*', '*', fonte))
+        for nome in modelos:
+            tipo = re.sub(rf'\b{re.escape(nome)}\b', 'int', tipo)
+        decls.append(f"{tipo} {p.spelling or f'_p{i}'}" + ('[static]' if estatico else ''))
+    return decls
+
+
+def _membros_chamaveis(do_modulo, k):
+    """Hidden friends and static member functions, always called directly: their callers are not
+    read."""
+    classes = (k.STRUCT_DECL, k.CLASS_DECL, k.CLASS_TEMPLATE)
+
+    def dentro(no):
+        for f in no.get_children():
+            if f.kind in classes:
+                yield from dentro(f)
+            elif f.kind == k.FRIEND_DECL:
+                yield from (g for g in f.get_children() if g.is_definition()
+                            and g.kind in (k.FUNCTION_DECL, k.FUNCTION_TEMPLATE))
+            elif f.kind == k.CXX_METHOD and f.is_static_method() and f.is_definition():
+                yield f
+
+    for c in do_modulo:
+        if c.kind in classes:
+            yield from dentro(c)
+        elif c.kind == k.CXX_METHOD and c.is_static_method() and c.is_definition():
+            yield c
 
 
 def _declaracoes_do_arquivo(no, caminho, k):
@@ -228,36 +342,57 @@ def escolher_raizes(nomes: list, grafo: GrafoDeChamadas, excluidas=()):
     return raizes, [n for n in nomes if n not in alcancados]
 
 
-def _escrever(caminho: str, prefixo: str, cabecalho: list, funcoes, raizes: list) -> list:
-    """Write the module with its harness; returns the function owning each harness line."""
+def _escrever(caminho: str, prefixo: str, cabecalho: list, funcoes, chamadas: set) -> list:
+    """Write the module with its harness; returns the index in `funcoes` owning each line."""
     linhas, donos = list(cabecalho), [None] * len(cabecalho)
     for idx, (fn_name, params) in enumerate(funcoes):
-        if fn_name in raizes:
+        if idx in chamadas:
             bloco = _chamada(idx, fn_name, params)
             linhas += bloco
-            donos += [fn_name] * len(bloco)
+            donos += [idx] * len(bloco)
     with open(caminho, 'w', encoding='utf-8') as f:
         f.write(prefixo + '\n'.join(linhas + ['    return 0;', '}']) + '\n')
     return donos
 
 
-def montar_harness(caminho: str, codigo: str, funcoes, abertura: list, comando_clang: list) -> dict:
+def _funcoes_e_grafo(caminho: str, codigo: str, codigo_usuario: str, funcoes, args: list):
+    healer = codigo[:len(codigo) - len(codigo_usuario)] if codigo.endswith(codigo_usuario) else ''
+    grafo = GrafoDeChamadas.ler(caminho, codigo, args, [n for n, _ in funcoes],
+                                len(healer.encode('utf-8')))
+    if grafo.funcoes is None:
+        return funcoes, grafo
+    # Keep anything only text matching saw; a call to it that does not compile is reported.
+    vistas = {n.rsplit('::', 1)[-1] for n, _ in grafo.funcoes}
+    return grafo.funcoes + [(n, p) for n, p in funcoes if n not in vistas], grafo
+
+
+# pylint: disable-next=too-many-arguments,too-many-positional-arguments,too-many-locals
+def montar_harness(caminho: str, codigo: str, codigo_usuario: str, funcoes, abertura: list,
+                   comando_clang: list) -> dict:
     """Write `codigo` plus a harness to `caminho`, dropping root calls that do not compile.
 
-    Returns the roots called and the functions left unexercised.
+    `codigo_usuario` is the user's code at the end of `codigo`, after the healer's declarations;
+    `funcoes` is the text-matched fallback for when clang cannot parse the module. Returns the
+    roots called and the functions left unexercised.
     """
     # A file name of its own keeps harness locations apart from any #line in the user's code.
     origem = caminho + '.harness'
     cabecalho = [f'#line 1 "{origem}"', f'int {_ESCOLHA_NULL}(void);'] + list(abertura)
     prefixo = codigo.rstrip('\n') + '\n\n'
+    funcoes, grafo = _funcoes_e_grafo(caminho, codigo, codigo_usuario, funcoes, comando_clang[2:])
     nomes = list(dict.fromkeys(n for n, _ in funcoes))
-    grafo = GrafoDeChamadas.ler(caminho, codigo, comando_clang[2:], nomes)
-    excluidas = set()
+    # Calls are dropped per overload: one that does not compile must not take the others with it.
+    descartadas = set()
     while True:
-        raizes, nao_exercitadas = escolher_raizes(nomes, grafo, excluidas)
-        donos = _escrever(caminho, prefixo, cabecalho, funcoes, raizes)
+        sem_chamada = {n for n in nomes
+                       if all(i in descartadas for i, (m, _) in enumerate(funcoes) if m == n)}
+        raizes, nao_alcancadas = escolher_raizes(nomes, grafo, sem_chamada)
+        chamadas = {i for i, (n, _) in enumerate(funcoes) if n in raizes and i not in descartadas}
+        donos = _escrever(caminho, prefixo, cabecalho, funcoes, chamadas)
         ruins = {donos[n] for n in _linhas_com_erro(origem, caminho, comando_clang)
-                 if n < len(donos) and donos[n]}
+                 if n < len(donos) and donos[n] is not None}
         if not ruins:
-            return {'raizes': raizes, 'nao_exercitadas': nao_exercitadas}
-        excluidas |= ruins
+            parciais = {funcoes[i][0] for i in descartadas}
+            return {'raizes': raizes,
+                    'nao_exercitadas': [n for n in nomes if n in parciais or n in nao_alcancadas]}
+        descartadas |= ruins
