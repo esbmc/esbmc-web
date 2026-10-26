@@ -3281,7 +3281,7 @@ def sanitizar_cpp(caminho_arquivo: str, temp_dir: str, tem_flag_function: bool =
     if not tem_flag_function and not _tem_funcao_main(codigo_atual):
         funcoes_livres = _extrair_funcoes_livres_cpp(codigo_original)
         comando = ['clang', '-fsyntax-only', '-x', 'c++'] + [a for d in include_dirs for a in ('-I', d)]
-        harness = montar_harness(caminho_arquivo, codigo_atual, funcoes_livres, _ABERTURA_HARNESS_CPP, comando)
+        harness = montar_harness(caminho_arquivo, codigo_atual, codigo_original, funcoes_livres, _ABERTURA_HARNESS_CPP, comando)
         if not arquivos_gerados:
             arquivos_gerados.append("symbolic_main_harness")
 

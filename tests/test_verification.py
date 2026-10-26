@@ -184,15 +184,36 @@ class TestEntryHarness:
         res = result(analyse(client, {'language': language, 'codigo': code, 'flags': []}))
         assert res['verdict'] == 'FAILED'
 
+    ABSTRACT = 'struct Abs { virtual int g() = 0; };\nint use(Abs &a){ return 0; }\n'
+
     def test_function_the_harness_cannot_call_makes_the_verdict_partial(self, client):
-        code = '#include <cassert>\nint f(int x){ return x; }\nnamespace util {\nint helper(int x){ return x; }\n}\n'
+        code = '#include <cassert>\nint f(int x){ return x; }\n' + self.ABSTRACT
         status = analyse(client, {'language': 'cpp', 'codigo': code, 'flags': []})
         assert result(status)['verdict'] == 'PARTIAL'
-        assert 'not exercised: helper' in status['logs']
+        assert 'not exercised: use' in status['logs']
+
+    @pytest.mark.parametrize('body', [
+        'int apply(int x){ assert(x != 7); return x; }\n',
+        '#include <vector>\nint a(int x, const std::vector<int> &v = {}){ assert(x != 5); return x; }\n',
+        'namespace util { int h(int x){ assert(x != 7); return x; } }\n',
+        'int _h(int x){ assert(x != 7); return x; }\n',
+        'struct S { int v; friend int fr(S s){ assert(s.v != 7); return s.v; } };\n',
+        'struct A { static int s(int x){ assert(x != 7); return x; } };\n',
+        '#include <ostream>\nint f(int x){ assert(x != 7); return x; }\nint f(std::ostream &o, int k = 0){ return k; }\n',
+    ], ids=['excluded-name', 'braces-in-default-argument', 'one-line-namespace', 'leading-underscore',
+            'hidden-friend', 'static-member', 'overload-with-uncallable-sibling'])
+    def test_every_function_definition_is_found(self, client, body):
+        res = result(analyse(client, {'language': 'cpp', 'codigo': '#include <cassert>\n' + body, 'flags': []}))
+        assert res['verdict'] == 'FAILED'
+
+    def test_stream_operator_is_called_with_a_standard_stream(self, client):
+        code = ('#include <iostream>\nstruct P { int x; };\n'
+                'std::ostream &operator<<(std::ostream &o, const P &p){ return o << p.x; }\n')
+        res = result(analyse(client, {'language': 'cpp', 'codigo': code, 'flags': []}))
+        assert res['verdict'] == 'SUCCESSFUL'
 
     def test_bug_is_still_found_when_another_call_is_dropped(self, client):
-        code = ('#include <cassert>\nvoid f(int x){ assert(x != 7); }\n'
-                'namespace util {\nint helper(int x){ return x; }\n}\n')
+        code = '#include <cassert>\nvoid f(int x){ assert(x != 7); }\n' + self.ABSTRACT
         res = result(analyse(client, {'language': 'cpp', 'codigo': code, 'flags': []}))
         assert res['verdict'] == 'FAILED'
 

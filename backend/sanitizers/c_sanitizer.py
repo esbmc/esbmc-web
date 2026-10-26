@@ -286,7 +286,7 @@ def sanitizar_c(caminho_arquivo: str, temp_dir: str, tem_flag_function: bool = F
     if not tem_flag_function and not _tem_funcao_main(codigo_atual):
         funcoes_definidas = _extrair_funcoes_definidas_c(codigo_original)
         comando = ['clang', '-fsyntax-only', '-x', 'c'] + [a for d in include_dirs for a in ('-I', d)]
-        harness = montar_harness(caminho_arquivo, codigo_atual, funcoes_definidas, _ABERTURA_HARNESS_C, comando)
+        harness = montar_harness(caminho_arquivo, codigo_atual, codigo_original, funcoes_definidas, _ABERTURA_HARNESS_C, comando)
         if not arquivos_gerados:
             arquivos_gerados.append("symbolic_main_harness")
 

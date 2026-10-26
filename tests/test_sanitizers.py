@@ -8,6 +8,7 @@ from sanitizers.caminhos import contido_em, remover_links_externos
 from sanitizers.c_sanitizer import sanitizar_c
 from sanitizers import cpp_sanitizer
 from sanitizers.cpp_sanitizer import sanitizar_cpp
+from sanitizers import harness_args
 from sanitizers.harness_args import GrafoDeChamadas, declarar_argumento, escolher_raizes
 from sanitizers.python_sanitizer import gerar_harness_python, precisa_homogeneizar_v2, sanitizar_python
 from sanitizers import repo_explorer
@@ -144,6 +145,29 @@ class TestCSanitizer:
         f.write_text(code)
         nomes = ['helper', 'run', 'api']
         assert escolher_raizes(nomes, GrafoDeChamadas.ler(str(f), code, ['-x', 'c++'], nomes)) == (nomes, [])
+
+    def test_harness_keeps_source_types_clang_cannot_resolve(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(harness_args, '_includes_do_sistema', lambda linguagem: ())
+        code = '#include <stddef.h>\n#include <vector>\nint f(size_t n, const std::vector<int> &v = {}){ return 0; }\n'
+        f = tmp_path / 'm.cpp'
+        f.write_text(code)
+        assert GrafoDeChamadas.ler(str(f), code, ['-x', 'c++'], ['f']).funcoes == [
+            ('f', ['size_t n', 'const std::vector<int>& v'])]
+
+    def test_failed_include_query_is_not_cached(self, monkeypatch):
+        respostas = iter([subprocess.TimeoutExpired('clang', 30), subprocess.CompletedProcess([], 1, '', 'error'),
+                          subprocess.CompletedProcess([], 0, '', '#include <...> search starts here:\n /inc\nEnd of search list')])
+
+        def run(*args, **kwargs):
+            resposta = next(respostas)
+            if isinstance(resposta, Exception):
+                raise resposta
+            return resposta
+        monkeypatch.setattr(harness_args, '_INCLUDES_DO_SISTEMA', {})
+        monkeypatch.setattr(harness_args.subprocess, 'run', run)
+        assert harness_args._includes_do_sistema('c') == ()
+        assert harness_args._includes_do_sistema('c') == ()
+        assert harness_args._includes_do_sistema('c') == ('-isystem', '/inc')
 
     def test_harness_falls_back_to_calling_every_function_without_an_ast(self, tmp_path):
         grafo = GrafoDeChamadas.ler(str(tmp_path / 'missing.c'), 'int a(void);', ['-x', 'c'], ['a', 'b'])
