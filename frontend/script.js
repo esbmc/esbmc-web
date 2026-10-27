@@ -330,12 +330,23 @@ document.addEventListener('DOMContentLoaded', () => {
         const selectedLanguage = document.querySelector('input[name="language"]:checked').value;
         cCppDependencies.style.display = 'block';
 
+        const contractsHint = document.getElementById('contracts-info-hint');
+        const enforceInput = document.querySelector('.esbmc-param[data-flag="--enforce-contract"]');
+
         if (selectedLanguage === 'python' || selectedLanguage === 'all') {
             pythonOptions.style.display = 'block';
             if (selectedLanguage === 'python') editor.setOption('mode', 'python');
+            if (contractsHint) {
+                contractsHint.innerHTML = '<strong>Python Modular Verification:</strong> Use <code>--function &lt;name&gt;</code> with PEP 484 type hints, <code>__ESBMC_assume()</code> and <code>assert</code>.';
+            }
+            if (enforceInput) enforceInput.placeholder = 'e.g. process_data (use --function in Python)';
         } else {
             pythonOptions.style.display = 'none';
             editor.setOption('mode', selectedLanguage === 'c' ? 'text/x-csrc' : 'text/x-c++src');
+            if (contractsHint) {
+                contractsHint.innerHTML = 'Native for C/C++ (<code>__ESBMC_requires</code>, <code>__ESBMC_ensures</code>, <code>__ESBMC_assigns</code>).';
+            }
+            if (enforceInput) enforceInput.placeholder = 'function_name';
         }
     }
 

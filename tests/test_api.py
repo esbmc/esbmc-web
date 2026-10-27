@@ -114,3 +114,14 @@ def test_debug_mode_is_off_by_default(monkeypatch):
     assert backend_app.modo_debug() is False
     monkeypatch.setenv('ESBMC_WEB_DEBUG', '1')
     assert backend_app.modo_debug() is True
+
+
+def test_analysis_accepts_function_contract_flags(client):
+    task_id = client.post('/analisar', json={
+        'language': 'c',
+        'codigo': 'int f(int x){ return x; }',
+        'flags': ['--enforce-contract', 'f', '--replace-call-with-contract', 'g']
+    }).get_json()['task_id']
+    status = wait_for_task(client, task_id, timeout=30)
+    assert status['status'] == 'completed'
+
