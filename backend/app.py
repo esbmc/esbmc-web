@@ -303,7 +303,7 @@ FLAGS_PERMITIDAS_SIMPLES = {
 
 FLAGS_PERMITIDAS_COM_VALOR = {
     '--unwind', '--context-bound', '--witness-output', '--function', '--timeout',
-    '--witness-output-yaml'
+    '--witness-output-yaml', '--enforce-contract', '--replace-call-with-contract'
 }
 
 # Flags that remove or narrow checks; the repository under analysis is untrusted, so its
@@ -311,8 +311,13 @@ FLAGS_PERMITIDAS_COM_VALOR = {
 FLAGS_QUE_ENFRAQUECEM = {
     '--no-standard-checks', '--no-assertions', '--no-bounds-check', '--no-div-by-zero-check',
     '--no-pointer-check', '--no-align-check', '--no-unwinding-assertions', '--partial-loops',
-    '--function',
+    '--function', '--enforce-contract', '--replace-call-with-contract',
 }
+
+
+def _tem_alvo_especifico_funcao(flags: set | list) -> bool:
+    """Return True if the analysis targets a specific function directly or via a contract."""
+    return '--function' in flags or '--enforce-contract' in flags
 
 
 def _agrupar_flags(flags: List[str]) -> List[List[str]]:
@@ -922,6 +927,26 @@ def iniciar_analise():
                     else:
                         i += 1
 
+                # Function Contracts (Modular BMC)
+                enforce_alvo = None
+                if '--enforce-contract' in comando:
+                    idx_enf = comando.index('--enforce-contract')
+                    if idx_enf + 1 < len(comando):
+                        enforce_alvo = comando[idx_enf + 1]
+                        TAREFAS_ATIVAS[task_id]["logs"] += (
+                            f"[SYSTEM] [Function Contracts] Enforcing contract for '{enforce_alvo}' (modular BMC)\n"
+                        )
+                if '--replace-call-with-contract' in comando:
+                    idx_rep = comando.index('--replace-call-with-contract')
+                    if idx_rep + 1 < len(comando):
+                        rep_alvo = comando[idx_rep + 1]
+                        TAREFAS_ATIVAS[task_id]["logs"] += (
+                            f"[SYSTEM] [Function Contracts] Replacing calls to '{rep_alvo}' with contract abstraction\n"
+                        )
+
+                if enforce_alvo and enforce_alvo != '*' and '--function' not in comando:
+                    comando.extend(['--function', enforce_alvo])
+
                 if funcao_alvo_extra and '--function' not in comando:
                     comando.extend(['--function', funcao_alvo_extra])
 
@@ -1287,8 +1312,9 @@ def iniciar_analise():
                     elif lang_mod == 'cpp':
                         with open(caminho_temp_mod, 'w', encoding='utf-8') as f:
                             f.write(cod_modulo)
+                        tem_fn_mod = _tem_alvo_especifico_funcao(flags_recebidas)
                         mocks_c, harness_mod = sanitizar_cpp(
-                            caminho_temp_mod, temp_dir, tem_flag_function=('--function' in flags_recebidas), sub_dir_repo=sub_dir_repo
+                            caminho_temp_mod, temp_dir, tem_flag_function=tem_fn_mod, sub_dir_repo=sub_dir_repo
                         )
                         TAREFAS_ATIVAS[task_id]["logs"] += descrever_harness_c(harness_mod)
                         nao_exercitadas_mod = harness_mod['nao_exercitadas'] if harness_mod else []
@@ -1299,8 +1325,9 @@ def iniciar_analise():
                     else:
                         with open(caminho_temp_mod, 'w', encoding='utf-8') as f:
                             f.write(cod_modulo)
+                        tem_fn_mod = _tem_alvo_especifico_funcao(flags_recebidas)
                         mocks_c, harness_mod = sanitizar_c(
-                            caminho_temp_mod, temp_dir, tem_flag_function=('--function' in flags_recebidas), sub_dir_repo=sub_dir_repo
+                            caminho_temp_mod, temp_dir, tem_flag_function=tem_fn_mod, sub_dir_repo=sub_dir_repo
                         )
                         TAREFAS_ATIVAS[task_id]["logs"] += descrever_harness_c(harness_mod)
                         nao_exercitadas_mod = harness_mod['nao_exercitadas'] if harness_mod else []
@@ -1814,7 +1841,7 @@ def iniciar_analise():
             elif linguagem == 'c':
                 TAREFAS_ATIVAS[task_id]["logs"] += "\n[SYSTEM] Running ESBMC C Homogenizer & Clang Auto-Healer...\n"
                 try:
-                    tem_fn = '--function' in flags_recebidas
+                    tem_fn = _tem_alvo_especifico_funcao(flags_recebidas)
                     mocks_criados, harness_c = sanitizar_c(caminho_original, temp_dir, tem_flag_function=tem_fn, sub_dir_repo=sub_dir_repo)
                     TAREFAS_ATIVAS[task_id]["logs"] += descrever_harness_c(harness_c)
                     nao_exercitadas = harness_c['nao_exercitadas'] if harness_c else []
@@ -1830,7 +1857,7 @@ def iniciar_analise():
             elif linguagem == 'cpp':
                 TAREFAS_ATIVAS[task_id]["logs"] += "\n[SYSTEM] Running ESBMC C++ Homogenizer & Clang Auto-Healer...\n"
                 try:
-                    tem_fn = '--function' in flags_recebidas
+                    tem_fn = _tem_alvo_especifico_funcao(flags_recebidas)
                     mocks_criados, harness_c = sanitizar_cpp(caminho_original, temp_dir, tem_flag_function=tem_fn, sub_dir_repo=sub_dir_repo)
                     TAREFAS_ATIVAS[task_id]["logs"] += descrever_harness_c(harness_c)
                     nao_exercitadas = harness_c['nao_exercitadas'] if harness_c else []

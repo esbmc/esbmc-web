@@ -46,6 +46,8 @@ CPP_KEYWORDS = {
     'uint8_t', 'uint16_t', 'uint32_t', 'uint64_t', 'int8_t', 'int16_t',
     'int32_t', 'int64_t', 'nondet_int', 'nondet_uint', 'nondet_bool',
     '__VERIFIER_nondet_int', '__ESBMC_assume', '__ESBMC_assert',
+    '__ESBMC_requires', '__ESBMC_ensures', '__ESBMC_contract',
+    '__ESBMC_return_value', '__ESBMC_assigns',
     'cout', 'cin', 'cerr', 'endl', 'string', 'vector', 'map', 'set', 'pair'
 }
 

@@ -330,12 +330,37 @@ document.addEventListener('DOMContentLoaded', () => {
         const selectedLanguage = document.querySelector('input[name="language"]:checked').value;
         cCppDependencies.style.display = 'block';
 
-        if (selectedLanguage === 'python' || selectedLanguage === 'all') {
+        const contractsFieldset = document.getElementById('fieldset-contracts');
+        const contractsHint = document.getElementById('contracts-info-hint');
+        const enforceInput = document.querySelector('.esbmc-param[data-flag="--enforce-contract"]');
+        const replaceInput = document.querySelector('.esbmc-param[data-flag="--replace-call-with-contract"]');
+
+        if (selectedLanguage === 'python') {
             pythonOptions.style.display = 'block';
-            if (selectedLanguage === 'python') editor.setOption('mode', 'python');
+            editor.setOption('mode', 'python');
+            if (contractsFieldset) contractsFieldset.style.display = 'none';
+            if (enforceInput) { enforceInput.disabled = true; enforceInput.value = ''; }
+            if (replaceInput) { replaceInput.disabled = true; replaceInput.value = ''; }
+            if (contractsHint) {
+                contractsHint.innerHTML = 'Function contracts (--enforce-contract) are supported for C/C++. For Python, use <code>--function &lt;name&gt;</code>.';
+            }
+        } else if (selectedLanguage === 'all') {
+            pythonOptions.style.display = 'block';
+            if (contractsFieldset) contractsFieldset.style.display = 'block';
+            if (enforceInput) enforceInput.disabled = false;
+            if (replaceInput) replaceInput.disabled = false;
+            if (contractsHint) {
+                contractsHint.innerHTML = 'Native for C/C++ (<code>__ESBMC_requires</code>, <code>__ESBMC_ensures</code>, <code>__ESBMC_assigns</code>).';
+            }
         } else {
             pythonOptions.style.display = 'none';
             editor.setOption('mode', selectedLanguage === 'c' ? 'text/x-csrc' : 'text/x-c++src');
+            if (contractsFieldset) contractsFieldset.style.display = 'block';
+            if (enforceInput) { enforceInput.disabled = false; enforceInput.placeholder = 'function_name'; }
+            if (replaceInput) { replaceInput.disabled = false; replaceInput.placeholder = 'callee_name'; }
+            if (contractsHint) {
+                contractsHint.innerHTML = 'Native for C/C++ (<code>__ESBMC_requires</code>, <code>__ESBMC_ensures</code>, <code>__ESBMC_assigns</code>).';
+            }
         }
     }
 
@@ -875,6 +900,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const flags = [];
         document.querySelectorAll('.esbmc-flag:checked').forEach(cb => flags.push(cb.value));
         document.querySelectorAll('.esbmc-param').forEach(input => {
+            if (input.disabled) return;
             if (input.value.trim()) { flags.push(input.dataset.flag); flags.push(input.value.trim()); }
         });
 
@@ -1032,6 +1058,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const solverSelect = document.getElementById('solver-select');
             if (solverSelect && solverSelect.value) flags.push(solverSelect.value);
             document.querySelectorAll('.esbmc-param').forEach(input => {
+                if (input.disabled) return;
                 const value = input.value.trim();
                 const flag = input.dataset.flag;
                 if (value !== '') {

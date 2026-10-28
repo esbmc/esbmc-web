@@ -39,6 +39,37 @@ class TestSingleFileC:
         assert res['verificacao_sucesso'] is True
         assert not has_violation(res)
 
+    def test_function_contract_enforce_success(self, client):
+        code = (
+            'int add(int a, int b) {\n'
+            '    __ESBMC_requires(a > 0 && b > 0 && a < 100 && b < 100);\n'
+            '    __ESBMC_ensures(__ESBMC_return_value > 0);\n'
+            '    return a + b;\n'
+            '}\n'
+        )
+        task = analyse(client, {'language': 'c', 'codigo': code, 'flags': ['--enforce-contract', 'add']})
+        res = result(task)
+        assert res['verdict'] == 'SUCCESSFUL'
+        assert res['verificacao_sucesso'] is True
+        logs = task.get('logs', '')
+        assert 'Enforced contract for function add' in logs
+        assert 'contract ensures' in logs
+
+    def test_function_contract_enforce_failure(self, client):
+        code = (
+            'int bad(int a) {\n'
+            '    __ESBMC_requires(a > 0);\n'
+            '    __ESBMC_ensures(__ESBMC_return_value < 0);\n'
+            '    return a;\n'
+            '}\n'
+        )
+        task = analyse(client, {'language': 'c', 'codigo': code, 'flags': ['--enforce-contract', 'bad']})
+        res = result(task)
+        assert res['verdict'] == 'FAILED'
+        assert res['verificacao_sucesso'] is False
+        logs = task.get('logs', '')
+        assert 'contract ensures' in logs
+
     def test_failing_assertion_is_reported_with_counterexample(self, client):
         res = result(analyse(client, {'language': 'c', 'codigo': C_UNSAFE, 'flags': []}))
         assert res['verificacao_sucesso'] is False
