@@ -311,8 +311,13 @@ FLAGS_PERMITIDAS_COM_VALOR = {
 FLAGS_QUE_ENFRAQUECEM = {
     '--no-standard-checks', '--no-assertions', '--no-bounds-check', '--no-div-by-zero-check',
     '--no-pointer-check', '--no-align-check', '--no-unwinding-assertions', '--partial-loops',
-    '--function',
+    '--function', '--enforce-contract', '--replace-call-with-contract',
 }
+
+
+def _tem_alvo_especifico_funcao(flags: set | list) -> bool:
+    """Return True if the analysis targets a specific function directly or via a contract."""
+    return '--function' in flags or '--enforce-contract' in flags
 
 
 def _agrupar_flags(flags: List[str]) -> List[List[str]]:
@@ -939,7 +944,7 @@ def iniciar_analise():
                             f"[SYSTEM] [Function Contracts] Replacing calls to '{rep_alvo}' with contract abstraction\n"
                         )
 
-                if enforce_alvo and '--function' not in comando:
+                if enforce_alvo and enforce_alvo != '*' and '--function' not in comando:
                     comando.extend(['--function', enforce_alvo])
 
                 if funcao_alvo_extra and '--function' not in comando:
@@ -1307,7 +1312,7 @@ def iniciar_analise():
                     elif lang_mod == 'cpp':
                         with open(caminho_temp_mod, 'w', encoding='utf-8') as f:
                             f.write(cod_modulo)
-                        tem_fn_mod = '--function' in flags_recebidas or '--enforce-contract' in flags_recebidas
+                        tem_fn_mod = _tem_alvo_especifico_funcao(flags_recebidas)
                         mocks_c, harness_mod = sanitizar_cpp(
                             caminho_temp_mod, temp_dir, tem_flag_function=tem_fn_mod, sub_dir_repo=sub_dir_repo
                         )
@@ -1320,7 +1325,7 @@ def iniciar_analise():
                     else:
                         with open(caminho_temp_mod, 'w', encoding='utf-8') as f:
                             f.write(cod_modulo)
-                        tem_fn_mod = '--function' in flags_recebidas or '--enforce-contract' in flags_recebidas
+                        tem_fn_mod = _tem_alvo_especifico_funcao(flags_recebidas)
                         mocks_c, harness_mod = sanitizar_c(
                             caminho_temp_mod, temp_dir, tem_flag_function=tem_fn_mod, sub_dir_repo=sub_dir_repo
                         )
@@ -1836,7 +1841,7 @@ def iniciar_analise():
             elif linguagem == 'c':
                 TAREFAS_ATIVAS[task_id]["logs"] += "\n[SYSTEM] Running ESBMC C Homogenizer & Clang Auto-Healer...\n"
                 try:
-                    tem_fn = '--function' in flags_recebidas or '--enforce-contract' in flags_recebidas
+                    tem_fn = _tem_alvo_especifico_funcao(flags_recebidas)
                     mocks_criados, harness_c = sanitizar_c(caminho_original, temp_dir, tem_flag_function=tem_fn, sub_dir_repo=sub_dir_repo)
                     TAREFAS_ATIVAS[task_id]["logs"] += descrever_harness_c(harness_c)
                     nao_exercitadas = harness_c['nao_exercitadas'] if harness_c else []
@@ -1852,7 +1857,7 @@ def iniciar_analise():
             elif linguagem == 'cpp':
                 TAREFAS_ATIVAS[task_id]["logs"] += "\n[SYSTEM] Running ESBMC C++ Homogenizer & Clang Auto-Healer...\n"
                 try:
-                    tem_fn = '--function' in flags_recebidas or '--enforce-contract' in flags_recebidas
+                    tem_fn = _tem_alvo_especifico_funcao(flags_recebidas)
                     mocks_criados, harness_c = sanitizar_cpp(caminho_original, temp_dir, tem_flag_function=tem_fn, sub_dir_repo=sub_dir_repo)
                     TAREFAS_ATIVAS[task_id]["logs"] += descrever_harness_c(harness_c)
                     nao_exercitadas = harness_c['nao_exercitadas'] if harness_c else []

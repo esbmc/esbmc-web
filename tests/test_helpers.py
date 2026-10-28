@@ -146,10 +146,12 @@ class TestTargetFunctionDiscovery:
 
 
 def test_repository_flags_may_only_add_checks():
-    flags = ['--overflow-check', '--no-assertions', '--function', 'helper', '--unwind', '5', '--no-bounds-check']
+    flags = ['--overflow-check', '--no-assertions', '--function', 'helper', '--unwind', '5', '--no-bounds-check',
+             '--enforce-contract', 'f', '--replace-call-with-contract', 'g']
     accepted, ignored = filtrar_flags_do_repositorio(flags)
     assert accepted == [['--overflow-check'], ['--unwind', '5']]
-    assert ignored == ['--no-assertions', '--function', 'helper', '--no-bounds-check']
+    assert ignored == ['--no-assertions', '--function', 'helper', '--no-bounds-check',
+                       '--enforce-contract', 'f', '--replace-call-with-contract', 'g']
 
 
 def test_repository_flag_value_cannot_smuggle_another_flag():

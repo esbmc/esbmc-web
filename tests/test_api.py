@@ -124,4 +124,9 @@ def test_analysis_accepts_function_contract_flags(client):
     }).get_json()['task_id']
     status = wait_for_task(client, task_id, timeout=30)
     assert status['status'] == 'completed'
+    logs = status.get('logs', '')
+    assert '--enforce-contract' in logs
+    assert '--replace-call-with-contract' in logs
+    assert "[SYSTEM] [Function Contracts] Enforcing contract for 'f'" in logs
+    assert "[SYSTEM] [Function Contracts] Replacing calls to 'g' with contract abstraction" in logs
 

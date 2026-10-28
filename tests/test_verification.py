@@ -47,9 +47,13 @@ class TestSingleFileC:
             '    return a + b;\n'
             '}\n'
         )
-        res = result(analyse(client, {'language': 'c', 'codigo': code, 'flags': ['--enforce-contract', 'add']}))
+        task = analyse(client, {'language': 'c', 'codigo': code, 'flags': ['--enforce-contract', 'add']})
+        res = result(task)
         assert res['verdict'] == 'SUCCESSFUL'
         assert res['verificacao_sucesso'] is True
+        logs = task.get('logs', '')
+        assert 'Enforced contract for function add' in logs
+        assert 'contract ensures' in logs
 
     def test_function_contract_enforce_failure(self, client):
         code = (
@@ -59,9 +63,12 @@ class TestSingleFileC:
             '    return a;\n'
             '}\n'
         )
-        res = result(analyse(client, {'language': 'c', 'codigo': code, 'flags': ['--enforce-contract', 'bad']}))
+        task = analyse(client, {'language': 'c', 'codigo': code, 'flags': ['--enforce-contract', 'bad']})
+        res = result(task)
         assert res['verdict'] == 'FAILED'
         assert res['verificacao_sucesso'] is False
+        logs = task.get('logs', '')
+        assert 'contract ensures' in logs
 
     def test_failing_assertion_is_reported_with_counterexample(self, client):
         res = result(analyse(client, {'language': 'c', 'codigo': C_UNSAFE, 'flags': []}))
