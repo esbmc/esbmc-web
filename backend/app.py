@@ -317,7 +317,19 @@ FLAGS_QUE_ENFRAQUECEM = {
 
 def _tem_alvo_especifico_funcao(flags: set | list) -> bool:
     """Return True if the analysis targets a specific function directly or via a contract."""
-    return '--function' in flags or '--enforce-contract' in flags
+    if '--function' in flags:
+        return True
+    if '--enforce-contract' in flags:
+        if isinstance(flags, (list, tuple)):
+            alvos = [
+                flags[i + 1]
+                for i, f in enumerate(flags)
+                if f == '--enforce-contract' and i + 1 < len(flags) and not str(flags[i + 1]).startswith('-')
+            ]
+            if alvos and all(a == '*' for a in alvos):
+                return False
+        return True
+    return False
 
 
 def _agrupar_flags(flags: List[str]) -> List[List[str]]:
@@ -928,6 +940,14 @@ def iniciar_analise():
                         i += 1
 
                 # Function Contracts (Modular BMC)
+                if lang_efetiva == 'python':
+                    for flag_contrato in ('--enforce-contract', '--replace-call-with-contract'):
+                        while flag_contrato in comando:
+                            idx = comando.index(flag_contrato)
+                            if idx + 1 < len(comando) and not str(comando[idx + 1]).startswith('-'):
+                                comando.pop(idx + 1)
+                            comando.pop(idx)
+
                 enforce_alvo = None
                 if '--enforce-contract' in comando:
                     idx_enf = comando.index('--enforce-contract')

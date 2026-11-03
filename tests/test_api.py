@@ -130,3 +130,17 @@ def test_analysis_accepts_function_contract_flags(client):
     assert "[SYSTEM] [Function Contracts] Enforcing contract for 'f'" in logs
     assert "[SYSTEM] [Function Contracts] Replacing calls to 'g' with contract abstraction" in logs
 
+
+def test_python_analysis_drops_function_contract_flags(client):
+    task_id = client.post('/analisar', json={
+        'language': 'python',
+        'codigo': 'def f(x):\n    return x\n',
+        'flags': ['--enforce-contract', 'f', '--replace-call-with-contract', 'g']
+    }).get_json()['task_id']
+    status = wait_for_task(client, task_id, timeout=30)
+    assert status['status'] == 'completed'
+    logs = status.get('logs', '')
+    assert 'declares no contract clauses' not in logs
+    assert "[SYSTEM] [Function Contracts]" not in logs
+
+

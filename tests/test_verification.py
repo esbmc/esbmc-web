@@ -70,6 +70,22 @@ class TestSingleFileC:
         logs = task.get('logs', '')
         assert 'contract ensures' in logs
 
+    def test_function_contract_wildcard_preserves_main_harness(self, client):
+        code = (
+            'int add(int a, int b) {\n'
+            '    __ESBMC_requires(a > 0 && b > 0 && a < 100 && b < 100);\n'
+            '    __ESBMC_ensures(__ESBMC_return_value > 0);\n'
+            '    return a + b;\n'
+            '}\n'
+        )
+        task = analyse(client, {'language': 'c', 'codigo': code, 'flags': ['--enforce-contract', '*']})
+        res = result(task)
+        logs = task.get('logs', '')
+        assert "main symbol `main' not found" not in logs
+        assert "main symbol 'main' not found" not in logs
+        assert res['verdict'] in ('SUCCESSFUL', 'PARTIAL')
+
+
     def test_failing_assertion_is_reported_with_counterexample(self, client):
         res = result(analyse(client, {'language': 'c', 'codigo': C_UNSAFE, 'flags': []}))
         assert res['verificacao_sucesso'] is False
