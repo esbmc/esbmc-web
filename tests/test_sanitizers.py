@@ -435,3 +435,40 @@ class TestPythonRepoSlicing:
         out.write_text(code)
         proc = subprocess.run(['esbmc', str(out)], capture_output=True, text=True, timeout=120, check=False)
         assert 'VERIFICATION SUCCESSFUL' in proc.stdout + proc.stderr
+
+
+def test_contract_keywords_include_old_and_is_fresh():
+    from sanitizers.c_sanitizer import C_KEYWORDS
+    from sanitizers.cpp_sanitizer import CPP_KEYWORDS
+
+    assert '__ESBMC_old' in C_KEYWORDS
+    assert '__ESBMC_is_fresh' in C_KEYWORDS
+    assert '__ESBMC_old' in CPP_KEYWORDS
+    assert '__ESBMC_is_fresh' in CPP_KEYWORDS
+
+
+def test_c_and_cpp_auto_healer_does_not_stub_esbmc_old_or_is_fresh(tmp_path):
+    c_code = (
+        'int inc(int x);\n'
+        'int inc(int x)\n'
+        '    __ESBMC_ensures(__ESBMC_return_value == __ESBMC_old(x) + 1 && __ESBMC_is_fresh(x))\n'
+        '{\n'
+        '    return x + 1;\n'
+        '}\n'
+    )
+    f_c = tmp_path / 'contract.c'
+    f_c.write_text(c_code)
+    created_c, _ = sanitizar_c(str(f_c), str(tmp_path), tem_flag_function=True)
+    for mock_file in created_c:
+        content = (tmp_path / mock_file).read_text()
+        assert '__ESBMC_old' not in content
+        assert '__ESBMC_is_fresh' not in content
+
+    f_cpp = tmp_path / 'contract.cpp'
+    f_cpp.write_text(c_code)
+    created_cpp, _ = sanitizar_cpp(str(f_cpp), str(tmp_path), tem_flag_function=True)
+    for mock_file in created_cpp:
+        content = (tmp_path / mock_file).read_text()
+        assert '__ESBMC_old' not in content
+        assert '__ESBMC_is_fresh' not in content
+

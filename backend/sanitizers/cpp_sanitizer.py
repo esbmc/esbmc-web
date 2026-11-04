@@ -48,6 +48,7 @@ CPP_KEYWORDS = {
     '__VERIFIER_nondet_int', '__ESBMC_assume', '__ESBMC_assert',
     '__ESBMC_requires', '__ESBMC_ensures', '__ESBMC_contract',
     '__ESBMC_return_value', '__ESBMC_assigns',
+    '__ESBMC_old', '__ESBMC_is_fresh',
     'cout', 'cin', 'cerr', 'endl', 'string', 'vector', 'map', 'set', 'pair'
 }
 

@@ -29,7 +29,8 @@ C_KEYWORDS = {
     'nondet_bool', '__VERIFIER_nondet_int', '__VERIFIER_nondet_uint',
     '__VERIFIER_assume', '__ESBMC_assume', '__ESBMC_assert',
     '__ESBMC_requires', '__ESBMC_ensures', '__ESBMC_contract',
-    '__ESBMC_return_value', '__ESBMC_assigns'
+    '__ESBMC_return_value', '__ESBMC_assigns',
+    '__ESBMC_old', '__ESBMC_is_fresh'
 }
 
 
