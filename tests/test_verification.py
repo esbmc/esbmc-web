@@ -85,6 +85,36 @@ class TestSingleFileC:
         assert "main symbol 'main' not found" not in logs
         assert res['verdict'] in ('SUCCESSFUL', 'PARTIAL')
 
+    def test_function_contract_mixed_wildcard_and_specific_adds_function_flag(self, client):
+        code = (
+            'int add(int a, int b) {\n'
+            '    __ESBMC_requires(a > 0 && b > 0 && a < 100 && b < 100);\n'
+            '    __ESBMC_ensures(__ESBMC_return_value > 0);\n'
+            '    return a + b;\n'
+            '}\n'
+        )
+        task = analyse(client, {'language': 'c', 'codigo': code, 'flags': ['--enforce-contract', '*', '--enforce-contract', 'add']})
+        res = result(task)
+        logs = task.get('logs', '')
+        assert "main symbol `main' not found" not in logs
+        assert "main symbol 'main' not found" not in logs
+        assert res['verdict'] == 'SUCCESSFUL'
+        assert res['verificacao_sucesso'] is True
+
+    def test_function_contract_with_old_operator(self, client):
+        code = (
+            'int inc(int x) {\n'
+            '    __ESBMC_requires(x < 100);\n'
+            '    __ESBMC_ensures(__ESBMC_return_value == __ESBMC_old(x) + 1);\n'
+            '    return x + 1;\n'
+            '}\n'
+        )
+        task = analyse(client, {'language': 'c', 'codigo': code, 'flags': ['--enforce-contract', 'inc']})
+        res = result(task)
+        assert res['verdict'] == 'SUCCESSFUL'
+        assert res['verificacao_sucesso'] is True
+
+
 
     def test_failing_assertion_is_reported_with_counterexample(self, client):
         res = result(analyse(client, {'language': 'c', 'codigo': C_UNSAFE, 'flags': []}))

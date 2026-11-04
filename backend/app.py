@@ -325,21 +325,36 @@ FLAGS_QUE_ENFRAQUECEM = {
 }
 
 
+def extrair_alvos_contrato(flags: set | list | tuple) -> Tuple[List[str], Optional[str]]:
+    """Parse all target names passed to --enforce-contract in order.
+    Returns (todos_alvos, primeiro_alvo_especifico), where primeiro_alvo_especifico
+    is the first non-wildcard ('*') target function, or None if none exist."""
+    if not flags:
+        return [], None
+    if isinstance(flags, set):
+        flags = list(flags)
+    alvos = []
+    primeiro_especifico = None
+    i = 0
+    while i < len(flags):
+        if flags[i] == '--enforce-contract' and i + 1 < len(flags):
+            val = str(flags[i + 1]).strip()
+            if not val.startswith('-'):
+                alvos.append(val)
+                if val != '*' and primeiro_especifico is None:
+                    primeiro_especifico = val
+                i += 2
+                continue
+        i += 1
+    return alvos, primeiro_especifico
+
+
 def _tem_alvo_especifico_funcao(flags: set | list) -> bool:
     """Return True if the analysis targets a specific function directly or via a contract."""
     if '--function' in flags:
         return True
-    if '--enforce-contract' in flags:
-        if isinstance(flags, (list, tuple)):
-            alvos = [
-                flags[i + 1]
-                for i, f in enumerate(flags)
-                if f == '--enforce-contract' and i + 1 < len(flags) and not str(flags[i + 1]).startswith('-')
-            ]
-            if alvos and all(a == '*' for a in alvos):
-                return False
-        return True
-    return False
+    _, alvo_especifico = extrair_alvos_contrato(flags)
+    return alvo_especifico is not None
 
 
 def _agrupar_flags(flags: List[str]) -> List[List[str]]:
@@ -958,24 +973,29 @@ def iniciar_analise():
                                 comando.pop(idx + 1)
                             comando.pop(idx)
 
-                enforce_alvo = None
-                if '--enforce-contract' in comando:
-                    idx_enf = comando.index('--enforce-contract')
-                    if idx_enf + 1 < len(comando):
-                        enforce_alvo = comando[idx_enf + 1]
-                        TAREFAS_ATIVAS[task_id]["logs"] += (
-                            f"[SYSTEM] [Function Contracts] Enforcing contract for '{enforce_alvo}' (modular BMC)\n"
-                        )
-                if '--replace-call-with-contract' in comando:
-                    idx_rep = comando.index('--replace-call-with-contract')
-                    if idx_rep + 1 < len(comando):
-                        rep_alvo = comando[idx_rep + 1]
-                        TAREFAS_ATIVAS[task_id]["logs"] += (
-                            f"[SYSTEM] [Function Contracts] Replacing calls to '{rep_alvo}' with contract abstraction\n"
-                        )
+                alvos_enforce, alvo_enforce_especifico = extrair_alvos_contrato(comando)
+                for a in alvos_enforce:
+                    TAREFAS_ATIVAS[task_id]["logs"] += (
+                        f"[SYSTEM] [Function Contracts] Enforcing contract for '{a}' (modular BMC)\n"
+                    )
 
-                if enforce_alvo and enforce_alvo != '*' and '--function' not in comando:
-                    comando.extend(['--function', enforce_alvo])
+                alvos_rep = []
+                i_rep = 0
+                while i_rep < len(comando):
+                    if comando[i_rep] == '--replace-call-with-contract' and i_rep + 1 < len(comando):
+                        val_rep = str(comando[i_rep + 1]).strip()
+                        if not val_rep.startswith('-'):
+                            alvos_rep.append(val_rep)
+                            i_rep += 2
+                            continue
+                    i_rep += 1
+                for r in alvos_rep:
+                    TAREFAS_ATIVAS[task_id]["logs"] += (
+                        f"[SYSTEM] [Function Contracts] Replacing calls to '{r}' with contract abstraction\n"
+                    )
+
+                if alvo_enforce_especifico and '--function' not in comando:
+                    comando.extend(['--function', alvo_enforce_especifico])
 
                 if funcao_alvo_extra and '--function' not in comando:
                     comando.extend(['--function', funcao_alvo_extra])

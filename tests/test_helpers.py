@@ -1,7 +1,7 @@
 import pytest
 
 import app as backend_app
-from app import (JANELA_CORPO_FUNCAO, _fim_do_bloco, _tem_alvo_especifico_funcao, avaliar_status_teste, classificar_veredito, descobrir_funcao_alvo_principal,
+from app import (JANELA_CORPO_FUNCAO, _fim_do_bloco, _tem_alvo_especifico_funcao, extrair_alvos_contrato, avaliar_status_teste, classificar_veredito, descobrir_funcao_alvo_principal,
                  escapar_latex, filtrar_flags_do_repositorio, funcoes_sem_corpo, normalizar_url_e_subpasta_git)
 
 
@@ -186,5 +186,26 @@ def test_tem_alvo_especifico_funcao_excludes_wildcard_contract():
     assert _tem_alvo_especifico_funcao(['--enforce-contract', 'add'])
     assert _tem_alvo_especifico_funcao(['--function', 'foo'])
     assert _tem_alvo_especifico_funcao(['--enforce-contract', '*', '--function', 'foo'])
+    # Mixed wildcard and specific target must suppress the harness because 'add' is specific
+    assert _tem_alvo_especifico_funcao(['--enforce-contract', '*', '--enforce-contract', 'add'])
     assert not _tem_alvo_especifico_funcao(['--unwind', '3'])
+
+
+def test_extrair_alvos_contrato_single_and_multiple():
+    alvos, primeiro_esp = extrair_alvos_contrato(['--enforce-contract', '*'])
+    assert alvos == ['*']
+    assert primeiro_esp is None
+
+    alvos, primeiro_esp = extrair_alvos_contrato(['--enforce-contract', '*', '--enforce-contract', 'add'])
+    assert alvos == ['*', 'add']
+    assert primeiro_esp == 'add'
+
+    alvos, primeiro_esp = extrair_alvos_contrato(['--enforce-contract', 'foo', '--enforce-contract', 'bar'])
+    assert alvos == ['foo', 'bar']
+    assert primeiro_esp == 'foo'
+
+    alvos, primeiro_esp = extrair_alvos_contrato([])
+    assert alvos == []
+    assert primeiro_esp is None
+
 
