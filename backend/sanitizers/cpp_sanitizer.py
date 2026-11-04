@@ -3176,6 +3176,8 @@ def extrair_funcoes_exportadas_headers_cpp(temp_dir: str, headers_existentes: se
         re.MULTILINE
     )
     for h in headers_existentes:
+        if 'mock_boost' in h or 'mock_' in h:
+            continue
         caminho_h = os.path.join(temp_dir, h) if not os.path.isabs(h) else h
         if os.path.isfile(caminho_h):
             try:

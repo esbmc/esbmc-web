@@ -248,14 +248,14 @@ def descrever_harness_c(harness: Optional[dict]) -> str:
     linha = (
         f"[SYSTEM] [Entry Harness] Synthesized reachability harness for {len(raizes)} root function(s) "
         f"({len(publicas)} public API boundary root(s): {', '.join(publicas) if len(publicas) <= 5 else f'{len(publicas)} functions'}); "
-        "internal functions are verified through caller reachability"
+        "functions called inside the module are checked through their callers"
     )
     if alcance:
         rotas = [f"{k} reached via {', '.join(v)}" for k, v in list(alcance.items())[:3] if v]
         if rotas:
             linha += f" [Reachability: {'; '.join(rotas)}]"
     nao_exercitadas = harness.get('nao_exercitadas', [])
-    return linha + (f"; dead/unreachable: {', '.join(nao_exercitadas)}\n" if nao_exercitadas else ".\n")
+    return linha + (f"; not exercised: {', '.join(nao_exercitadas)}\n" if nao_exercitadas else ".\n")
 
 
 def avaliar_status_teste(veredicto_obtido: str, veredicto_esperado: Optional[str]) -> Tuple[str, str]:
