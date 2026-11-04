@@ -21,34 +21,41 @@ def _tipo(decl: str, padrao: str) -> str:
     return padrao if tipo in ('', 'void', 'auto') else tipo
 
 
-def declarar_argumento(decl: str, nome: str) -> list:
+def declarar_argumento(decl: str, nome: str, permitir_null: bool = True) -> list:
     """Declare an unconstrained harness argument for parameter `decl`.
 
     Arguments are left uninitialised, which ESBMC treats as nondet (#39). A pointer is NULL or a
     buffer with nondet contents (#46); plain char buffers are null-terminated so string calls stay
     in bounds. A raw nondet pointer would be non-null and invalid, failing guarded code.
     `T a[static N]` must point to N elements (C11 6.7.6.3p7), so it is never NULL.
+    When `permitir_null` is False (reachability constraint or contract precondition), pointers are
+    initialized strictly to valid non-null buffers.
     """
     decl = re.sub(r'\b(?:const|volatile|register)\b', '', re.sub(r'=.*$', '', decl)).strip()
+    decl = re.sub(r'\.\.\.', '', decl).strip()
+    if not decl:
+        return []
     if '*' in decl or '[' in decl:
         tipo = _tipo(re.sub(r'[\*\[].*', '', decl).strip(), 'unsigned char')
+        tipo = tipo.replace('...', '').strip() or 'unsigned char'
         buf = f"{nome}_buf"
         linhas = [f"    {tipo} {buf}[{_TAMANHO_BUFFER}];"]
         if tipo == 'char':
             linhas.append(f"    {buf}[{_TAMANHO_BUFFER - 1}] = 0;")
-        if re.search(r'\[\s*static\b', decl):
+        if not permitir_null or re.search(r'\[\s*static\b', decl):
             return linhas + [f"    {tipo} *{nome} = {buf};"]
         return linhas + [f"    {tipo} *{nome} = {_ESCOLHA_NULL}() ? 0 : {buf};"]
     tipo = _tipo(re.sub(r'&.*', '', decl).strip(), 'int')
+    tipo = tipo.replace('...', '').strip() or 'int'
     fluxo = _FLUXOS.get(tipo.replace(' ', '').removeprefix('std::'))
     if fluxo and '&' in decl:
         return [f"    {tipo} &{nome} = {fluxo};"]
     return [f"    {tipo} {nome};"]
 
 
-def _chamada(idx: int, fn_name: str, params: list) -> list:
+def _chamada(idx: int, fn_name: str, params: list, permitir_null: bool = True) -> list:
     args = [f"_sym_arg_{idx}_{p_idx}" for p_idx in range(len(params))]
-    linhas = [linha for decl, nome in zip(params, args) for linha in declarar_argumento(decl, nome)]
+    linhas = [linha for decl, nome in zip(params, args) for linha in declarar_argumento(decl, nome, permitir_null=permitir_null)]
     return linhas + [f"    {fn_name}({', '.join(args)});"]
 
 
@@ -96,6 +103,25 @@ class GrafoDeChamadas:
     forcadas: set = field(default_factory=set)
     estaticas: set = field(default_factory=set)
     funcoes: Optional[list] = None
+
+    def rotas_de_alcance(self) -> dict:
+        """Map each callee to the callers that can reach it directly or transitively (#reachability)."""
+        rotas = {}
+        for dono, filhos in self.chama.items():
+            for f in filhos:
+                rotas.setdefault(f, set()).add(dono)
+        modificado = True
+        while modificado:
+            modificado = False
+            for callee, callers in list(rotas.items()):
+                novos = set()
+                for c in callers:
+                    if c in rotas:
+                        novos |= rotas[c]
+                if not novos <= callers:
+                    callers |= novos
+                    modificado = True
+        return {k: sorted(v) for k, v in rotas.items()}
 
     @classmethod
     # pylint: disable-next=too-many-locals,too-many-arguments,too-many-positional-arguments
@@ -342,12 +368,26 @@ def escolher_raizes(nomes: list, grafo: GrafoDeChamadas, excluidas=()):
     return raizes, [n for n in nomes if n not in alcancados]
 
 
-def _escrever(caminho: str, prefixo: str, cabecalho: list, funcoes, chamadas: set) -> list:
+class InfoHarness(dict):
+    """Result dictionary with 'raizes' and 'nao_exercitadas', enriched with reachability
+    analysis and public API metadata as attributes."""
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.alcancabilidade = {}
+        self.publicas = []
+        self.internas = []
+
+
+def _escrever(caminho: str, prefixo: str, cabecalho: list, funcoes, chamadas: set,
+              funcoes_com_contrato=None, funcoes_exportadas=None) -> list:
     """Write the module with its harness; returns the index in `funcoes` owning each line."""
     linhas, donos = list(cabecalho), [None] * len(cabecalho)
     for idx, (fn_name, params) in enumerate(funcoes):
         if idx in chamadas:
-            bloco = _chamada(idx, fn_name, params)
+            eh_contrato = bool(funcoes_com_contrato and (fn_name in funcoes_com_contrato or '*' in funcoes_com_contrato))
+            eh_interna = bool(funcoes_exportadas and fn_name not in funcoes_exportadas)
+            permitir_null = not (eh_contrato or eh_interna)
+            bloco = _chamada(idx, fn_name, params, permitir_null=permitir_null)
             linhas += bloco
             donos += [idx] * len(bloco)
     with open(caminho, 'w', encoding='utf-8') as f:
@@ -368,15 +408,16 @@ def _funcoes_e_grafo(caminho: str, codigo: str, codigo_usuario: str, funcoes, ar
 
 # pylint: disable-next=too-many-arguments,too-many-positional-arguments,too-many-locals
 def montar_harness(caminho: str, codigo: str, codigo_usuario: str, funcoes, abertura: list,
-                   comando_clang: list) -> dict:
+                   comando_clang: list, funcoes_exportadas: set = None,
+                   funcoes_com_contrato: set = None) -> dict:
     """Write `codigo` plus a harness to `caminho`, dropping root calls that do not compile.
 
     `codigo_usuario` is the user's code at the end of `codigo`, after the healer's declarations;
     `funcoes` is the text-matched fallback for when clang cannot parse the module. Returns the
-    roots called and the functions left unexercised.
+    roots called and the functions left unexercised, enriched with reachability analysis.
     """
     # A file name of its own keeps harness locations apart from any #line in the user's code.
-    origem = caminho + '.harness'
+    origem = (caminho + '.harness').replace('\\', '/')
     cabecalho = [f'#line 1 "{origem}"', f'int {_ESCOLHA_NULL}(void);'] + list(abertura)
     prefixo = codigo.rstrip('\n') + '\n\n'
     funcoes, grafo = _funcoes_e_grafo(caminho, codigo, codigo_usuario, funcoes, comando_clang[2:])
@@ -388,11 +429,21 @@ def montar_harness(caminho: str, codigo: str, codigo_usuario: str, funcoes, aber
                        if all(i in descartadas for i, (m, _) in enumerate(funcoes) if m == n)}
         raizes, nao_alcancadas = escolher_raizes(nomes, grafo, sem_chamada)
         chamadas = {i for i, (n, _) in enumerate(funcoes) if n in raizes and i not in descartadas}
-        donos = _escrever(caminho, prefixo, cabecalho, funcoes, chamadas)
+        donos = _escrever(caminho, prefixo, cabecalho, funcoes, chamadas,
+                          funcoes_com_contrato=funcoes_com_contrato,
+                          funcoes_exportadas=funcoes_exportadas)
         ruins = {donos[n] for n in _linhas_com_erro(origem, caminho, comando_clang)
                  if n < len(donos) and donos[n] is not None}
         if not ruins:
             parciais = {funcoes[i][0] for i in descartadas}
-            return {'raizes': raizes,
-                    'nao_exercitadas': [n for n in nomes if n in parciais or n in nao_alcancadas]}
+            nao_exerc = [n for n in nomes if n in parciais or n in nao_alcancadas]
+            info = InfoHarness({'raizes': raizes, 'nao_exercitadas': nao_exerc})
+            info.alcancabilidade = grafo.rotas_de_alcance()
+            if funcoes_exportadas:
+                info.publicas = [r for r in raizes if r in funcoes_exportadas]
+                info.internas = [r for r in raizes if r not in funcoes_exportadas]
+            else:
+                info.publicas = list(raizes)
+                info.internas = []
+            return info
         descartadas |= ruins

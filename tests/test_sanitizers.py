@@ -102,6 +102,34 @@ class TestCSanitizer:
         assert harness == {'raizes': ['f2', 'f3', 'f4', 'f5', 'f6', 'top'], 'nao_exercitadas': ['legacy']}
         assert 'top(' in calls and 'f0(' not in calls and 'legacy(' not in calls
 
+    def test_harness_records_reachability_paths_and_public_apis(self, tmp_path):
+        header = tmp_path / 'lib.h'
+        header.write_text('int pub_api(const char *p);\nint callee(const char *s);\n')
+        c_code = tmp_path / 'lib.c'
+        c_code.write_text(
+            '#include "lib.h"\n'
+            'int callee(const char *s) { return s ? s[0] : 0; }\n'
+            'int pub_api(const char *p) { return callee(p); }\n'
+        )
+        _, harness = sanitizar_c(str(c_code), str(tmp_path))
+        assert 'pub_api' in harness['raizes']
+        assert 'callee' in harness.alcancabilidade
+        assert 'pub_api' in harness.alcancabilidade['callee']
+        assert 'pub_api' in harness.publicas
+
+    def test_harness_contract_suppresses_null_pointer_injection(self, tmp_path):
+        f = tmp_path / 'codigo.c'
+        f.write_text('int process(const char *str) { return str[0]; }\n')
+        _, harness_raw = sanitizar_c(str(f), str(tmp_path))
+        txt_raw = f.read_text()
+        assert 'nondet_harness_null() ? 0 :' in txt_raw
+
+        f.write_text('int process(const char *str) { return str[0]; }\n')
+        _, harness_contract = sanitizar_c(str(f), str(tmp_path), funcoes_com_contrato={'process'})
+        txt_contract = f.read_text()
+        assert 'nondet_harness_null() ? 0 :' not in txt_contract
+        assert 'process(' in txt_contract
+
     @pytest.mark.parametrize('code, roots, skipped', [
         ('static int h(int x){ return x; }\nint api(int x){ return h(x); }\n', ['api'], []),
         ('static int dead(int x){ return x; }\nint api(int x){ return x; }\n', ['api'], ['dead']),

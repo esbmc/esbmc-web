@@ -239,13 +239,23 @@ def descrever_harness(info: dict) -> str:
 
 
 def descrever_harness_c(harness: Optional[dict]) -> str:
-    """Log line for a C/C++ entry harness, naming its assumption and what it left out (#39, #46)."""
+    """Log line for a C/C++ entry harness, detailing roots, reachability and assumptions (#39, #46, #reachability)."""
     if not harness:
         return ""
-    linha = (f"[SYSTEM] [Entry Harness] calls {len(harness['raizes'])} root function(s) with unconstrained inputs "
-             "(pointers may be NULL); functions called inside the module are checked through their callers")
-    nao_exercitadas = harness['nao_exercitadas']
-    return linha + (f"; not exercised: {', '.join(nao_exercitadas)}\n" if nao_exercitadas else ".\n")
+    raizes = harness.get('raizes', [])
+    publicas = getattr(harness, 'publicas', []) or raizes
+    alcance = getattr(harness, 'alcancabilidade', {})
+    linha = (
+        f"[SYSTEM] [Entry Harness] Synthesized reachability harness for {len(raizes)} root function(s) "
+        f"({len(publicas)} public API boundary root(s): {', '.join(publicas) if len(publicas) <= 5 else f'{len(publicas)} functions'}); "
+        "internal functions are verified through caller reachability"
+    )
+    if alcance:
+        rotas = [f"{k} reached via {', '.join(v)}" for k, v in list(alcance.items())[:3] if v]
+        if rotas:
+            linha += f" [Reachability: {'; '.join(rotas)}]"
+    nao_exercitadas = harness.get('nao_exercitadas', [])
+    return linha + (f"; dead/unreachable: {', '.join(nao_exercitadas)}\n" if nao_exercitadas else ".\n")
 
 
 def avaliar_status_teste(veredicto_obtido: str, veredicto_esperado: Optional[str]) -> Tuple[str, str]:
@@ -1333,8 +1343,14 @@ def iniciar_analise():
                         with open(caminho_temp_mod, 'w', encoding='utf-8') as f:
                             f.write(cod_modulo)
                         tem_fn_mod = _tem_alvo_especifico_funcao(flags_recebidas)
+                        fn_contratos = set()
+                        if '--enforce-contract' in flags_recebidas:
+                            idx_enf = flags_recebidas.index('--enforce-contract')
+                            if idx_enf + 1 < len(flags_recebidas):
+                                fn_contratos.add(flags_recebidas[idx_enf + 1])
                         mocks_c, harness_mod = sanitizar_cpp(
-                            caminho_temp_mod, temp_dir, tem_flag_function=tem_fn_mod, sub_dir_repo=sub_dir_repo
+                            caminho_temp_mod, temp_dir, tem_flag_function=tem_fn_mod, sub_dir_repo=sub_dir_repo,
+                            funcoes_com_contrato=fn_contratos
                         )
                         TAREFAS_ATIVAS[task_id]["logs"] += descrever_harness_c(harness_mod)
                         nao_exercitadas_mod = harness_mod['nao_exercitadas'] if harness_mod else []
@@ -1346,8 +1362,14 @@ def iniciar_analise():
                         with open(caminho_temp_mod, 'w', encoding='utf-8') as f:
                             f.write(cod_modulo)
                         tem_fn_mod = _tem_alvo_especifico_funcao(flags_recebidas)
+                        fn_contratos = set()
+                        if '--enforce-contract' in flags_recebidas:
+                            idx_enf = flags_recebidas.index('--enforce-contract')
+                            if idx_enf + 1 < len(flags_recebidas):
+                                fn_contratos.add(flags_recebidas[idx_enf + 1])
                         mocks_c, harness_mod = sanitizar_c(
-                            caminho_temp_mod, temp_dir, tem_flag_function=tem_fn_mod, sub_dir_repo=sub_dir_repo
+                            caminho_temp_mod, temp_dir, tem_flag_function=tem_fn_mod, sub_dir_repo=sub_dir_repo,
+                            funcoes_com_contrato=fn_contratos
                         )
                         TAREFAS_ATIVAS[task_id]["logs"] += descrever_harness_c(harness_mod)
                         nao_exercitadas_mod = harness_mod['nao_exercitadas'] if harness_mod else []
@@ -1862,7 +1884,15 @@ def iniciar_analise():
                 TAREFAS_ATIVAS[task_id]["logs"] += "\n[SYSTEM] Running ESBMC C Homogenizer & Clang Auto-Healer...\n"
                 try:
                     tem_fn = _tem_alvo_especifico_funcao(flags_recebidas)
-                    mocks_criados, harness_c = sanitizar_c(caminho_original, temp_dir, tem_flag_function=tem_fn, sub_dir_repo=sub_dir_repo)
+                    fn_contratos = set()
+                    if '--enforce-contract' in flags_recebidas:
+                        idx_enf = flags_recebidas.index('--enforce-contract')
+                        if idx_enf + 1 < len(flags_recebidas):
+                            fn_contratos.add(flags_recebidas[idx_enf + 1])
+                    mocks_criados, harness_c = sanitizar_c(
+                        caminho_original, temp_dir, tem_flag_function=tem_fn, sub_dir_repo=sub_dir_repo,
+                        funcoes_com_contrato=fn_contratos
+                    )
                     TAREFAS_ATIVAS[task_id]["logs"] += descrever_harness_c(harness_c)
                     nao_exercitadas = harness_c['nao_exercitadas'] if harness_c else []
                     with open(caminho_original, 'r', encoding='utf-8', errors='replace') as f:
@@ -1878,7 +1908,15 @@ def iniciar_analise():
                 TAREFAS_ATIVAS[task_id]["logs"] += "\n[SYSTEM] Running ESBMC C++ Homogenizer & Clang Auto-Healer...\n"
                 try:
                     tem_fn = _tem_alvo_especifico_funcao(flags_recebidas)
-                    mocks_criados, harness_c = sanitizar_cpp(caminho_original, temp_dir, tem_flag_function=tem_fn, sub_dir_repo=sub_dir_repo)
+                    fn_contratos = set()
+                    if '--enforce-contract' in flags_recebidas:
+                        idx_enf = flags_recebidas.index('--enforce-contract')
+                        if idx_enf + 1 < len(flags_recebidas):
+                            fn_contratos.add(flags_recebidas[idx_enf + 1])
+                    mocks_criados, harness_c = sanitizar_cpp(
+                        caminho_original, temp_dir, tem_flag_function=tem_fn, sub_dir_repo=sub_dir_repo,
+                        funcoes_com_contrato=fn_contratos
+                    )
                     TAREFAS_ATIVAS[task_id]["logs"] += descrever_harness_c(harness_c)
                     nao_exercitadas = harness_c['nao_exercitadas'] if harness_c else []
                     with open(caminho_original, 'r', encoding='utf-8', errors='replace') as f:

@@ -52,6 +52,30 @@ CPP_KEYWORDS = {
 }
 
 
+def _peso_prioridade_include_cpp(p: str) -> tuple:
+    p_norm = p.replace('\\', '/').lower()
+    base = os.path.basename(p_norm)
+    partes = [pt for pt in p_norm.split('/') if pt]
+    eh_sub_port = any(pt in ('portable', 'arch', 'ports', 'bsp') for pt in partes[:-1])
+
+    if any(k in p_norm for k in ('posix', 'linux', 'host', 'x86_64', 'x86')):
+        rank = 0  # POSIX / Linux host port has maximum priority!
+    elif base in ('include', 'inc', 'src', 'headers') and not eh_sub_port:
+        rank = 0  # Core top-level include / src
+    elif any(k in p_norm for k in ('template_configuration', 'config')):
+        rank = 1  # Default / template configurations
+    elif eh_sub_port or any(k in p_norm for k in (
+        'risc-v', 'riscv', 'armv8m', 'armv7m', 'arm_cm', 'microblaze', 'msp430',
+        'pic24', 'coldfire', 'renesas', 'iar', 'keil', 'softune', 'owatcom',
+        'ccrh', 'ccs', 'codewarrior', 'mplab', 'mikroc', 'paradigm', 'rvds',
+        'rowley', 'sdcc', 'tasking', 'wizc', 'rp2040', 'xtensa', 'esp32'
+    )):
+        rank = 3  # Bare-metal embedded chip targets
+    else:
+        rank = 2
+    return (rank, p.count(os.sep), p)
+
+
 def descubrir_headers_e_includes_no_diretorio(root_dir: str):
     """Walk `root_dir` (e.g. a cloned Git repository) recursively and return:
     - `include_dirs`: ordered list of include directories and roots (e.g. `src/`, `include/`),
@@ -135,9 +159,8 @@ def descubrir_headers_e_includes_no_diretorio(root_dir: str):
                     pass
 
     # Sort ancestor/root directories (`src`, `include`, `library`) first, then the leaves
-    raizes_ordenadas = sorted(include_dirs_raizes, key=lambda p: (p.count(os.sep), p))
-    folhas_ordenadas = sorted(include_dirs_folhas - include_dirs_raizes, key=lambda p: (p.count(os.sep), p))
-    todos_includes = (raizes_ordenadas + folhas_ordenadas)[:85]
+    todos_candidatos = list(include_dirs_raizes | include_dirs_folhas)
+    todos_includes = sorted(todos_candidatos, key=_peso_prioridade_include_cpp)[:85]
     return todos_includes, headers_existentes, fontes_auxiliares
 
 
@@ -410,6 +433,7 @@ def _diagnosticar_erros_clang_cpp(caminho_arquivo: str, include_dirs: list):
     funcoes_faltantes = set()
     constantes_faltantes = set()
     headers_sugeridos = set()
+    headers_ausentes_disco = set()
 
     cmd = ['clang', '-fsyntax-only', '-x', 'c++', '-std=c++14']
     for d in include_dirs:
@@ -420,9 +444,13 @@ def _diagnosticar_erros_clang_cpp(caminho_arquivo: str, include_dirs: list):
         proc = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
         stderr = proc.stderr or ''
     except Exception:
-        return tipos_faltantes, funcoes_faltantes, constantes_faltantes, headers_sugeridos
+        return tipos_faltantes, funcoes_faltantes, constantes_faltantes, headers_sugeridos, headers_ausentes_disco
 
     for line in stderr.splitlines():
+        m_missing = re.search(r"'(.*?)'\s+file not found", line)
+        if m_missing:
+            headers_ausentes_disco.add(m_missing.group(1))
+
         m_inc = re.search(r"you need to include <([^>]+)>", line)
         if m_inc:
             headers_sugeridos.add(m_inc.group(1))
@@ -439,7 +467,7 @@ def _diagnosticar_erros_clang_cpp(caminho_arquivo: str, include_dirs: list):
             else:
                 funcoes_faltantes.add(ident)
 
-    return tipos_faltantes, funcoes_faltantes, constantes_faltantes, headers_sugeridos
+    return tipos_faltantes, funcoes_faltantes, constantes_faltantes, headers_sugeridos, headers_ausentes_disco
 
 
 _ABERTURA_HARNESS_CPP = [
@@ -3137,7 +3165,33 @@ def _remover_shims_std_nativos(mock_dir: str) -> None:
             os.remove(os.path.join(mock_dir, nome))
 
 
-def sanitizar_cpp(caminho_arquivo: str, temp_dir: str, tem_flag_function: bool = False, sub_dir_repo: str = None):
+def extrair_funcoes_exportadas_headers_cpp(temp_dir: str, headers_existentes: set) -> set:
+    """Extract public API function names declared in C++ header (.hpp, .h) files."""
+    exportadas = set()
+    if not temp_dir or not os.path.isdir(temp_dir):
+        return exportadas
+    padrao_decl = re.compile(
+        r'^[ \t]*(?:extern\s+)?(?:[A-Za-z_][A-Za-z0-9_<>:,\s\*&]*?)\s+([A-Za-z_][A-Za-z0-9_]*)\s*\([^;{}]*\)\s*;',
+        re.MULTILINE
+    )
+    for h in headers_existentes:
+        caminho_h = os.path.join(temp_dir, h) if not os.path.isabs(h) else h
+        if os.path.isfile(caminho_h):
+            try:
+                with open(caminho_h, 'r', encoding='utf-8', errors='replace') as f:
+                    conteudo = f.read()
+                conteudo_limpo = re.sub(r'//.*?$|/\*.*?\*/', '', conteudo, flags=re.DOTALL | re.MULTILINE)
+                for m in padrao_decl.finditer(conteudo_limpo):
+                    nome = m.group(1).strip()
+                    if nome not in CPP_KEYWORDS and not nome.startswith('__'):
+                        exportadas.add(nome)
+            except Exception:
+                pass
+    return exportadas
+
+
+def sanitizar_cpp(caminho_arquivo: str, temp_dir: str, tem_flag_function: bool = False,
+                  sub_dir_repo: str = None, funcoes_com_contrato: set = None):
     """Homogenizer and sanitizer for C++ (C++14).
 
     1. Injects lightweight STL/Boost compatibility mocks (mock_boost) for esbmclibc;
@@ -3243,47 +3297,70 @@ def sanitizar_cpp(caminho_arquivo: str, temp_dir: str, tem_flag_function: bool =
             f.write("// === AUTO-SYNTHESIZED TEMPLATE/CLASS STUBS ===\n" + stubs_classes_e_templates + "\n" + codigo_original)
         codigo_original = open(caminho_arquivo, 'r', encoding='utf-8').read()
 
-    # Auto-healer via Clang diagnostics (only for functions actually called as `ident(...)`, types, and suggested headers)
-    tipos, funcoes_cand, constantes, headers_sugeridos = _diagnosticar_erros_clang_cpp(caminho_arquivo, include_dirs)
-    novos = []
+    # Auto-healer via Clang diagnostics (iterative 2-pass for missing nested headers, types, functions)
+    for _passo in range(2):
+        tipos, funcoes_cand, constantes, headers_sugeridos, headers_ausentes_disco = _diagnosticar_erros_clang_cpp(caminho_arquivo, include_dirs)
+        
+        # 1. Synthesize mock headers for any nested missing includes discovered across the repository
+        for h_miss in sorted(headers_ausentes_disco):
+            if h_miss in STDLIB_CPP or _header_existe_no_projeto(h_miss, temp_dir, dir_arquivo, headers_existentes):
+                continue
+            caminho_mock = os.path.join(temp_dir, h_miss)
+            if not contido_em(temp_dir, caminho_mock):
+                continue
+            if not os.path.exists(caminho_mock):
+                os.makedirs(os.path.dirname(caminho_mock), exist_ok=True)
+                with open(caminho_mock, 'w', encoding='utf-8') as f:
+                    f.write(f"// AUTOMATIC MOCK GENERATED BY THE ESBMC C++ HOMOGENIZER FOR: {h_miss}\n")
+                    f.write("#pragma once\n#include <cstdint>\n#include <cstddef>\n\n")
+                    # Generic dummy struct and return values for C/C++ cross-subsystem calls
+                    f.write("typedef int rcutils_ret_t;\n")
+                    f.write("enum { RCUTILS_RET_OK = 0, RCUTILS_RET_ERROR = 1, RCUTILS_RET_INVALID_ARGUMENT = 2 };\n")
+                arquivos_gerados.append(caminho_mock)
 
-    for h_sug in sorted(headers_sugeridos):
-        novos.append(f"#include <{h_sug}>")
+        novos = []
+        for h_sug in sorted(headers_sugeridos):
+            novos.append(f"#include <{h_sug}>")
 
-    for tp in sorted(tipos):
-        if tp not in CPP_KEYWORDS and not re.search(rf'\b(?:class|struct)\s+{re.escape(tp)}\b', codigo_original + codigo_headers_locais):
-            novos.append(
-                f"struct {tp} {{\n"
-                f"    int value = 0;\n"
-                f"    {tp}(...) {{}}\n"
-                f"    operator int() const {{ return value; }}\n"
-                f"}};"
-            )
+        for tp in sorted(tipos):
+            if tp not in CPP_KEYWORDS and not re.search(rf'\b(?:class|struct)\s+{re.escape(tp)}\b', codigo_original + codigo_headers_locais):
+                novos.append(
+                    f"struct {tp} {{\n"
+                    f"    int value = 0;\n"
+                    f"    {tp}(...) {{}}\n"
+                    f"    operator int() const {{ return value; }}\n"
+                    f"}};"
+                )
 
-    for cst in sorted(constantes):
-        if cst not in CPP_KEYWORDS:
-            novos.append(f"#ifndef {cst}\n#define {cst} 16\n#endif")
+        for cst in sorted(constantes):
+            if cst not in CPP_KEYWORDS:
+                novos.append(f"#ifndef {cst}\n#define {cst} 16\n#endif")
 
-    for fn in sorted(funcoes_cand):
-        if fn not in CPP_KEYWORDS:
-            # Only inject a function if `fn(...)` is called as a free function (and is NOT a local variable `Type fn(...)`)
-            eh_declaracao_var = bool(re.search(rf'\b[A-Za-z_][A-Za-z0-9_<>:,\s\*&]*\s+{re.escape(fn)}\s*\(', codigo_original))
-            eh_chamada_func = bool(re.search(rf'(?<![A-Za-z0-9_\.>])\b{re.escape(fn)}\s*\(', codigo_original))
-            if eh_chamada_func and not eh_declaracao_var:
-                novos.append(f"template<typename... Args> int {fn}(Args... args) {{ return 0; }}")
+        for fn in sorted(funcoes_cand):
+            if fn not in CPP_KEYWORDS:
+                # Only inject a function if `fn(...)` is called as a free function (and is NOT a local variable `Type fn(...)`)
+                eh_declaracao_var = bool(re.search(rf'\b[A-Za-z_][A-Za-z0-9_<>:,\s\*&]*\s+{re.escape(fn)}\s*\(', codigo_original))
+                eh_chamada_func = bool(re.search(rf'(?<![A-Za-z0-9_\.>])\b{re.escape(fn)}\s*\(', codigo_original))
+                if eh_chamada_func and not eh_declaracao_var:
+                    novos.append(f"template<typename... Args> int {fn}(Args... args) {{ return 0; }}")
 
-    if novos:
-        bloco_cura = "// === AUTO-HEALED DECLARATIONS (ESBMC C++ HOMOGENIZER) ===\n" + "\n".join(novos) + "\n\n"
-        with open(caminho_arquivo, 'w', encoding='utf-8') as f:
-            f.write(bloco_cura + codigo_original)
+        if novos:
+            bloco_cura = "// === AUTO-HEALED DECLARATIONS (ESBMC C++ HOMOGENIZER) ===\n" + "\n".join(novos) + "\n\n"
+            with open(caminho_arquivo, 'w', encoding='utf-8') as f:
+                f.write(bloco_cura + codigo_original)
+            codigo_original = open(caminho_arquivo, 'r', encoding='utf-8').read()
 
     with open(caminho_arquivo, 'r', encoding='utf-8', errors='replace') as f:
         codigo_atual = f.read()
 
     if not tem_flag_function and not _tem_funcao_main(codigo_atual):
         funcoes_livres = _extrair_funcoes_livres_cpp(codigo_original)
-        comando = ['clang', '-fsyntax-only', '-x', 'c++'] + [a for d in include_dirs for a in ('-I', d)]
-        harness = montar_harness(caminho_arquivo, codigo_atual, codigo_original, funcoes_livres, _ABERTURA_HARNESS_CPP, comando)
+        funcoes_exportadas = extrair_funcoes_exportadas_headers_cpp(temp_dir, headers_existentes)
+        comando = ['clang', '-fsyntax-only', '-x', 'c++', '-std=c++14'] + [a for d in include_dirs for a in ('-I', d)]
+        harness = montar_harness(
+            caminho_arquivo, codigo_atual, codigo_original, funcoes_livres, _ABERTURA_HARNESS_CPP, comando,
+            funcoes_exportadas=funcoes_exportadas, funcoes_com_contrato=funcoes_com_contrato
+        )
         if not arquivos_gerados:
             arquivos_gerados.append("symbolic_main_harness")
 
