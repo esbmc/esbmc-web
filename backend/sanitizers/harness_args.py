@@ -376,23 +376,169 @@ class InfoHarness(dict):
         self.alcancabilidade = {}
         self.publicas = []
         self.internas = []
+        self.ciclo_de_vida = {}
+
+
+def _eh_desalocador(nome: str, params: list) -> bool:
+    """True if `nome` has deallocation semantics and takes a pointer argument (#lifecycle)."""
+    if not any('*' in p or '[' in p for p in params):
+        return False
+    nome_lower = nome.lower()
+    return any(k in nome_lower for k in ('free', 'destroy', 'release', 'delete', 'dispose', 'close', 'cleanup'))
+
+
+def _eh_alocador(nome: str) -> bool:
+    """True if `nome` has allocation semantics (#lifecycle)."""
+    nome_lower = nome.lower()
+    return any(k in nome_lower for k in ('alloc', 'malloc', 'calloc', 'realloc', 'create', 'acquire', 'new', 'open'))
+
+
+def _eh_inicializador(nome: str) -> bool:
+    """True if `nome` is a setup / initializer function that should run before operations (#lifecycle)."""
+    nome_lower = nome.lower()
+    return any(k in nome_lower for k in ('init', 'initialise', 'initialize', 'setup', 'startup', 'boot', 'defineheap'))
+
+
+def _encontrar_alocador_correspondente(fn_dealloc: str, funcoes: list) -> Optional[tuple]:
+    """Find the best matching allocator in `funcoes` for deallocator `fn_dealloc` (#lifecycle)."""
+    candidatos = []
+    d_lower = fn_dealloc.lower()
+    for idx_a, (fn_a, params_a) in enumerate(funcoes):
+        if fn_a == fn_dealloc or not _eh_alocador(fn_a):
+            continue
+        score = 0
+        a_lower = fn_a.lower()
+        if 'free' in d_lower and 'malloc' in a_lower:
+            score += 10
+        elif 'destroy' in d_lower and 'create' in a_lower:
+            score += 10
+        elif 'close' in d_lower and 'open' in a_lower:
+            score += 10
+        for sub in ('port', 'heap', 'mem', 'pool', 'block', 'node', 'queue', 'buf', 'item'):
+            if sub in d_lower and sub in a_lower:
+                score += 5
+        if len(params_a) == 1 and any('size' in p.lower() or 'int' in p.lower() for p in params_a):
+            score += 3
+        candidatos.append((score, idx_a, fn_a, params_a))
+    if not candidatos:
+        return None
+    candidatos.sort(key=lambda item: item[0], reverse=True)
+    best = candidatos[0]
+    return (best[1], best[2], best[3])
+
+
+def _chamada_ciclo_de_vida(idx_alloc: int, fn_alloc: str, params_alloc: list,
+                           idx_dealloc: int, fn_dealloc: str, params_dealloc: list,
+                           eh_cpp: bool = False) -> list:
+    """Synthesize a lifecycle-chained harness block: Allocator -> Deallocator (#lifecycle).
+    Explores both NULL handling and legitimate allocated pointer deallocation without
+    triggering spurious invalid-pointer-freed or buffer-underflow counterexamples.
+    """
+    ptr_idx = next((i for i, p in enumerate(params_dealloc) if '*' in p or '[' in p), 0)
+    alloc_args = [f"_sym_alloc_{idx_alloc}_{i}" for i in range(len(params_alloc))]
+    alloc_decls = [l for decl, nome in zip(params_alloc, alloc_args) for l in declarar_argumento(decl, nome)]
+
+    dealloc_args = []
+    dealloc_decls = []
+    null_args = []
+    for i, decl in enumerate(params_dealloc):
+        if i == ptr_idx:
+            dealloc_args.append(f"_sym_res_alloc_{idx_alloc}")
+            null_args.append("0")
+        else:
+            arg_nome = f"_sym_dealloc_{idx_dealloc}_{i}"
+            dealloc_decls.extend(declarar_argumento(decl, arg_nome))
+            dealloc_args.append(arg_nome)
+            null_args.append(arg_nome)
+
+    res_decl = (
+        f"        auto _sym_res_alloc_{idx_alloc} = {fn_alloc}({', '.join(alloc_args)});"
+        if eh_cpp else
+        f"        void *_sym_res_alloc_{idx_alloc} = (void *) {fn_alloc}({', '.join(alloc_args)});"
+    )
+
+    linhas = [
+        f"    /* === LIFECYCLE-AWARE HARNESS: Chaining {fn_alloc} -> {fn_dealloc} === */",
+    ]
+    if dealloc_decls:
+        linhas.extend(dealloc_decls)
+    linhas.extend([
+        f"    if ({_ESCOLHA_NULL}()) {{",
+        f"        {fn_dealloc}({', '.join(null_args)});",
+        f"    }} else {{",
+    ])
+    for l in alloc_decls:
+        linhas.append(f"    {l}")
+    linhas.extend([
+        res_decl,
+        f"        if (_sym_res_alloc_{idx_alloc} != 0) {{",
+        f"            {fn_dealloc}({', '.join(dealloc_args)});",
+        f"        }}",
+        f"    }}",
+    ])
+    return linhas
 
 
 def _escrever(caminho: str, prefixo: str, cabecalho: list, funcoes, chamadas: set,
-              funcoes_com_contrato=None, funcoes_exportadas=None) -> list:
-    """Write the module with its harness; returns the index in `funcoes` owning each line."""
+              funcoes_com_contrato=None, funcoes_exportadas=None) -> tuple:
+    """Write the module with its harness; returns (donos, ciclo_de_vida_usado).
+    Lifecycle-Aware:
+    1. Initializers are invoked first.
+    2. Deallocators are chained with their paired allocators.
+    """
     linhas, donos = list(cabecalho), [None] * len(cabecalho)
+    eh_cpp = any('__esbmc_main' in line for line in cabecalho)
+    ciclo_de_vida = {}
+
+    inits = []
+    deallocs = []
+    regulares = []
+
     for idx, (fn_name, params) in enumerate(funcoes):
         if idx in chamadas:
+            if _eh_inicializador(fn_name):
+                inits.append((idx, fn_name, params))
+            elif _eh_desalocador(fn_name, params):
+                deallocs.append((idx, fn_name, params))
+            else:
+                regulares.append((idx, fn_name, params))
+
+    # 1. Initializers first
+    for idx, fn_name, params in inits:
+        eh_contrato = bool(funcoes_com_contrato and (fn_name in funcoes_com_contrato or '*' in funcoes_com_contrato))
+        eh_interna = bool(funcoes_exportadas and fn_name not in funcoes_exportadas)
+        permitir_null = not (eh_contrato or eh_interna)
+        bloco = _chamada(idx, fn_name, params, permitir_null=permitir_null)
+        linhas += bloco
+        donos += [idx] * len(bloco)
+
+    # 2. Regular / Allocators
+    for idx, fn_name, params in regulares:
+        eh_contrato = bool(funcoes_com_contrato and (fn_name in funcoes_com_contrato or '*' in funcoes_com_contrato))
+        eh_interna = bool(funcoes_exportadas and fn_name not in funcoes_exportadas)
+        permitir_null = not (eh_contrato or eh_interna)
+        bloco = _chamada(idx, fn_name, params, permitir_null=permitir_null)
+        linhas += bloco
+        donos += [idx] * len(bloco)
+
+    # 3. Deallocators (Lifecycle chained if matching allocator exists)
+    for idx, fn_name, params in deallocs:
+        par_alloc = _encontrar_alocador_correspondente(fn_name, funcoes)
+        if par_alloc is not None:
+            idx_a, fn_a, params_a = par_alloc
+            bloco = _chamada_ciclo_de_vida(idx_a, fn_a, params_a, idx, fn_name, params, eh_cpp=eh_cpp)
+            ciclo_de_vida[fn_name] = fn_a
+        else:
             eh_contrato = bool(funcoes_com_contrato and (fn_name in funcoes_com_contrato or '*' in funcoes_com_contrato))
             eh_interna = bool(funcoes_exportadas and fn_name not in funcoes_exportadas)
             permitir_null = not (eh_contrato or eh_interna)
             bloco = _chamada(idx, fn_name, params, permitir_null=permitir_null)
-            linhas += bloco
-            donos += [idx] * len(bloco)
+        linhas += bloco
+        donos += [idx] * len(bloco)
+
     with open(caminho, 'w', encoding='utf-8') as f:
         f.write(prefixo + '\n'.join(linhas + ['    return 0;', '}']) + '\n')
-    return donos
+    return donos, ciclo_de_vida
 
 
 def _funcoes_e_grafo(caminho: str, codigo: str, codigo_usuario: str, funcoes, args: list):
@@ -429,9 +575,9 @@ def montar_harness(caminho: str, codigo: str, codigo_usuario: str, funcoes, aber
                        if all(i in descartadas for i, (m, _) in enumerate(funcoes) if m == n)}
         raizes, nao_alcancadas = escolher_raizes(nomes, grafo, sem_chamada)
         chamadas = {i for i, (n, _) in enumerate(funcoes) if n in raizes and i not in descartadas}
-        donos = _escrever(caminho, prefixo, cabecalho, funcoes, chamadas,
-                          funcoes_com_contrato=funcoes_com_contrato,
-                          funcoes_exportadas=funcoes_exportadas)
+        donos, ciclo_usado = _escrever(caminho, prefixo, cabecalho, funcoes, chamadas,
+                                       funcoes_com_contrato=funcoes_com_contrato,
+                                       funcoes_exportadas=funcoes_exportadas)
         ruins = {donos[n] for n in _linhas_com_erro(origem, caminho, comando_clang)
                  if n < len(donos) and donos[n] is not None}
         if not ruins:
@@ -439,6 +585,7 @@ def montar_harness(caminho: str, codigo: str, codigo_usuario: str, funcoes, aber
             nao_exerc = [n for n in nomes if n in parciais or n in nao_alcancadas]
             info = InfoHarness({'raizes': raizes, 'nao_exercitadas': nao_exerc})
             info.alcancabilidade = grafo.rotas_de_alcance()
+            info.ciclo_de_vida = ciclo_usado
             if funcoes_exportadas:
                 info.publicas = [r for r in raizes if r in funcoes_exportadas]
                 info.internas = [r for r in raizes if r not in funcoes_exportadas]

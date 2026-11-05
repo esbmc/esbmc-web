@@ -254,6 +254,10 @@ def descrever_harness_c(harness: Optional[dict]) -> str:
         rotas = [f"{k} reached via {', '.join(v)}" for k, v in list(alcance.items())[:3] if v]
         if rotas:
             linha += f" [Reachability: {'; '.join(rotas)}]"
+    ciclo = getattr(harness, 'ciclo_de_vida', {})
+    if ciclo:
+        chains = [f"{v} -> {k}" for k, v in ciclo.items()]
+        linha += f" [Lifecycle: {'; '.join(chains)}]"
     nao_exercitadas = harness.get('nao_exercitadas', [])
     return linha + (f"; not exercised: {', '.join(nao_exercitadas)}\n" if nao_exercitadas else ".\n")
 

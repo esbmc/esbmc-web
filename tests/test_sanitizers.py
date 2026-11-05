@@ -500,3 +500,53 @@ def test_c_and_cpp_auto_healer_does_not_stub_esbmc_old_or_is_fresh(tmp_path):
         assert '__ESBMC_old' not in content
         assert '__ESBMC_is_fresh' not in content
 
+
+def test_lifecycle_heuristics_detect_allocators_deallocators_initializers():
+    from sanitizers.harness_args import (
+        _eh_alocador, _eh_desalocador, _eh_inicializador, _encontrar_alocador_correspondente
+    )
+    assert _eh_alocador('pvPortMalloc')
+    assert _eh_alocador('my_malloc')
+    assert _eh_alocador('buffer_create')
+    assert not _eh_alocador('re_match')
+
+    assert _eh_desalocador('vPortFree', ['void *pv'])
+    assert _eh_desalocador('my_free', ['void *p'])
+    assert _eh_desalocador('destroy_queue', ['Queue_t *q'])
+    assert not _eh_desalocador('free_count', ['int x'])  # No pointer parameter
+    assert not _eh_desalocador('re_match', ['const char *p'])
+
+    assert _eh_inicializador('vPortInitialiseBlocks')
+    assert _eh_inicializador('vPortDefineHeapRegions')
+    assert _eh_inicializador('setup_memory')
+    assert not _eh_inicializador('re_compile')
+
+    funcoes = [
+        ('pvPortMalloc', ['size_t xWantedSize']),
+        ('vPortFree', ['void *pv']),
+        ('xPortGetFreeHeapSize', []),
+        ('pvPortCalloc', ['size_t xNum', 'size_t xSize']),
+    ]
+    pair = _encontrar_alocador_correspondente('vPortFree', funcoes)
+    assert pair is not None
+    idx_a, fn_a, params_a = pair
+    assert fn_a == 'pvPortMalloc'
+
+
+def test_lifecycle_chaining_synthesizes_chained_harness(tmp_path):
+    c_code = (
+        '#include <stddef.h>\n'
+        'void *my_malloc(size_t sz) { return (void*)0x1234; }\n'
+        'void my_free(void *ptr) { if (ptr) { /* free */ } }\n'
+    )
+    f_c = tmp_path / 'allocator_module.c'
+    f_c.write_text(c_code)
+    _, harness = sanitizar_c(str(f_c), str(tmp_path))
+    assert harness is not None
+    assert harness.ciclo_de_vida == {'my_free': 'my_malloc'}
+    content = f_c.read_text()
+    assert 'LIFECYCLE-AWARE HARNESS: Chaining my_malloc -> my_free' in content
+    assert 'my_free(0);' in content
+    assert 'my_free(_sym_res_alloc_' in content
+
+
