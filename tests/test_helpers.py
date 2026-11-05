@@ -1,7 +1,7 @@
 import pytest
 
 import app as backend_app
-from app import (JANELA_CORPO_FUNCAO, _fim_do_bloco, avaliar_status_teste, classificar_veredito, descobrir_funcao_alvo_principal,
+from app import (JANELA_CORPO_FUNCAO, _fim_do_bloco, _tem_alvo_especifico_funcao, extrair_alvos_contrato, avaliar_status_teste, classificar_veredito, descobrir_funcao_alvo_principal,
                  escapar_latex, filtrar_flags_do_repositorio, funcoes_sem_corpo, normalizar_url_e_subpasta_git)
 
 
@@ -146,10 +146,12 @@ class TestTargetFunctionDiscovery:
 
 
 def test_repository_flags_may_only_add_checks():
-    flags = ['--overflow-check', '--no-assertions', '--function', 'helper', '--unwind', '5', '--no-bounds-check']
+    flags = ['--overflow-check', '--no-assertions', '--function', 'helper', '--unwind', '5', '--no-bounds-check',
+             '--enforce-contract', 'f', '--replace-call-with-contract', 'g']
     accepted, ignored = filtrar_flags_do_repositorio(flags)
     assert accepted == [['--overflow-check'], ['--unwind', '5']]
-    assert ignored == ['--no-assertions', '--function', 'helper', '--no-bounds-check']
+    assert ignored == ['--no-assertions', '--function', 'helper', '--no-bounds-check',
+                       '--enforce-contract', 'f', '--replace-call-with-contract', 'g']
 
 
 def test_repository_flag_value_cannot_smuggle_another_flag():
@@ -174,3 +176,36 @@ def test_latex_escaping_covers_every_special_character():
     assert escapar_latex('a&b%c$d#e_f{g}h~i^j\\k') == (
         'a\\&b\\%c\\$d\\#e\\_f\\{g\\}h\\textasciitilde{}i\\textasciicircum{}j\\textbackslash{}k')
     assert escapar_latex('plain.c') == 'plain.c'
+
+
+def test_tem_alvo_especifico_funcao_excludes_wildcard_contract():
+    # Wildcard contract '*' does not target a specific function, so main() harness must NOT be suppressed
+    assert not _tem_alvo_especifico_funcao(['--enforce-contract', '*'])
+    assert not _tem_alvo_especifico_funcao(['--unwind', '2', '--enforce-contract', '*'])
+    # Specific function targets DO suppress main() harness
+    assert _tem_alvo_especifico_funcao(['--enforce-contract', 'add'])
+    assert _tem_alvo_especifico_funcao(['--function', 'foo'])
+    assert _tem_alvo_especifico_funcao(['--enforce-contract', '*', '--function', 'foo'])
+    # Mixed wildcard and specific target must suppress the harness because 'add' is specific
+    assert _tem_alvo_especifico_funcao(['--enforce-contract', '*', '--enforce-contract', 'add'])
+    assert not _tem_alvo_especifico_funcao(['--unwind', '3'])
+
+
+def test_extrair_alvos_contrato_single_and_multiple():
+    alvos, primeiro_esp = extrair_alvos_contrato(['--enforce-contract', '*'])
+    assert alvos == ['*']
+    assert primeiro_esp is None
+
+    alvos, primeiro_esp = extrair_alvos_contrato(['--enforce-contract', '*', '--enforce-contract', 'add'])
+    assert alvos == ['*', 'add']
+    assert primeiro_esp == 'add'
+
+    alvos, primeiro_esp = extrair_alvos_contrato(['--enforce-contract', 'foo', '--enforce-contract', 'bar'])
+    assert alvos == ['foo', 'bar']
+    assert primeiro_esp == 'foo'
+
+    alvos, primeiro_esp = extrair_alvos_contrato([])
+    assert alvos == []
+    assert primeiro_esp is None
+
+

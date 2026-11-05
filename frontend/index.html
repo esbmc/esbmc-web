@@ -391,6 +391,16 @@
                         <div class="input-group"><label><code>--timeout</code> (s)</label><input type="number" class="esbmc-param" data-flag="--timeout" min="1" placeholder="300"></div>
                     </div>
                 </fieldset>
+                <fieldset class="config-fieldset opcoes-analise collapsible open" id="fieldset-contracts">
+                    <legend>Function Contracts</legend>
+                    <div class="collapsible-content">
+                        <div class="input-group"><label><code>--enforce-contract</code></label><input type="text" class="esbmc-param" data-flag="--enforce-contract" placeholder="function_name" title="Enforce and verify contract specification on this function without entry harness"></div>
+                        <div class="input-group"><label><code>--replace-call-with-contract</code></label><input type="text" class="esbmc-param" data-flag="--replace-call-with-contract" placeholder="callee_name" title="Abstract call sites of this function using its contract specification"></div>
+                        <div id="contracts-info-hint" style="margin-top: 6px; font-size: 11px; color: var(--text-muted, #64748b); line-height: 1.4;">
+                            Native for C/C++ (<code>__ESBMC_requires</code>, <code>__ESBMC_ensures</code>). In Python, use type hints with <code>__ESBMC_assume()</code> and <code>assert</code>.
+                        </div>
+                    </div>
+                </fieldset>
                 <fieldset class="config-fieldset opcoes-analise collapsible open">
                     <legend>SMT Solver Engine</legend>
                     <div class="collapsible-content">
