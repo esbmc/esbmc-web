@@ -114,6 +114,20 @@ class TestSingleFileC:
         assert res['verdict'] == 'SUCCESSFUL'
         assert res['verificacao_sucesso'] is True
 
+    def test_function_contract_plumbing_logs_all_enforce_targets(self, client):
+        code = (
+            'int helper(int a) { return a; }\n'
+            'int main() { return helper(0); }\n'
+        )
+        task = analyse(client, {
+            'language': 'c',
+            'codigo': code,
+            'flags': ['--enforce-contract', 'helper', '--enforce-contract', 'other']
+        })
+        logs = task.get('logs', '')
+        assert "[Function Contracts] Enforcing contract for 'helper' (modular BMC)" in logs
+        assert "[Function Contracts] Enforcing contract for 'other' (modular BMC)" in logs
+
 
 
     def test_failing_assertion_is_reported_with_counterexample(self, client):

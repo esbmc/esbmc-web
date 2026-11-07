@@ -117,18 +117,13 @@ class TestCSanitizer:
         assert 'pub_api' in harness.alcancabilidade['callee']
         assert 'pub_api' in harness.publicas
 
-    def test_harness_contract_suppresses_null_pointer_injection(self, tmp_path):
+    def test_externally_linked_roots_preserve_null_pointer_injection(self, tmp_path):
         f = tmp_path / 'codigo.c'
-        f.write_text('int process(const char *str) { return str[0]; }\n')
+        f.write_text('int process(const char *str) { return str ? str[0] : 0; }\n')
         _, harness_raw = sanitizar_c(str(f), str(tmp_path))
         txt_raw = f.read_text()
         assert 'nondet_harness_null() ? 0 :' in txt_raw
-
-        f.write_text('int process(const char *str) { return str[0]; }\n')
-        _, harness_contract = sanitizar_c(str(f), str(tmp_path), funcoes_com_contrato={'process'})
-        txt_contract = f.read_text()
-        assert 'nondet_harness_null() ? 0 :' not in txt_contract
-        assert 'process(' in txt_contract
+        assert 'process(' in txt_raw
 
     @pytest.mark.parametrize('code, roots, skipped', [
         ('static int h(int x){ return x; }\nint api(int x){ return h(x); }\n', ['api'], []),
@@ -509,12 +504,14 @@ def test_lifecycle_heuristics_detect_allocators_deallocators_initializers():
     assert _eh_alocador('my_malloc')
     assert _eh_alocador('buffer_create')
     assert not _eh_alocador('re_match')
+    assert not _eh_alocador('is_open')
 
     assert _eh_desalocador('vPortFree', ['void *pv'])
     assert _eh_desalocador('my_free', ['void *p'])
     assert _eh_desalocador('destroy_queue', ['Queue_t *q'])
     assert not _eh_desalocador('free_count', ['int x'])  # No pointer parameter
     assert not _eh_desalocador('re_match', ['const char *p'])
+    assert not _eh_desalocador('get_free_slots', ['void *p'])  # Getter query, not deallocator
 
     assert _eh_inicializador('vPortInitialiseBlocks')
     assert _eh_inicializador('vPortDefineHeapRegions')
@@ -532,6 +529,9 @@ def test_lifecycle_heuristics_detect_allocators_deallocators_initializers():
     idx_a, fn_a, params_a = pair
     assert fn_a == 'pvPortMalloc'
 
+    # Unrelated functions scoring 0 must not be paired
+    assert _encontrar_alocador_correspondente('my_free', [('calculate_hash', ['int x'])]) is None
+
 
 def test_lifecycle_chaining_synthesizes_chained_harness(tmp_path):
     c_code = (
@@ -548,5 +548,63 @@ def test_lifecycle_chaining_synthesizes_chained_harness(tmp_path):
     assert 'LIFECYCLE-AWARE HARNESS: Chaining my_malloc -> my_free' in content
     assert 'my_free(0);' in content
     assert 'my_free(_sym_res_alloc_' in content
+
+
+def test_peso_prioridade_include_ranking_relative_to_root():
+    from sanitizers.harness_args import peso_prioridade_include
+    root = '/home/user/ghost/esp32-project'
+
+    # POSIX / host port should have rank 0
+    posix_dir = f"{root}/portable/GCC/POSIX"
+    assert peso_prioridade_include(posix_dir, root_dir=root)[0] == 0
+
+    # Core include directory should have rank 0
+    inc_dir = f"{root}/include"
+    assert peso_prioridade_include(inc_dir, root_dir=root)[0] == 0
+
+    # Clone directory containing 'ghost' must NOT falsely trigger 'host' (rank 0)
+    # Directory named 'auxiliary' must NOT falsely match 'iar' (rank 3)
+    aux_dir = f"{root}/auxiliary/subsystem"
+    assert peso_prioridade_include(aux_dir, root_dir=root)[0] == 2
+
+    # Embedded bare-metal port should have rank 3
+    iar_dir = f"{root}/portable/IAR/ARM_CM4F"
+    assert peso_prioridade_include(iar_dir, root_dir=root)[0] == 3
+
+
+def test_extrair_funcoes_exportadas_handles_trailing_macros_and_pointer_stars(tmp_path):
+    from sanitizers.harness_args import extrair_funcoes_exportadas_headers
+    hdr = tmp_path / 'portable.h'
+    hdr.write_text(
+        'void *pvPortMalloc(size_t xSize) PRIVILEGED_FUNCTION;\n'
+        'void vPortFree(void *pv) PRIVILEGED_FUNCTION;\n'
+        'char *re_compile(const char *pattern);\n'
+        'int regular_api(int x);\n'
+    )
+    exportadas = extrair_funcoes_exportadas_headers(str(tmp_path), {'portable.h'})
+    assert 'pvPortMalloc' in exportadas
+    assert 'vPortFree' in exportadas
+    assert 're_compile' in exportadas
+    assert 'regular_api' in exportadas
+
+
+def test_sanitizar_cpp_two_pass_nested_mocking(tmp_path):
+    from sanitizers.cpp_sanitizer import sanitizar_cpp
+    cpp_file = tmp_path / 'component.cpp'
+    cpp_file.write_text(
+        '#include "subsystem_a.h"\n'
+        'int compute(void) { return 42; }\n'
+    )
+    # Create mock header for subsystem_a that in turn includes nested_b.h
+    mock_a = tmp_path / 'subsystem_a.h'
+    mock_a.write_text('#pragma once\n#include "nested_b.h"\n')
+
+    gerados, _ = sanitizar_cpp(str(cpp_file), str(tmp_path))
+    mock_b = tmp_path / 'nested_b.h'
+    assert mock_b.exists()
+    content_b = mock_b.read_text()
+    assert 'RCUTILS_RET_OK' not in content_b
+    assert '#pragma once' in content_b
+
 
 

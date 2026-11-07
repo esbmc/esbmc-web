@@ -1,4 +1,5 @@
 """Entry harness for C/C++ modules without main: calls each root function with nondet arguments."""
+import os
 import re
 import subprocess
 from dataclasses import dataclass, field
@@ -379,43 +380,141 @@ class InfoHarness(dict):
         self.ciclo_de_vida = {}
 
 
+_PORTAS_HOST = {'posix', 'linux', 'host', 'x86_64', 'x86', 'sim', 'simulator'}
+_PORTAS_EMBARCADAS = {
+    'risc-v', 'riscv', 'armv8m', 'armv7m', 'arm_cm', 'microblaze', 'msp430',
+    'pic24', 'coldfire', 'renesas', 'iar', 'keil', 'softune', 'owatcom',
+    'ccrh', 'ccs', 'codewarrior', 'mplab', 'mikroc', 'paradigm', 'rvds',
+    'rowley', 'sdcc', 'tasking', 'wizc', 'rp2040', 'xtensa', 'esp32'
+}
+_NOMES_SUB_PORT = {'portable', 'arch', 'ports', 'bsp'}
+_PASTAS_CONFIG = {'template_configuration', 'config'}
+_PASTAS_CORE = {'include', 'inc', 'src', 'headers'}
+
+
+def peso_prioridade_include(p: str, root_dir: str = None) -> tuple:
+    """Rank include directories so host/POSIX/core headers precede embedded/MCU ports (#ranking).
+    Path components are checked relative to `root_dir` to avoid false substring matches."""
+    if root_dir:
+        try:
+            rel_p = os.path.relpath(p, root_dir).replace('\\', '/').lower()
+        except ValueError:
+            rel_p = p.replace('\\', '/').lower()
+    else:
+        rel_p = p.replace('\\', '/').lower()
+
+    partes = [pt for pt in rel_p.split('/') if pt and pt != '.']
+    base = partes[-1] if partes else ''
+    eh_sub_port = any(pt in _NOMES_SUB_PORT for pt in partes[:-1])
+
+    if any(pt in _PORTAS_HOST for pt in partes):
+        rank = 0  # POSIX / Linux host port has maximum priority!
+    elif base in _PASTAS_CORE and not eh_sub_port:
+        rank = 0  # Core top-level include / src
+    elif any(pt in _PASTAS_CONFIG for pt in partes):
+        rank = 1  # Default / template configurations
+    elif eh_sub_port or any(pt in _PORTAS_EMBARCADAS for pt in partes):
+        rank = 3  # Bare-metal embedded chip targets
+    else:
+        rank = 2
+    return (rank, len(partes), p)
+
+
+def extrair_funcoes_exportadas_headers(temp_dir: str, headers_existentes: set,
+                                       palavras_chave: set = None) -> set:
+    """Extract public API function names declared in header (.h/.hpp) files within the project.
+    Handles 'T *f(...)', leading 'extern', and trailing attributes/macros (#privileged_function)."""
+    exportadas = set()
+    if not temp_dir or not os.path.isdir(temp_dir):
+        return exportadas
+    if palavras_chave is None:
+        palavras_chave = set()
+    # Matches return type, optional asterisks, function name, arguments, and optional trailing macros/attributes:
+    padrao_decl = re.compile(
+        r'^[ \t]*(?:extern\s+)?(?:[A-Za-z_][A-Za-z0-9_\s\*]*?[\s\*])([A-Za-z_][A-Za-z0-9_]*)\s*\([^;{}]*\)[^;{}]*;',
+        re.MULTILINE
+    )
+    for h in headers_existentes:
+        if 'mock_' in h:
+            continue
+        caminho_h = os.path.join(temp_dir, h) if not os.path.isabs(h) else h
+        if os.path.isfile(caminho_h):
+            try:
+                with open(caminho_h, 'r', encoding='utf-8', errors='replace') as f:
+                    conteudo = f.read()
+                conteudo_limpo = re.sub(r'//.*?$|/\*.*?\*/', '', conteudo, flags=re.DOTALL | re.MULTILINE)
+                for m in padrao_decl.finditer(conteudo_limpo):
+                    nome = m.group(1).strip()
+                    if nome not in palavras_chave and not nome.startswith('__'):
+                        exportadas.add(nome)
+            except Exception:
+                pass
+    return exportadas
+
+
+_PALAVRAS_DEALLOC = {'free', 'destroy', 'release', 'delete', 'dispose', 'close', 'cleanup'}
+_PALAVRAS_ALLOC = {'alloc', 'malloc', 'calloc', 'realloc', 'create', 'acquire', 'new', 'open'}
+_PALAVRAS_INIT = {'init', 'initialise', 'initialize', 'setup', 'startup', 'boot'}
+_PREFIXOS_CONSULTA = {'get', 'is', 'has', 'can', 'should', 'check', 'count', 'find', 'search', 'print', 'dump', 'show', 'list'}
+
+
+def _tokens_do_nome(nome: str) -> list:
+    """Extract ordered words/tokens from snake_case or camelCase function name."""
+    s = re.sub(r'([a-z])([A-Z])', r'\1_\2', nome)
+    s = re.sub(r'([A-Z]+)([A-Z][a-z])', r'\1_\2', s)
+    return [t.lower() for t in re.split(r'[^A-Za-z0-9]+', s) if t]
+
+
 def _eh_desalocador(nome: str, params: list) -> bool:
-    """True if `nome` has deallocation semantics and takes a pointer argument (#lifecycle)."""
+    """True if `nome` has deallocation semantics and takes a pointer argument (#lifecycle).
+    Matches whole word tokens to avoid classifying getters like `get_free_slots` as deallocators."""
     if not any('*' in p or '[' in p for p in params):
         return False
-    nome_lower = nome.lower()
-    return any(k in nome_lower for k in ('free', 'destroy', 'release', 'delete', 'dispose', 'close', 'cleanup'))
+    tokens = _tokens_do_nome(nome)
+    if not tokens or tokens[0] in _PREFIXOS_CONSULTA:
+        return False
+    return any(t in _PALAVRAS_DEALLOC for t in tokens)
 
 
 def _eh_alocador(nome: str) -> bool:
-    """True if `nome` has allocation semantics (#lifecycle)."""
-    nome_lower = nome.lower()
-    return any(k in nome_lower for k in ('alloc', 'malloc', 'calloc', 'realloc', 'create', 'acquire', 'new', 'open'))
+    """True if `nome` has allocation semantics (#lifecycle).
+    Matches whole word tokens to avoid classifying queries like `is_open` as allocators."""
+    tokens = _tokens_do_nome(nome)
+    if not tokens or tokens[0] in _PREFIXOS_CONSULTA:
+        return False
+    return any(t in _PALAVRAS_ALLOC for t in tokens)
 
 
 def _eh_inicializador(nome: str) -> bool:
     """True if `nome` is a setup / initializer function that should run before operations (#lifecycle)."""
-    nome_lower = nome.lower()
-    return any(k in nome_lower for k in ('init', 'initialise', 'initialize', 'setup', 'startup', 'boot', 'defineheap'))
+    tokens = _tokens_do_nome(nome)
+    if not tokens or tokens[0] in _PREFIXOS_CONSULTA:
+        return False
+    if any(t in _PALAVRAS_INIT for t in tokens):
+        return True
+    if 'define' in tokens and 'heap' in tokens:
+        return True
+    return False
 
 
 def _encontrar_alocador_correspondente(fn_dealloc: str, funcoes: list) -> Optional[tuple]:
-    """Find the best matching allocator in `funcoes` for deallocator `fn_dealloc` (#lifecycle)."""
+    """Find the best matching allocator in `funcoes` for deallocator `fn_dealloc` (#lifecycle).
+    Skips pairing and returns None if the best matching score is 0, falling back to a plain call."""
     candidatos = []
-    d_lower = fn_dealloc.lower()
+    d_tokens = set(_tokens_do_nome(fn_dealloc))
     for idx_a, (fn_a, params_a) in enumerate(funcoes):
         if fn_a == fn_dealloc or not _eh_alocador(fn_a):
             continue
         score = 0
-        a_lower = fn_a.lower()
-        if 'free' in d_lower and 'malloc' in a_lower:
+        a_tokens = set(_tokens_do_nome(fn_a))
+        if 'free' in d_tokens and any(k in a_tokens for k in ('malloc', 'alloc', 'calloc', 'realloc')):
             score += 10
-        elif 'destroy' in d_lower and 'create' in a_lower:
+        elif 'destroy' in d_tokens and any(k in a_tokens for k in ('create', 'new')):
             score += 10
-        elif 'close' in d_lower and 'open' in a_lower:
+        elif 'close' in d_tokens and 'open' in a_tokens:
             score += 10
         for sub in ('port', 'heap', 'mem', 'pool', 'block', 'node', 'queue', 'buf', 'item'):
-            if sub in d_lower and sub in a_lower:
+            if sub in d_tokens and sub in a_tokens:
                 score += 5
         if len(params_a) == 1 and any('size' in p.lower() or 'int' in p.lower() for p in params_a):
             score += 3
@@ -424,6 +523,8 @@ def _encontrar_alocador_correspondente(fn_dealloc: str, funcoes: list) -> Option
         return None
     candidatos.sort(key=lambda item: item[0], reverse=True)
     best = candidatos[0]
+    if best[0] <= 0:
+        return None
     return (best[1], best[2], best[3])
 
 
@@ -479,6 +580,13 @@ def _chamada_ciclo_de_vida(idx_alloc: int, fn_alloc: str, params_alloc: list,
     return linhas
 
 
+def _deve_permitir_null(fn_name: str, funcoes_com_contrato=None, funcoes_exportadas=None) -> bool:
+    """Return True if pointer arguments to root `fn_name` should explore NULL (#46).
+    All externally linked roots called by the harness explore NULL inputs to detect null pointer
+    dereferences. Contracts enforce their own preconditions via __ESBMC_requires."""
+    return True
+
+
 def _escrever(caminho: str, prefixo: str, cabecalho: list, funcoes, chamadas: set,
               funcoes_com_contrato=None, funcoes_exportadas=None) -> tuple:
     """Write the module with its harness; returns (donos, ciclo_de_vida_usado).
@@ -505,19 +613,13 @@ def _escrever(caminho: str, prefixo: str, cabecalho: list, funcoes, chamadas: se
 
     # 1. Initializers first
     for idx, fn_name, params in inits:
-        eh_contrato = bool(funcoes_com_contrato and (fn_name in funcoes_com_contrato or '*' in funcoes_com_contrato))
-        eh_interna = bool(funcoes_exportadas and fn_name not in funcoes_exportadas)
-        permitir_null = not (eh_contrato or eh_interna)
-        bloco = _chamada(idx, fn_name, params, permitir_null=permitir_null)
+        bloco = _chamada(idx, fn_name, params, permitir_null=_deve_permitir_null(fn_name, funcoes_com_contrato, funcoes_exportadas))
         linhas += bloco
         donos += [idx] * len(bloco)
 
     # 2. Regular / Allocators
     for idx, fn_name, params in regulares:
-        eh_contrato = bool(funcoes_com_contrato and (fn_name in funcoes_com_contrato or '*' in funcoes_com_contrato))
-        eh_interna = bool(funcoes_exportadas and fn_name not in funcoes_exportadas)
-        permitir_null = not (eh_contrato or eh_interna)
-        bloco = _chamada(idx, fn_name, params, permitir_null=permitir_null)
+        bloco = _chamada(idx, fn_name, params, permitir_null=_deve_permitir_null(fn_name, funcoes_com_contrato, funcoes_exportadas))
         linhas += bloco
         donos += [idx] * len(bloco)
 
@@ -529,10 +631,7 @@ def _escrever(caminho: str, prefixo: str, cabecalho: list, funcoes, chamadas: se
             bloco = _chamada_ciclo_de_vida(idx_a, fn_a, params_a, idx, fn_name, params, eh_cpp=eh_cpp)
             ciclo_de_vida[fn_name] = fn_a
         else:
-            eh_contrato = bool(funcoes_com_contrato and (fn_name in funcoes_com_contrato or '*' in funcoes_com_contrato))
-            eh_interna = bool(funcoes_exportadas and fn_name not in funcoes_exportadas)
-            permitir_null = not (eh_contrato or eh_interna)
-            bloco = _chamada(idx, fn_name, params, permitir_null=permitir_null)
+            bloco = _chamada(idx, fn_name, params, permitir_null=_deve_permitir_null(fn_name, funcoes_com_contrato, funcoes_exportadas))
         linhas += bloco
         donos += [idx] * len(bloco)
 

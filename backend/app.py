@@ -1367,11 +1367,8 @@ def iniciar_analise():
                         with open(caminho_temp_mod, 'w', encoding='utf-8') as f:
                             f.write(cod_modulo)
                         tem_fn_mod = _tem_alvo_especifico_funcao(flags_recebidas)
-                        fn_contratos = set()
-                        if '--enforce-contract' in flags_recebidas:
-                            idx_enf = flags_recebidas.index('--enforce-contract')
-                            if idx_enf + 1 < len(flags_recebidas):
-                                fn_contratos.add(flags_recebidas[idx_enf + 1])
+                        alvos_contratos_mod, _ = extrair_alvos_contrato(flags_recebidas)
+                        fn_contratos = set(alvos_contratos_mod)
                         mocks_c, harness_mod = sanitizar_cpp(
                             caminho_temp_mod, temp_dir, tem_flag_function=tem_fn_mod, sub_dir_repo=sub_dir_repo,
                             funcoes_com_contrato=fn_contratos
@@ -1386,11 +1383,8 @@ def iniciar_analise():
                         with open(caminho_temp_mod, 'w', encoding='utf-8') as f:
                             f.write(cod_modulo)
                         tem_fn_mod = _tem_alvo_especifico_funcao(flags_recebidas)
-                        fn_contratos = set()
-                        if '--enforce-contract' in flags_recebidas:
-                            idx_enf = flags_recebidas.index('--enforce-contract')
-                            if idx_enf + 1 < len(flags_recebidas):
-                                fn_contratos.add(flags_recebidas[idx_enf + 1])
+                        alvos_contratos_mod, _ = extrair_alvos_contrato(flags_recebidas)
+                        fn_contratos = set(alvos_contratos_mod)
                         mocks_c, harness_mod = sanitizar_c(
                             caminho_temp_mod, temp_dir, tem_flag_function=tem_fn_mod, sub_dir_repo=sub_dir_repo,
                             funcoes_com_contrato=fn_contratos
@@ -1908,11 +1902,8 @@ def iniciar_analise():
                 TAREFAS_ATIVAS[task_id]["logs"] += "\n[SYSTEM] Running ESBMC C Homogenizer & Clang Auto-Healer...\n"
                 try:
                     tem_fn = _tem_alvo_especifico_funcao(flags_recebidas)
-                    fn_contratos = set()
-                    if '--enforce-contract' in flags_recebidas:
-                        idx_enf = flags_recebidas.index('--enforce-contract')
-                        if idx_enf + 1 < len(flags_recebidas):
-                            fn_contratos.add(flags_recebidas[idx_enf + 1])
+                    alvos_contratos, _ = extrair_alvos_contrato(flags_recebidas)
+                    fn_contratos = set(alvos_contratos)
                     mocks_criados, harness_c = sanitizar_c(
                         caminho_original, temp_dir, tem_flag_function=tem_fn, sub_dir_repo=sub_dir_repo,
                         funcoes_com_contrato=fn_contratos
@@ -1932,11 +1923,8 @@ def iniciar_analise():
                 TAREFAS_ATIVAS[task_id]["logs"] += "\n[SYSTEM] Running ESBMC C++ Homogenizer & Clang Auto-Healer...\n"
                 try:
                     tem_fn = _tem_alvo_especifico_funcao(flags_recebidas)
-                    fn_contratos = set()
-                    if '--enforce-contract' in flags_recebidas:
-                        idx_enf = flags_recebidas.index('--enforce-contract')
-                        if idx_enf + 1 < len(flags_recebidas):
-                            fn_contratos.add(flags_recebidas[idx_enf + 1])
+                    alvos_contratos, _ = extrair_alvos_contrato(flags_recebidas)
+                    fn_contratos = set(alvos_contratos)
                     mocks_criados, harness_c = sanitizar_cpp(
                         caminho_original, temp_dir, tem_flag_function=tem_fn, sub_dir_repo=sub_dir_repo,
                         funcoes_com_contrato=fn_contratos
