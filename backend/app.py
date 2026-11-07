@@ -239,12 +239,29 @@ def descrever_harness(info: dict) -> str:
 
 
 def descrever_harness_c(harness: Optional[dict]) -> str:
-    """Log line for a C/C++ entry harness, naming its assumption and what it left out (#39, #46)."""
+    """Log line for a C/C++ entry harness, detailing roots, reachability and assumptions (#39, #46)."""
     if not harness:
         return ""
-    linha = (f"[SYSTEM] [Entry Harness] calls {len(harness['raizes'])} root function(s) with unconstrained inputs "
-             "(pointers may be NULL); functions called inside the module are checked through their callers")
-    nao_exercitadas = harness['nao_exercitadas']
+    raizes = harness.get('raizes', [])
+    publicas = getattr(harness, 'publicas', [])
+    alcance = getattr(harness, 'alcancabilidade', {})
+    detalhes_pub = (
+        f" ({len(publicas)} public API boundary root(s): {', '.join(publicas) if len(publicas) <= 5 else f'{len(publicas)} functions'})"
+        if publicas else ""
+    )
+    linha = (
+        f"[SYSTEM] [Entry Harness] Synthesized reachability harness for {len(raizes)} root function(s){detalhes_pub}; "
+        "functions called inside the module are checked through their callers"
+    )
+    if alcance:
+        rotas = [f"{k} reached via {', '.join(v)}" for k, v in list(alcance.items())[:3] if v]
+        if rotas:
+            linha += f" [Reachability: {'; '.join(rotas)}]"
+    ciclo = getattr(harness, 'ciclo_de_vida', {})
+    if ciclo:
+        chains = [f"{v} -> {k}" for k, v in ciclo.items()]
+        linha += f" [Lifecycle: {'; '.join(chains)}]"
+    nao_exercitadas = harness.get('nao_exercitadas', [])
     return linha + (f"; not exercised: {', '.join(nao_exercitadas)}\n" if nao_exercitadas else ".\n")
 
 
@@ -1882,7 +1899,9 @@ def iniciar_analise():
                 TAREFAS_ATIVAS[task_id]["logs"] += "\n[SYSTEM] Running ESBMC C Homogenizer & Clang Auto-Healer...\n"
                 try:
                     tem_fn = _tem_alvo_especifico_funcao(flags_recebidas)
-                    mocks_criados, harness_c = sanitizar_c(caminho_original, temp_dir, tem_flag_function=tem_fn, sub_dir_repo=sub_dir_repo)
+                    mocks_criados, harness_c = sanitizar_c(
+                        caminho_original, temp_dir, tem_flag_function=tem_fn, sub_dir_repo=sub_dir_repo
+                    )
                     TAREFAS_ATIVAS[task_id]["logs"] += descrever_harness_c(harness_c)
                     nao_exercitadas = harness_c['nao_exercitadas'] if harness_c else []
                     with open(caminho_original, 'r', encoding='utf-8', errors='replace') as f:
@@ -1898,7 +1917,9 @@ def iniciar_analise():
                 TAREFAS_ATIVAS[task_id]["logs"] += "\n[SYSTEM] Running ESBMC C++ Homogenizer & Clang Auto-Healer...\n"
                 try:
                     tem_fn = _tem_alvo_especifico_funcao(flags_recebidas)
-                    mocks_criados, harness_c = sanitizar_cpp(caminho_original, temp_dir, tem_flag_function=tem_fn, sub_dir_repo=sub_dir_repo)
+                    mocks_criados, harness_c = sanitizar_cpp(
+                        caminho_original, temp_dir, tem_flag_function=tem_fn, sub_dir_repo=sub_dir_repo
+                    )
                     TAREFAS_ATIVAS[task_id]["logs"] += descrever_harness_c(harness_c)
                     nao_exercitadas = harness_c['nao_exercitadas'] if harness_c else []
                     with open(caminho_original, 'r', encoding='utf-8', errors='replace') as f:

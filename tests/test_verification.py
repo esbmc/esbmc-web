@@ -351,6 +351,22 @@ class TestEntryHarness:
         res = result(analyse(client, {'language': 'c', 'codigo': code, 'flags': []}))
         assert res['verdict'] == 'SUCCESSFUL'
 
+    def test_lifecycle_chained_allocator_and_free_is_successful(self, client):
+        code = (
+            '#include <stddef.h>\n'
+            '#include <stdlib.h>\n'
+            'void *my_malloc(size_t sz) {\n'
+            '    if (sz == 0 || sz > 512) return NULL;\n'
+            '    return malloc(sz);\n'
+            '}\n'
+            'void my_free(void *ptr) {\n'
+            '    if (ptr) free(ptr);\n'
+            '}\n'
+        )
+        status = analyse(client, {'language': 'c', 'codigo': code, 'flags': ['--unwind', '1']})
+        assert result(status)['verdict'] == 'SUCCESSFUL'
+        assert 'Lifecycle: my_malloc -> my_free' in status['logs']
+
     @pytest.mark.parametrize('body', [
         'int even(int n);\nint odd(int n){ assert(n != 3); return n ? even(n - 1) : 0; }\n'
         'int even(int n){ return n ? odd(n - 1) : 1; }\n',

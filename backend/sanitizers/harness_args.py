@@ -1,4 +1,5 @@
 """Entry harness for C/C++ modules without main: calls each root function with nondet arguments."""
+import os
 import re
 import subprocess
 from dataclasses import dataclass, field
@@ -30,6 +31,8 @@ def declarar_argumento(decl: str, nome: str) -> list:
     `T a[static N]` must point to N elements (C11 6.7.6.3p7), so it is never NULL.
     """
     decl = re.sub(r'\b(?:const|volatile|register)\b', '', re.sub(r'=.*$', '', decl)).strip()
+    if not decl:
+        return []
     if '*' in decl or '[' in decl:
         tipo = _tipo(re.sub(r'[\*\[].*', '', decl).strip(), 'unsigned char')
         buf = f"{nome}_buf"
@@ -96,6 +99,25 @@ class GrafoDeChamadas:
     forcadas: set = field(default_factory=set)
     estaticas: set = field(default_factory=set)
     funcoes: Optional[list] = None
+
+    def rotas_de_alcance(self) -> dict:
+        """Map each callee to the callers that can reach it directly or transitively."""
+        rotas = {}
+        for dono, filhos in self.chama.items():
+            for f in filhos:
+                rotas.setdefault(f, set()).add(dono)
+        modificado = True
+        while modificado:
+            modificado = False
+            for callee, callers in list(rotas.items()):
+                novos = set()
+                for c in callers:
+                    if c in rotas:
+                        novos |= rotas[c]
+                if not novos <= callers:
+                    callers |= novos
+                    modificado = True
+        return {k: sorted(v) for k, v in rotas.items()}
 
     @classmethod
     # pylint: disable-next=too-many-locals,too-many-arguments,too-many-positional-arguments
@@ -342,17 +364,270 @@ def escolher_raizes(nomes: list, grafo: GrafoDeChamadas, excluidas=()):
     return raizes, [n for n in nomes if n not in alcancados]
 
 
-def _escrever(caminho: str, prefixo: str, cabecalho: list, funcoes, chamadas: set) -> list:
-    """Write the module with its harness; returns the index in `funcoes` owning each line."""
+class InfoHarness(dict):
+    """Result dictionary with 'raizes' and 'nao_exercitadas', enriched with reachability
+    analysis and public API metadata as attributes."""
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.alcancabilidade = {}
+        self.publicas = []
+        self.ciclo_de_vida = {}
+
+
+_PORTAS_HOST = {'posix', 'linux', 'host', 'x86_64', 'x86', 'sim', 'simulator'}
+_PORTAS_EMBARCADAS = {
+    'risc-v', 'riscv', 'armv8m', 'armv7m', 'arm_cm', 'microblaze', 'msp430',
+    'pic24', 'coldfire', 'renesas', 'iar', 'keil', 'softune', 'owatcom',
+    'ccrh', 'ccs', 'codewarrior', 'mplab', 'mikroc', 'paradigm', 'rvds',
+    'rowley', 'sdcc', 'tasking', 'wizc', 'rp2040', 'xtensa', 'esp32'
+}
+_NOMES_SUB_PORT = {'portable', 'arch', 'ports', 'bsp'}
+_PASTAS_CONFIG = {'template_configuration', 'config'}
+_PASTAS_CORE = {'include', 'inc', 'src', 'headers'}
+
+
+def peso_prioridade_include(p: str, root_dir: str = None) -> tuple:
+    """Rank include directories so host/POSIX/core headers precede embedded/MCU ports.
+    Path components are checked relative to `root_dir` to avoid false substring matches."""
+    if root_dir:
+        try:
+            rel_p = os.path.relpath(p, root_dir).replace('\\', '/').lower()
+        except ValueError:
+            rel_p = p.replace('\\', '/').lower()
+    else:
+        rel_p = p.replace('\\', '/').lower()
+
+    partes = [pt for pt in rel_p.split('/') if pt and pt != '.']
+    base = partes[-1] if partes else ''
+    eh_sub_port = any(pt in _NOMES_SUB_PORT for pt in partes[:-1])
+
+    if any(pt in _PORTAS_HOST for pt in partes):
+        rank = 0  # POSIX / Linux host port has maximum priority!
+    elif base in _PASTAS_CORE and not eh_sub_port:
+        rank = 0  # Core top-level include / src
+    elif any(pt in _PASTAS_CONFIG for pt in partes):
+        rank = 1  # Default / template configurations
+    elif eh_sub_port or any(pt in _PORTAS_EMBARCADAS for pt in partes):
+        rank = 3  # Bare-metal embedded chip targets
+    else:
+        rank = 2
+    return (rank, len(partes), p)
+
+
+def extrair_funcoes_exportadas_headers(temp_dir: str, headers_existentes: set,
+                                       palavras_chave: set = None) -> set:
+    """Extract public API function names declared in header (.h/.hpp) files within the project.
+    Handles 'T *f(...)', leading 'extern', and trailing attributes/macros."""
+    exportadas = set()
+    if not temp_dir or not os.path.isdir(temp_dir):
+        return exportadas
+    if palavras_chave is None:
+        palavras_chave = set()
+    # Matches return type, optional asterisks, function name, arguments, and optional trailing macros/attributes:
+    padrao_decl = re.compile(
+        r'^[ \t]*(?:extern\s+)?(?:[A-Za-z_][A-Za-z0-9_\s\*]*?[\s\*])([A-Za-z_][A-Za-z0-9_]*)\s*\([^;{}]*\)[^;{}]*;',
+        re.MULTILINE
+    )
+    for h in headers_existentes:
+        if 'mock_' in h:
+            continue
+        caminho_h = os.path.join(temp_dir, h) if not os.path.isabs(h) else h
+        if os.path.isfile(caminho_h):
+            try:
+                with open(caminho_h, 'r', encoding='utf-8', errors='replace') as f:
+                    conteudo = f.read()
+                conteudo_limpo = re.sub(r'//.*?$|/\*.*?\*/', '', conteudo, flags=re.DOTALL | re.MULTILINE)
+                for m in padrao_decl.finditer(conteudo_limpo):
+                    nome = m.group(1).strip()
+                    if nome not in palavras_chave and not nome.startswith('__'):
+                        exportadas.add(nome)
+            except Exception:
+                pass
+    return exportadas
+
+
+_PALAVRAS_DEALLOC = {'free', 'destroy', 'release', 'delete', 'dispose', 'close', 'cleanup'}
+_PALAVRAS_ALLOC = {'alloc', 'malloc', 'calloc', 'realloc', 'create', 'acquire', 'new', 'open'}
+_PALAVRAS_INIT = {'init', 'initialise', 'initialize', 'setup', 'startup', 'boot'}
+_PREFIXOS_CONSULTA = {'get', 'is', 'has', 'can', 'should', 'check', 'count', 'find', 'search', 'print', 'dump', 'show', 'list'}
+
+
+def _tokens_do_nome(nome: str) -> list:
+    """Extract ordered words/tokens from snake_case or camelCase function name."""
+    s = re.sub(r'([a-z])([A-Z])', r'\1_\2', nome)
+    s = re.sub(r'([A-Z]+)([A-Z][a-z])', r'\1_\2', s)
+    return [t.lower() for t in re.split(r'[^A-Za-z0-9]+', s) if t]
+
+
+def _eh_desalocador(nome: str, params: list) -> bool:
+    """True if `nome` has deallocation semantics and takes a pointer argument.
+    Matches whole word tokens to avoid classifying getters like `get_free_slots` as deallocators."""
+    if not any('*' in p or '[' in p for p in params):
+        return False
+    tokens = _tokens_do_nome(nome)
+    if not tokens or tokens[0] in _PREFIXOS_CONSULTA:
+        return False
+    return any(t in _PALAVRAS_DEALLOC for t in tokens)
+
+
+def _eh_alocador(nome: str) -> bool:
+    """True if `nome` has allocation semantics.
+    Matches whole word tokens to avoid classifying queries like `is_open` as allocators."""
+    tokens = _tokens_do_nome(nome)
+    if not tokens or tokens[0] in _PREFIXOS_CONSULTA:
+        return False
+    return any(t in _PALAVRAS_ALLOC for t in tokens)
+
+
+def _eh_inicializador(nome: str) -> bool:
+    """True if `nome` is a setup / initializer function that should run before operations."""
+    tokens = _tokens_do_nome(nome)
+    if not tokens or tokens[0] in _PREFIXOS_CONSULTA:
+        return False
+    if any(t in _PALAVRAS_INIT for t in tokens):
+        return True
+    if 'define' in tokens and 'heap' in tokens:
+        return True
+    return False
+
+
+def _encontrar_alocador_correspondente(fn_dealloc: str, funcoes: list) -> Optional[tuple]:
+    """Find the best matching allocator in `funcoes` for deallocator `fn_dealloc`.
+    Skips pairing and returns None if the best matching score is 0, falling back to a plain call."""
+    candidatos = []
+    d_tokens = set(_tokens_do_nome(fn_dealloc))
+    for idx_a, (fn_a, params_a) in enumerate(funcoes):
+        if fn_a == fn_dealloc or not _eh_alocador(fn_a):
+            continue
+        score = 0
+        a_tokens = set(_tokens_do_nome(fn_a))
+        if 'free' in d_tokens and any(k in a_tokens for k in ('malloc', 'alloc', 'calloc', 'realloc')):
+            score += 10
+        elif 'destroy' in d_tokens and any(k in a_tokens for k in ('create', 'new')):
+            score += 10
+        elif 'close' in d_tokens and 'open' in a_tokens:
+            score += 10
+        for sub in ('port', 'heap', 'mem', 'pool', 'block', 'node', 'queue', 'buf', 'item'):
+            if sub in d_tokens and sub in a_tokens:
+                score += 5
+        if score > 0 and len(params_a) == 1:
+            p0 = params_a[0].lower()
+            if re.search(r'\b(?:size_t|size|count|num|len|bytes|capacity)\b', p0) or re.search(r'\bint\b', p0):
+                score += 3
+        candidatos.append((score, idx_a, fn_a, params_a))
+    if not candidatos:
+        return None
+    candidatos.sort(key=lambda item: item[0], reverse=True)
+    best = candidatos[0]
+    if best[0] <= 0:
+        return None
+    return (best[1], best[2], best[3])
+
+
+def _chamada_ciclo_de_vida(idx_alloc: int, fn_alloc: str, params_alloc: list,
+                           idx_dealloc: int, fn_dealloc: str, params_dealloc: list,
+                           eh_cpp: bool = False) -> list:
+    """Synthesize a lifecycle-chained harness block: Allocator -> Deallocator.
+    Explores both NULL handling and legitimate allocated pointer deallocation without
+    triggering spurious invalid-pointer-freed or buffer-underflow counterexamples.
+    """
+    ptr_idx = next((i for i, p in enumerate(params_dealloc) if '*' in p or '[' in p), 0)
+    alloc_args = [f"_sym_alloc_{idx_alloc}_{i}" for i in range(len(params_alloc))]
+    alloc_decls = [l for decl, nome in zip(params_alloc, alloc_args) for l in declarar_argumento(decl, nome)]
+
+    dealloc_args = []
+    dealloc_decls = []
+    null_args = []
+    for i, decl in enumerate(params_dealloc):
+        if i == ptr_idx:
+            dealloc_args.append(f"_sym_res_alloc_{idx_alloc}")
+            null_args.append("0")
+        else:
+            arg_nome = f"_sym_dealloc_{idx_dealloc}_{i}"
+            dealloc_decls.extend(declarar_argumento(decl, arg_nome))
+            dealloc_args.append(arg_nome)
+            null_args.append(arg_nome)
+
+    res_decl = (
+        f"        auto _sym_res_alloc_{idx_alloc} = {fn_alloc}({', '.join(alloc_args)});"
+        if eh_cpp else
+        f"        void *_sym_res_alloc_{idx_alloc} = (void *) {fn_alloc}({', '.join(alloc_args)});"
+    )
+
+    linhas = [
+        f"    /* === LIFECYCLE-AWARE HARNESS: Chaining {fn_alloc} -> {fn_dealloc} === */",
+    ]
+    if dealloc_decls:
+        linhas.extend(dealloc_decls)
+    linhas.extend([
+        f"    if ({_ESCOLHA_NULL}()) {{",
+        f"        {fn_dealloc}({', '.join(null_args)});",
+        f"    }} else {{",
+    ])
+    for l in alloc_decls:
+        linhas.append(f"    {l}")
+    linhas.extend([
+        res_decl,
+        f"        if (_sym_res_alloc_{idx_alloc} != 0) {{",
+        f"            {fn_dealloc}({', '.join(dealloc_args)});",
+        f"        }}",
+        f"    }}",
+    ])
+    return linhas
+
+
+def _escrever(caminho: str, prefixo: str, cabecalho: list, funcoes, chamadas: set,
+              sem_chaining: Optional[set] = None) -> tuple:
+    """Write the module with its harness; returns (donos, ciclo_de_vida_usado).
+    Initializers are invoked first.
+    Deallocators are chained with their paired allocators, falling back to plain calls if in sem_chaining.
+    """
+    if sem_chaining is None:
+        sem_chaining = set()
     linhas, donos = list(cabecalho), [None] * len(cabecalho)
+    eh_cpp = any('__esbmc_main' in line for line in cabecalho)
+    ciclo_de_vida = {}
+
+    inits = []
+    deallocs = []
+    regulares = []
+
     for idx, (fn_name, params) in enumerate(funcoes):
         if idx in chamadas:
+            if _eh_inicializador(fn_name):
+                inits.append((idx, fn_name, params))
+            elif _eh_desalocador(fn_name, params):
+                deallocs.append((idx, fn_name, params))
+            else:
+                regulares.append((idx, fn_name, params))
+
+    # 1. Initializers first
+    for idx, fn_name, params in inits:
+        bloco = _chamada(idx, fn_name, params)
+        linhas += bloco
+        donos += [idx] * len(bloco)
+
+    # 2. Regular / Allocators
+    for idx, fn_name, params in regulares:
+        bloco = _chamada(idx, fn_name, params)
+        linhas += bloco
+        donos += [idx] * len(bloco)
+
+    # 3. Deallocators (Lifecycle chained if matching allocator exists and not in sem_chaining)
+    for idx, fn_name, params in deallocs:
+        par_alloc = _encontrar_alocador_correspondente(fn_name, funcoes) if idx not in sem_chaining else None
+        if par_alloc is not None:
+            idx_a, fn_a, params_a = par_alloc
+            bloco = _chamada_ciclo_de_vida(idx_a, fn_a, params_a, idx, fn_name, params, eh_cpp=eh_cpp)
+            ciclo_de_vida[idx] = (fn_name, fn_a)
+        else:
             bloco = _chamada(idx, fn_name, params)
-            linhas += bloco
-            donos += [idx] * len(bloco)
+        linhas += bloco
+        donos += [idx] * len(bloco)
+
     with open(caminho, 'w', encoding='utf-8') as f:
         f.write(prefixo + '\n'.join(linhas + ['    return 0;', '}']) + '\n')
-    return donos
+    return donos, ciclo_de_vida
 
 
 def _funcoes_e_grafo(caminho: str, codigo: str, codigo_usuario: str, funcoes, args: list):
@@ -368,31 +643,44 @@ def _funcoes_e_grafo(caminho: str, codigo: str, codigo_usuario: str, funcoes, ar
 
 # pylint: disable-next=too-many-arguments,too-many-positional-arguments,too-many-locals
 def montar_harness(caminho: str, codigo: str, codigo_usuario: str, funcoes, abertura: list,
-                   comando_clang: list) -> dict:
+                   comando_clang: list, funcoes_exportadas: set = None) -> InfoHarness:
     """Write `codigo` plus a harness to `caminho`, dropping root calls that do not compile.
 
     `codigo_usuario` is the user's code at the end of `codigo`, after the healer's declarations;
     `funcoes` is the text-matched fallback for when clang cannot parse the module. Returns the
-    roots called and the functions left unexercised.
+    roots called and the functions left unexercised, enriched with reachability analysis.
     """
     # A file name of its own keeps harness locations apart from any #line in the user's code.
-    origem = caminho + '.harness'
+    origem = (caminho + '.harness').replace('\\', '/')
     cabecalho = [f'#line 1 "{origem}"', f'int {_ESCOLHA_NULL}(void);'] + list(abertura)
     prefixo = codigo.rstrip('\n') + '\n\n'
     funcoes, grafo = _funcoes_e_grafo(caminho, codigo, codigo_usuario, funcoes, comando_clang[2:])
     nomes = list(dict.fromkeys(n for n, _ in funcoes))
     # Calls are dropped per overload: one that does not compile must not take the others with it.
     descartadas = set()
+    sem_chaining = set()
     while True:
         sem_chamada = {n for n in nomes
                        if all(i in descartadas for i, (m, _) in enumerate(funcoes) if m == n)}
         raizes, nao_alcancadas = escolher_raizes(nomes, grafo, sem_chamada)
         chamadas = {i for i, (n, _) in enumerate(funcoes) if n in raizes and i not in descartadas}
-        donos = _escrever(caminho, prefixo, cabecalho, funcoes, chamadas)
+        donos, ciclo_usado = _escrever(caminho, prefixo, cabecalho, funcoes, chamadas,
+                                       sem_chaining=sem_chaining)
         ruins = {donos[n] for n in _linhas_com_erro(origem, caminho, comando_clang)
                  if n < len(donos) and donos[n] is not None}
         if not ruins:
             parciais = {funcoes[i][0] for i in descartadas}
-            return {'raizes': raizes,
-                    'nao_exercitadas': [n for n in nomes if n in parciais or n in nao_alcancadas]}
-        descartadas |= ruins
+            nao_exerc = [n for n in nomes if n in parciais or n in nao_alcancadas]
+            info = InfoHarness({'raizes': raizes, 'nao_exercitadas': nao_exerc})
+            info.alcancabilidade = grafo.rotas_de_alcance()
+            info.ciclo_de_vida = {fn_name: fn_alloc for idx, (fn_name, fn_alloc) in ciclo_usado.items()}
+            if funcoes_exportadas:
+                info.publicas = [r for r in raizes if r in funcoes_exportadas]
+            else:
+                info.publicas = []
+            return info
+        falhas_chain = {idx for idx in ruins if idx in ciclo_usado and idx not in sem_chaining}
+        if falhas_chain:
+            sem_chaining |= falhas_chain
+        else:
+            descartadas |= ruins
