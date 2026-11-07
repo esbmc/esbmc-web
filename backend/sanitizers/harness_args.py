@@ -22,41 +22,36 @@ def _tipo(decl: str, padrao: str) -> str:
     return padrao if tipo in ('', 'void', 'auto') else tipo
 
 
-def declarar_argumento(decl: str, nome: str, permitir_null: bool = True) -> list:
+def declarar_argumento(decl: str, nome: str) -> list:
     """Declare an unconstrained harness argument for parameter `decl`.
 
     Arguments are left uninitialised, which ESBMC treats as nondet (#39). A pointer is NULL or a
     buffer with nondet contents (#46); plain char buffers are null-terminated so string calls stay
     in bounds. A raw nondet pointer would be non-null and invalid, failing guarded code.
     `T a[static N]` must point to N elements (C11 6.7.6.3p7), so it is never NULL.
-    When `permitir_null` is False (reachability constraint or contract precondition), pointers are
-    initialized strictly to valid non-null buffers.
     """
     decl = re.sub(r'\b(?:const|volatile|register)\b', '', re.sub(r'=.*$', '', decl)).strip()
-    decl = re.sub(r'\.\.\.', '', decl).strip()
     if not decl:
         return []
     if '*' in decl or '[' in decl:
         tipo = _tipo(re.sub(r'[\*\[].*', '', decl).strip(), 'unsigned char')
-        tipo = tipo.replace('...', '').strip() or 'unsigned char'
         buf = f"{nome}_buf"
         linhas = [f"    {tipo} {buf}[{_TAMANHO_BUFFER}];"]
         if tipo == 'char':
             linhas.append(f"    {buf}[{_TAMANHO_BUFFER - 1}] = 0;")
-        if not permitir_null or re.search(r'\[\s*static\b', decl):
+        if re.search(r'\[\s*static\b', decl):
             return linhas + [f"    {tipo} *{nome} = {buf};"]
         return linhas + [f"    {tipo} *{nome} = {_ESCOLHA_NULL}() ? 0 : {buf};"]
     tipo = _tipo(re.sub(r'&.*', '', decl).strip(), 'int')
-    tipo = tipo.replace('...', '').strip() or 'int'
     fluxo = _FLUXOS.get(tipo.replace(' ', '').removeprefix('std::'))
     if fluxo and '&' in decl:
         return [f"    {tipo} &{nome} = {fluxo};"]
     return [f"    {tipo} {nome};"]
 
 
-def _chamada(idx: int, fn_name: str, params: list, permitir_null: bool = True) -> list:
+def _chamada(idx: int, fn_name: str, params: list) -> list:
     args = [f"_sym_arg_{idx}_{p_idx}" for p_idx in range(len(params))]
-    linhas = [linha for decl, nome in zip(params, args) for linha in declarar_argumento(decl, nome, permitir_null=permitir_null)]
+    linhas = [linha for decl, nome in zip(params, args) for linha in declarar_argumento(decl, nome)]
     return linhas + [f"    {fn_name}({', '.join(args)});"]
 
 
@@ -106,7 +101,7 @@ class GrafoDeChamadas:
     funcoes: Optional[list] = None
 
     def rotas_de_alcance(self) -> dict:
-        """Map each callee to the callers that can reach it directly or transitively (#reachability)."""
+        """Map each callee to the callers that can reach it directly or transitively."""
         rotas = {}
         for dono, filhos in self.chama.items():
             for f in filhos:
@@ -376,7 +371,6 @@ class InfoHarness(dict):
         super().__init__(*args, **kwargs)
         self.alcancabilidade = {}
         self.publicas = []
-        self.internas = []
         self.ciclo_de_vida = {}
 
 
@@ -393,7 +387,7 @@ _PASTAS_CORE = {'include', 'inc', 'src', 'headers'}
 
 
 def peso_prioridade_include(p: str, root_dir: str = None) -> tuple:
-    """Rank include directories so host/POSIX/core headers precede embedded/MCU ports (#ranking).
+    """Rank include directories so host/POSIX/core headers precede embedded/MCU ports.
     Path components are checked relative to `root_dir` to avoid false substring matches."""
     if root_dir:
         try:
@@ -423,7 +417,7 @@ def peso_prioridade_include(p: str, root_dir: str = None) -> tuple:
 def extrair_funcoes_exportadas_headers(temp_dir: str, headers_existentes: set,
                                        palavras_chave: set = None) -> set:
     """Extract public API function names declared in header (.h/.hpp) files within the project.
-    Handles 'T *f(...)', leading 'extern', and trailing attributes/macros (#privileged_function)."""
+    Handles 'T *f(...)', leading 'extern', and trailing attributes/macros."""
     exportadas = set()
     if not temp_dir or not os.path.isdir(temp_dir):
         return exportadas
@@ -466,7 +460,7 @@ def _tokens_do_nome(nome: str) -> list:
 
 
 def _eh_desalocador(nome: str, params: list) -> bool:
-    """True if `nome` has deallocation semantics and takes a pointer argument (#lifecycle).
+    """True if `nome` has deallocation semantics and takes a pointer argument.
     Matches whole word tokens to avoid classifying getters like `get_free_slots` as deallocators."""
     if not any('*' in p or '[' in p for p in params):
         return False
@@ -477,7 +471,7 @@ def _eh_desalocador(nome: str, params: list) -> bool:
 
 
 def _eh_alocador(nome: str) -> bool:
-    """True if `nome` has allocation semantics (#lifecycle).
+    """True if `nome` has allocation semantics.
     Matches whole word tokens to avoid classifying queries like `is_open` as allocators."""
     tokens = _tokens_do_nome(nome)
     if not tokens or tokens[0] in _PREFIXOS_CONSULTA:
@@ -486,7 +480,7 @@ def _eh_alocador(nome: str) -> bool:
 
 
 def _eh_inicializador(nome: str) -> bool:
-    """True if `nome` is a setup / initializer function that should run before operations (#lifecycle)."""
+    """True if `nome` is a setup / initializer function that should run before operations."""
     tokens = _tokens_do_nome(nome)
     if not tokens or tokens[0] in _PREFIXOS_CONSULTA:
         return False
@@ -498,7 +492,7 @@ def _eh_inicializador(nome: str) -> bool:
 
 
 def _encontrar_alocador_correspondente(fn_dealloc: str, funcoes: list) -> Optional[tuple]:
-    """Find the best matching allocator in `funcoes` for deallocator `fn_dealloc` (#lifecycle).
+    """Find the best matching allocator in `funcoes` for deallocator `fn_dealloc`.
     Skips pairing and returns None if the best matching score is 0, falling back to a plain call."""
     candidatos = []
     d_tokens = set(_tokens_do_nome(fn_dealloc))
@@ -516,8 +510,10 @@ def _encontrar_alocador_correspondente(fn_dealloc: str, funcoes: list) -> Option
         for sub in ('port', 'heap', 'mem', 'pool', 'block', 'node', 'queue', 'buf', 'item'):
             if sub in d_tokens and sub in a_tokens:
                 score += 5
-        if len(params_a) == 1 and any('size' in p.lower() or 'int' in p.lower() for p in params_a):
-            score += 3
+        if score > 0 and len(params_a) == 1:
+            p0 = params_a[0].lower()
+            if re.search(r'\b(?:size_t|size|count|num|len|bytes|capacity)\b', p0) or re.search(r'\bint\b', p0):
+                score += 3
         candidatos.append((score, idx_a, fn_a, params_a))
     if not candidatos:
         return None
@@ -531,7 +527,7 @@ def _encontrar_alocador_correspondente(fn_dealloc: str, funcoes: list) -> Option
 def _chamada_ciclo_de_vida(idx_alloc: int, fn_alloc: str, params_alloc: list,
                            idx_dealloc: int, fn_dealloc: str, params_dealloc: list,
                            eh_cpp: bool = False) -> list:
-    """Synthesize a lifecycle-chained harness block: Allocator -> Deallocator (#lifecycle).
+    """Synthesize a lifecycle-chained harness block: Allocator -> Deallocator.
     Explores both NULL handling and legitimate allocated pointer deallocation without
     triggering spurious invalid-pointer-freed or buffer-underflow counterexamples.
     """
@@ -580,20 +576,14 @@ def _chamada_ciclo_de_vida(idx_alloc: int, fn_alloc: str, params_alloc: list,
     return linhas
 
 
-def _deve_permitir_null(fn_name: str, funcoes_com_contrato=None, funcoes_exportadas=None) -> bool:
-    """Return True if pointer arguments to root `fn_name` should explore NULL (#46).
-    All externally linked roots called by the harness explore NULL inputs to detect null pointer
-    dereferences. Contracts enforce their own preconditions via __ESBMC_requires."""
-    return True
-
-
 def _escrever(caminho: str, prefixo: str, cabecalho: list, funcoes, chamadas: set,
-              funcoes_com_contrato=None, funcoes_exportadas=None) -> tuple:
+              sem_chaining: Optional[set] = None) -> tuple:
     """Write the module with its harness; returns (donos, ciclo_de_vida_usado).
-    Lifecycle-Aware:
-    1. Initializers are invoked first.
-    2. Deallocators are chained with their paired allocators.
+    Initializers are invoked first.
+    Deallocators are chained with their paired allocators, falling back to plain calls if in sem_chaining.
     """
+    if sem_chaining is None:
+        sem_chaining = set()
     linhas, donos = list(cabecalho), [None] * len(cabecalho)
     eh_cpp = any('__esbmc_main' in line for line in cabecalho)
     ciclo_de_vida = {}
@@ -613,25 +603,25 @@ def _escrever(caminho: str, prefixo: str, cabecalho: list, funcoes, chamadas: se
 
     # 1. Initializers first
     for idx, fn_name, params in inits:
-        bloco = _chamada(idx, fn_name, params, permitir_null=_deve_permitir_null(fn_name, funcoes_com_contrato, funcoes_exportadas))
+        bloco = _chamada(idx, fn_name, params)
         linhas += bloco
         donos += [idx] * len(bloco)
 
     # 2. Regular / Allocators
     for idx, fn_name, params in regulares:
-        bloco = _chamada(idx, fn_name, params, permitir_null=_deve_permitir_null(fn_name, funcoes_com_contrato, funcoes_exportadas))
+        bloco = _chamada(idx, fn_name, params)
         linhas += bloco
         donos += [idx] * len(bloco)
 
-    # 3. Deallocators (Lifecycle chained if matching allocator exists)
+    # 3. Deallocators (Lifecycle chained if matching allocator exists and not in sem_chaining)
     for idx, fn_name, params in deallocs:
-        par_alloc = _encontrar_alocador_correspondente(fn_name, funcoes)
+        par_alloc = _encontrar_alocador_correspondente(fn_name, funcoes) if idx not in sem_chaining else None
         if par_alloc is not None:
             idx_a, fn_a, params_a = par_alloc
             bloco = _chamada_ciclo_de_vida(idx_a, fn_a, params_a, idx, fn_name, params, eh_cpp=eh_cpp)
-            ciclo_de_vida[fn_name] = fn_a
+            ciclo_de_vida[idx] = (fn_name, fn_a)
         else:
-            bloco = _chamada(idx, fn_name, params, permitir_null=_deve_permitir_null(fn_name, funcoes_com_contrato, funcoes_exportadas))
+            bloco = _chamada(idx, fn_name, params)
         linhas += bloco
         donos += [idx] * len(bloco)
 
@@ -653,8 +643,7 @@ def _funcoes_e_grafo(caminho: str, codigo: str, codigo_usuario: str, funcoes, ar
 
 # pylint: disable-next=too-many-arguments,too-many-positional-arguments,too-many-locals
 def montar_harness(caminho: str, codigo: str, codigo_usuario: str, funcoes, abertura: list,
-                   comando_clang: list, funcoes_exportadas: set = None,
-                   funcoes_com_contrato: set = None) -> dict:
+                   comando_clang: list, funcoes_exportadas: set = None) -> InfoHarness:
     """Write `codigo` plus a harness to `caminho`, dropping root calls that do not compile.
 
     `codigo_usuario` is the user's code at the end of `codigo`, after the healer's declarations;
@@ -669,14 +658,14 @@ def montar_harness(caminho: str, codigo: str, codigo_usuario: str, funcoes, aber
     nomes = list(dict.fromkeys(n for n, _ in funcoes))
     # Calls are dropped per overload: one that does not compile must not take the others with it.
     descartadas = set()
+    sem_chaining = set()
     while True:
         sem_chamada = {n for n in nomes
                        if all(i in descartadas for i, (m, _) in enumerate(funcoes) if m == n)}
         raizes, nao_alcancadas = escolher_raizes(nomes, grafo, sem_chamada)
         chamadas = {i for i, (n, _) in enumerate(funcoes) if n in raizes and i not in descartadas}
         donos, ciclo_usado = _escrever(caminho, prefixo, cabecalho, funcoes, chamadas,
-                                       funcoes_com_contrato=funcoes_com_contrato,
-                                       funcoes_exportadas=funcoes_exportadas)
+                                       sem_chaining=sem_chaining)
         ruins = {donos[n] for n in _linhas_com_erro(origem, caminho, comando_clang)
                  if n < len(donos) and donos[n] is not None}
         if not ruins:
@@ -684,12 +673,14 @@ def montar_harness(caminho: str, codigo: str, codigo_usuario: str, funcoes, aber
             nao_exerc = [n for n in nomes if n in parciais or n in nao_alcancadas]
             info = InfoHarness({'raizes': raizes, 'nao_exercitadas': nao_exerc})
             info.alcancabilidade = grafo.rotas_de_alcance()
-            info.ciclo_de_vida = ciclo_usado
+            info.ciclo_de_vida = {fn_name: fn_alloc for idx, (fn_name, fn_alloc) in ciclo_usado.items()}
             if funcoes_exportadas:
                 info.publicas = [r for r in raizes if r in funcoes_exportadas]
-                info.internas = [r for r in raizes if r not in funcoes_exportadas]
             else:
-                info.publicas = list(raizes)
-                info.internas = []
+                info.publicas = []
             return info
-        descartadas |= ruins
+        falhas_chain = {idx for idx in ruins if idx in ciclo_usado and idx not in sem_chaining}
+        if falhas_chain:
+            sem_chaining |= falhas_chain
+        else:
+            descartadas |= ruins

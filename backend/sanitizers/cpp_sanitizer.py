@@ -53,10 +53,6 @@ CPP_KEYWORDS = {
 }
 
 
-def _peso_prioridade_include_cpp(p: str, root_dir: str = None) -> tuple:
-    return peso_prioridade_include(p, root_dir=root_dir)
-
-
 def descubrir_headers_e_includes_no_diretorio(root_dir: str):
     """Walk `root_dir` (e.g. a cloned Git repository) recursively and return:
     - `include_dirs`: ordered list of include directories and roots (e.g. `src/`, `include/`),
@@ -141,7 +137,7 @@ def descubrir_headers_e_includes_no_diretorio(root_dir: str):
 
     # Sort ancestor/root directories (`src`, `include`, `library`) first, then the leaves
     todos_candidatos = list(include_dirs_raizes | include_dirs_folhas)
-    todos_includes = sorted(todos_candidatos, key=lambda p: _peso_prioridade_include_cpp(p, root_dir=root_dir))[:85]
+    todos_includes = sorted(todos_candidatos, key=lambda p: peso_prioridade_include(p, root_dir=root_dir))[:85]
     return todos_includes, headers_existentes, fontes_auxiliares
 
 
@@ -3152,7 +3148,7 @@ def extrair_funcoes_exportadas_headers_cpp(temp_dir: str, headers_existentes: se
 
 
 def sanitizar_cpp(caminho_arquivo: str, temp_dir: str, tem_flag_function: bool = False,
-                  sub_dir_repo: str = None, funcoes_com_contrato: set = None):
+                  sub_dir_repo: str = None):
     """Homogenizer and sanitizer for C++ (C++14).
 
     1. Injects lightweight STL/Boost compatibility mocks (mock_boost) for esbmclibc;
@@ -3317,7 +3313,7 @@ def sanitizar_cpp(caminho_arquivo: str, temp_dir: str, tem_flag_function: bool =
         comando = ['clang', '-fsyntax-only', '-x', 'c++', '-std=c++14'] + [a for d in include_dirs for a in ('-I', d)]
         harness = montar_harness(
             caminho_arquivo, codigo_atual, codigo_original, funcoes_livres, _ABERTURA_HARNESS_CPP, comando,
-            funcoes_exportadas=funcoes_exportadas, funcoes_com_contrato=funcoes_com_contrato
+            funcoes_exportadas=funcoes_exportadas
         )
         if not arquivos_gerados:
             arquivos_gerados.append("symbolic_main_harness")

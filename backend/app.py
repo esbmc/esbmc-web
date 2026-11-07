@@ -239,15 +239,18 @@ def descrever_harness(info: dict) -> str:
 
 
 def descrever_harness_c(harness: Optional[dict]) -> str:
-    """Log line for a C/C++ entry harness, detailing roots, reachability and assumptions (#39, #46, #reachability)."""
+    """Log line for a C/C++ entry harness, detailing roots, reachability and assumptions (#39, #46)."""
     if not harness:
         return ""
     raizes = harness.get('raizes', [])
-    publicas = getattr(harness, 'publicas', []) or raizes
+    publicas = getattr(harness, 'publicas', [])
     alcance = getattr(harness, 'alcancabilidade', {})
+    detalhes_pub = (
+        f" ({len(publicas)} public API boundary root(s): {', '.join(publicas) if len(publicas) <= 5 else f'{len(publicas)} functions'})"
+        if publicas else ""
+    )
     linha = (
-        f"[SYSTEM] [Entry Harness] Synthesized reachability harness for {len(raizes)} root function(s) "
-        f"({len(publicas)} public API boundary root(s): {', '.join(publicas) if len(publicas) <= 5 else f'{len(publicas)} functions'}); "
+        f"[SYSTEM] [Entry Harness] Synthesized reachability harness for {len(raizes)} root function(s){detalhes_pub}; "
         "functions called inside the module are checked through their callers"
     )
     if alcance:
@@ -1367,11 +1370,8 @@ def iniciar_analise():
                         with open(caminho_temp_mod, 'w', encoding='utf-8') as f:
                             f.write(cod_modulo)
                         tem_fn_mod = _tem_alvo_especifico_funcao(flags_recebidas)
-                        alvos_contratos_mod, _ = extrair_alvos_contrato(flags_recebidas)
-                        fn_contratos = set(alvos_contratos_mod)
                         mocks_c, harness_mod = sanitizar_cpp(
-                            caminho_temp_mod, temp_dir, tem_flag_function=tem_fn_mod, sub_dir_repo=sub_dir_repo,
-                            funcoes_com_contrato=fn_contratos
+                            caminho_temp_mod, temp_dir, tem_flag_function=tem_fn_mod, sub_dir_repo=sub_dir_repo
                         )
                         TAREFAS_ATIVAS[task_id]["logs"] += descrever_harness_c(harness_mod)
                         nao_exercitadas_mod = harness_mod['nao_exercitadas'] if harness_mod else []
@@ -1383,11 +1383,8 @@ def iniciar_analise():
                         with open(caminho_temp_mod, 'w', encoding='utf-8') as f:
                             f.write(cod_modulo)
                         tem_fn_mod = _tem_alvo_especifico_funcao(flags_recebidas)
-                        alvos_contratos_mod, _ = extrair_alvos_contrato(flags_recebidas)
-                        fn_contratos = set(alvos_contratos_mod)
                         mocks_c, harness_mod = sanitizar_c(
-                            caminho_temp_mod, temp_dir, tem_flag_function=tem_fn_mod, sub_dir_repo=sub_dir_repo,
-                            funcoes_com_contrato=fn_contratos
+                            caminho_temp_mod, temp_dir, tem_flag_function=tem_fn_mod, sub_dir_repo=sub_dir_repo
                         )
                         TAREFAS_ATIVAS[task_id]["logs"] += descrever_harness_c(harness_mod)
                         nao_exercitadas_mod = harness_mod['nao_exercitadas'] if harness_mod else []
@@ -1902,11 +1899,8 @@ def iniciar_analise():
                 TAREFAS_ATIVAS[task_id]["logs"] += "\n[SYSTEM] Running ESBMC C Homogenizer & Clang Auto-Healer...\n"
                 try:
                     tem_fn = _tem_alvo_especifico_funcao(flags_recebidas)
-                    alvos_contratos, _ = extrair_alvos_contrato(flags_recebidas)
-                    fn_contratos = set(alvos_contratos)
                     mocks_criados, harness_c = sanitizar_c(
-                        caminho_original, temp_dir, tem_flag_function=tem_fn, sub_dir_repo=sub_dir_repo,
-                        funcoes_com_contrato=fn_contratos
+                        caminho_original, temp_dir, tem_flag_function=tem_fn, sub_dir_repo=sub_dir_repo
                     )
                     TAREFAS_ATIVAS[task_id]["logs"] += descrever_harness_c(harness_c)
                     nao_exercitadas = harness_c['nao_exercitadas'] if harness_c else []
@@ -1923,11 +1917,8 @@ def iniciar_analise():
                 TAREFAS_ATIVAS[task_id]["logs"] += "\n[SYSTEM] Running ESBMC C++ Homogenizer & Clang Auto-Healer...\n"
                 try:
                     tem_fn = _tem_alvo_especifico_funcao(flags_recebidas)
-                    alvos_contratos, _ = extrair_alvos_contrato(flags_recebidas)
-                    fn_contratos = set(alvos_contratos)
                     mocks_criados, harness_c = sanitizar_cpp(
-                        caminho_original, temp_dir, tem_flag_function=tem_fn, sub_dir_repo=sub_dir_repo,
-                        funcoes_com_contrato=fn_contratos
+                        caminho_original, temp_dir, tem_flag_function=tem_fn, sub_dir_repo=sub_dir_repo
                     )
                     TAREFAS_ATIVAS[task_id]["logs"] += descrever_harness_c(harness_c)
                     nao_exercitadas = harness_c['nao_exercitadas'] if harness_c else []

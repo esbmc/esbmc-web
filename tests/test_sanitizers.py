@@ -117,13 +117,20 @@ class TestCSanitizer:
         assert 'pub_api' in harness.alcancabilidade['callee']
         assert 'pub_api' in harness.publicas
 
-    def test_externally_linked_roots_preserve_null_pointer_injection(self, tmp_path):
-        f = tmp_path / 'codigo.c'
-        f.write_text('int process(const char *str) { return str ? str[0] : 0; }\n')
-        _, harness_raw = sanitizar_c(str(f), str(tmp_path))
-        txt_raw = f.read_text()
-        assert 'nondet_harness_null() ? 0 :' in txt_raw
-        assert 'process(' in txt_raw
+    def test_lifecycle_chaining_falls_back_to_plain_call_when_chained_compilation_fails(self, tmp_path):
+        f = tmp_path / 'comp_fail.c'
+        # An allocator returning int and a deallocator taking void *
+        # If paired and chained blindly without fallback, a compiler error would cause the deallocator to be dropped.
+        # With fallback, my_free remains exercised as an unchained call.
+        f.write_text(
+            'int pool_create(int n) { return n; }\n'
+            'void my_free(void *p) { if (!p) return; }\n'
+        )
+        _, harness = sanitizar_c(str(f), str(tmp_path))
+        txt = f.read_text()
+        assert 'my_free(' in txt
+        assert 'my_free' in harness['raizes']
+        assert 'my_free' not in harness['nao_exercitadas']
 
     @pytest.mark.parametrize('code, roots, skipped', [
         ('static int h(int x){ return x; }\nint api(int x){ return h(x); }\n', ['api'], []),
@@ -531,6 +538,8 @@ def test_lifecycle_heuristics_detect_allocators_deallocators_initializers():
 
     # Unrelated functions scoring 0 must not be paired
     assert _encontrar_alocador_correspondente('my_free', [('calculate_hash', ['int x'])]) is None
+    # Bonus must not pair unrelated allocators like pool_create(int) with my_free
+    assert _encontrar_alocador_correspondente('my_free', [('pool_create', ['int n'])]) is None
 
 
 def test_lifecycle_chaining_synthesizes_chained_harness(tmp_path):
@@ -591,20 +600,22 @@ def test_extrair_funcoes_exportadas_handles_trailing_macros_and_pointer_stars(tm
 def test_sanitizar_cpp_two_pass_nested_mocking(tmp_path):
     from sanitizers.cpp_sanitizer import sanitizar_cpp
     cpp_file = tmp_path / 'component.cpp'
+    # subsystem_a.h does not exist on disk initially.
+    # Pass 1 creates the missing header mock for subsystem_a.h.
+    # Pass 2 is required to parse past the missing header and heal NestedWidget.
     cpp_file.write_text(
         '#include "subsystem_a.h"\n'
-        'int compute(void) { return 42; }\n'
+        'int compute(NestedWidget w) { return 42; }\n'
     )
-    # Create mock header for subsystem_a that in turn includes nested_b.h
-    mock_a = tmp_path / 'subsystem_a.h'
-    mock_a.write_text('#pragma once\n#include "nested_b.h"\n')
-
     gerados, _ = sanitizar_cpp(str(cpp_file), str(tmp_path))
-    mock_b = tmp_path / 'nested_b.h'
-    assert mock_b.exists()
-    content_b = mock_b.read_text()
-    assert 'RCUTILS_RET_OK' not in content_b
-    assert '#pragma once' in content_b
+    mock_a = tmp_path / 'subsystem_a.h'
+    assert mock_a.exists()
+    content_a = mock_a.read_text()
+    assert 'RCUTILS_RET_OK' not in content_a
+    assert '#pragma once' in content_a
+
+    content_cpp = cpp_file.read_text()
+    assert 'struct NestedWidget' in content_cpp
 
 
 
